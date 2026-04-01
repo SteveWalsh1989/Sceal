@@ -39,18 +39,14 @@ struct NoteEditorView: View {
           .font(.system(size: 30, weight: .bold))
 
         ZStack(alignment: .topLeading) {
-          RoundedRectangle(cornerRadius: 24, style: .continuous)
-            .fill(Color.primary.opacity(0.04))
-
           if note.body.isEmpty {
             Text("Start writing today's note here.")
               .foregroundStyle(.secondary)
-              .padding(.horizontal, 22)
-              .padding(.vertical, 18)
+              .padding(.horizontal, 34)
+              .padding(.vertical, 30)
           }
 
           MarkdownTextView(text: store.bodyBinding(for: noteID))
-            .padding(12)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
       }

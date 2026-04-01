@@ -703,19 +703,20 @@ enum MarkdownStyler {
   }
 
   private static func styledSectionDivider() -> NSAttributedString {
-    let dividerText = String(repeating: "\u{2500}", count: 40)
-
-    let centeredParagraph = NSMutableParagraphStyle()
-    centeredParagraph.alignment = .center
-    centeredParagraph.paragraphSpacingBefore = 16
-    centeredParagraph.paragraphSpacing = 12
+    // Invisible marker — the visual split comes from DayraTextView drawing
+    // separate card backgrounds for each section. This character occupies
+    // a single line that becomes the gap between cards.
+    let gapStyle = NSMutableParagraphStyle()
+    gapStyle.paragraphSpacingBefore = 16
+    gapStyle.paragraphSpacing = 16
+    gapStyle.maximumLineHeight = 2
 
     return NSAttributedString(
-      string: dividerText,
+      string: " ",
       attributes: [
-        .font: NSFont.systemFont(ofSize: 11),
-        .foregroundColor: MarkdownStyler.accentColor,
-        .paragraphStyle: centeredParagraph,
+        .font: NSFont.systemFont(ofSize: 1),
+        .foregroundColor: NSColor.clear,
+        .paragraphStyle: gapStyle,
         .markdownSectionDivider: true,
       ])
   }
