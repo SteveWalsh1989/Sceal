@@ -17,6 +17,7 @@ extension NSAttributedString.Key {
   static let markdownCodeFence = NSAttributedString.Key("dayra.codeFence")
   static let markdownCodeBlock = NSAttributedString.Key("dayra.codeBlock")
   static let markdownBlockType = NSAttributedString.Key("dayra.blockType")
+  static let markdownInlineCode = NSAttributedString.Key("dayra.inlineCode")
 }
 
 enum MarkdownListType: String {
@@ -168,6 +169,7 @@ enum MarkdownStyler {
           .markdownHeadingLevel: level,
         ])
       stripInlineBold(in: result, defaultBoldFont: NSFont.systemFont(ofSize: fontSize, weight: .bold))
+      stripInlineCode(in: result)
       stripInlineLinks(in: result)
       return result
     }
@@ -185,9 +187,10 @@ enum MarkdownStyler {
       ], range: fullRange)
       result.addAttributes([
         .foregroundColor: NSColor.systemGreen,
-        .font: NSFont.systemFont(ofSize: defaultSize + 2, weight: .medium),
+        .font: NSFont.systemFont(ofSize: defaultSize, weight: .medium),
       ], range: NSRange(location: 0, length: 1))
       stripInlineBold(in: result, defaultBoldFont: NSFont.boldSystemFont(ofSize: defaultSize))
+      stripInlineCode(in: result)
       stripInlineLinks(in: result)
       return result
     }
@@ -204,9 +207,10 @@ enum MarkdownStyler {
       ], range: fullRange)
       result.addAttributes([
         .foregroundColor: NSColor.secondaryLabelColor,
-        .font: NSFont.systemFont(ofSize: defaultSize + 2, weight: .medium),
+        .font: NSFont.systemFont(ofSize: defaultSize, weight: .medium),
       ], range: NSRange(location: 0, length: 1))
       stripInlineBold(in: result, defaultBoldFont: NSFont.boldSystemFont(ofSize: defaultSize))
+      stripInlineCode(in: result)
       stripInlineLinks(in: result)
       return result
     }
@@ -224,9 +228,10 @@ enum MarkdownStyler {
       ], range: fullRange)
       result.addAttributes([
         .foregroundColor: NSColor.controlAccentColor,
-        .font: NSFont.systemFont(ofSize: defaultSize + 3, weight: .bold),
+        .font: NSFont.systemFont(ofSize: defaultSize - 2, weight: .regular),
       ], range: NSRange(location: 0, length: 1))
       stripInlineBold(in: result, defaultBoldFont: NSFont.boldSystemFont(ofSize: defaultSize))
+      stripInlineCode(in: result)
       stripInlineLinks(in: result)
       return result
     }
@@ -246,6 +251,7 @@ enum MarkdownStyler {
           range: NSRange(location: 0, length: numLength))
       }
       stripInlineBold(in: result, defaultBoldFont: NSFont.boldSystemFont(ofSize: defaultSize))
+      stripInlineCode(in: result)
       stripInlineLinks(in: result)
       return result
     }
@@ -285,6 +291,29 @@ enum MarkdownStyler {
       attrStr.addAttributes([
         .font: boldFont,
         .markdownBold: true,
+      ], range: newRange)
+    }
+  }
+
+  private static func stripInlineCode(in attrStr: NSMutableAttributedString) {
+    let regex = try! NSRegularExpression(pattern: #"`([^`]+)`"#)
+
+    while true {
+      let string = attrStr.string
+      guard
+        let match = regex.firstMatch(
+          in: string, range: NSRange(location: 0, length: string.utf16.count))
+      else { break }
+
+      let innerRange = match.range(at: 1)
+      let innerText = (string as NSString).substring(with: innerRange)
+
+      attrStr.replaceCharacters(in: match.range(at: 0), with: innerText)
+      let newRange = NSRange(location: match.range(at: 0).location, length: innerText.utf16.count)
+      attrStr.addAttributes([
+        .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
+        .backgroundColor: NSColor.quaternaryLabelColor,
+        .markdownInlineCode: true,
       ], range: newRange)
     }
   }
@@ -350,6 +379,36 @@ enum MarkdownStyler {
       textStorage.replaceCharacters(in: absoluteRange, with: innerText)
       let newRange = NSRange(location: absoluteRange.location, length: innerText.utf16.count)
       textStorage.addAttributes([.font: boldFont, .markdownBold: true], range: newRange)
+      textStorage.endEditing()
+    }
+
+    // Inline code
+    let codeRegex = try! NSRegularExpression(pattern: #"`([^`]+)`"#)
+    while true {
+      let nsString2 = textStorage.string as NSString
+      let currentEnd2 = min(lineRange.location + lineRange.length, nsString2.length)
+      let currentRange2 = NSRange(
+        location: lineRange.location, length: currentEnd2 - lineRange.location)
+      let text2 = nsString2.substring(with: currentRange2)
+      guard
+        let match = codeRegex.firstMatch(
+          in: text2, range: NSRange(location: 0, length: text2.utf16.count))
+      else { break }
+
+      let innerRange = match.range(at: 1)
+      let innerText = (text2 as NSString).substring(with: innerRange)
+      let absoluteRange = NSRange(
+        location: currentRange2.location + match.range(at: 0).location,
+        length: match.range(at: 0).length)
+
+      textStorage.beginEditing()
+      textStorage.replaceCharacters(in: absoluteRange, with: innerText)
+      let newRange = NSRange(location: absoluteRange.location, length: innerText.utf16.count)
+      textStorage.addAttributes([
+        .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
+        .backgroundColor: NSColor.quaternaryLabelColor,
+        .markdownInlineCode: true,
+      ], range: newRange)
       textStorage.endEditing()
     }
 
@@ -464,9 +523,12 @@ enum MarkdownStyler {
     attributedString.enumerateAttributes(in: range, options: []) { attrs, spanRange, _ in
       let text = nsString.substring(with: spanRange)
       let isBold = attrs[.markdownBold] as? Bool == true
+      let isCode = attrs[.markdownInlineCode] as? Bool == true
       let linkURL = attrs[.markdownLinkURL] as? String
 
-      if isBold, let url = linkURL {
+      if isCode {
+        result += "`\(text)`"
+      } else if isBold, let url = linkURL {
         result += "**[\(text)](\(url))**"
       } else if isBold {
         result += "**\(text)**"

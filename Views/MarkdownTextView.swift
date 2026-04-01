@@ -70,9 +70,29 @@ struct MarkdownTextView: NSViewRepresentable {
     var parent: MarkdownTextView
     var isUpdating = false
     var lastPushedMarkdown = ""
+    let toolbar = FormattingToolbar()
 
     init(parent: MarkdownTextView) {
       self.parent = parent
+    }
+
+    func textViewDidChangeSelection(_ notification: Notification) {
+      guard let textView = notification.object as? NSTextView else { return }
+      let range = textView.selectedRange()
+
+      if range.length > 0, let scrollView = textView.enclosingScrollView {
+        let glyphRange = textView.layoutManager?.glyphRange(
+          forCharacterRange: range, actualCharacterRange: nil) ?? range
+        let selectionRect =
+          textView.layoutManager?.boundingRect(
+            forGlyphRange: glyphRange, in: textView.textContainer!) ?? .zero
+        let rectInScrollView = textView.convert(selectionRect, to: scrollView)
+
+        toolbar.textView = textView
+        toolbar.show(relativeTo: rectInScrollView, in: scrollView)
+      } else {
+        toolbar.hide()
+      }
     }
 
     func textDidChange(_ notification: Notification) {
@@ -246,12 +266,12 @@ struct MarkdownTextView: NSViewRepresentable {
       case .bullet:
         result.addAttributes([
           .foregroundColor: NSColor.controlAccentColor,
-          .font: NSFont.systemFont(ofSize: defaultFont.pointSize + 3, weight: .bold),
+          .font: NSFont.systemFont(ofSize: defaultFont.pointSize - 2, weight: .regular),
         ], range: NSRange(location: 0, length: 1))
       case .checkboxUnchecked, .checkboxChecked:
         result.addAttributes([
           .foregroundColor: NSColor.secondaryLabelColor,
-          .font: NSFont.systemFont(ofSize: defaultFont.pointSize + 2, weight: .medium),
+          .font: NSFont.systemFont(ofSize: defaultFont.pointSize, weight: .medium),
         ], range: NSRange(location: 0, length: 1))
       case .numbered:
         if let numEnd = marker.firstIndex(of: ".") {
