@@ -50,6 +50,14 @@ struct SidebarView: View {
           }
           .padding(.bottom, 20)
         }
+        .onKeyPress(.upArrow) {
+          store.selectNextNote()
+          return .handled
+        }
+        .onKeyPress(.downArrow) {
+          store.selectPreviousNote()
+          return .handled
+        }
       }
     }
     .padding(.horizontal, 16)
@@ -117,6 +125,7 @@ private struct MonthDividerView: View {
       Text(title)
         .font(.caption.weight(.bold))
         .foregroundStyle(.secondary)
+        .fixedSize()
 
       Rectangle()
         .fill(Color.primary.opacity(0.12))

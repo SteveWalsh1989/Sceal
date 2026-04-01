@@ -22,6 +22,13 @@ enum DayraDateFormatters {
     return formatter
   }()
 
+  static let monthDividerMonthOnly: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.calendar = Calendar.current
+    formatter.dateFormat = "MMMM"
+    return formatter
+  }()
+
   static let dayNumber: DateFormatter = {
     let formatter = DateFormatter()
     formatter.calendar = Calendar.current

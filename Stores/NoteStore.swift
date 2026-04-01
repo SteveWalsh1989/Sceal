@@ -18,7 +18,11 @@ struct NoteMonthSection: Identifiable, Equatable {
   }
 
   var title: String {
-    DayraDateFormatters.monthDivider.string(from: monthStartDate).uppercased()
+    let isCurrentYear = Calendar.current.component(.year, from: monthStartDate)
+      == Calendar.current.component(.year, from: Date.now)
+    let formatter = isCurrentYear
+      ? DayraDateFormatters.monthDividerMonthOnly : DayraDateFormatters.monthDivider
+    return formatter.string(from: monthStartDate).uppercased()
   }
 }
 
@@ -138,6 +142,24 @@ final class NoteStore: ObservableObject {
 
   func select(noteID: DayNote.ID) {
     selectedNoteID = noteID
+  }
+
+  // Selects the next newer note (earlier in date-descending array).
+  func selectNextNote() {
+    guard let currentID = selectedNoteID,
+      let currentIndex = notes.firstIndex(where: { $0.id == currentID }),
+      currentIndex > notes.startIndex
+    else { return }
+    selectedNoteID = notes[currentIndex - 1].id
+  }
+
+  // Selects the next older note (later in date-descending array).
+  func selectPreviousNote() {
+    guard let currentID = selectedNoteID,
+      let currentIndex = notes.firstIndex(where: { $0.id == currentID }),
+      notes.indices.contains(currentIndex + 1)
+    else { return }
+    selectedNoteID = notes[currentIndex + 1].id
   }
 
   func updateBodyFontName(_ bodyFontName: String) {

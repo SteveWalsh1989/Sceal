@@ -28,5 +28,9 @@ struct DayraApp: App {
         noteStore.flushPendingSaves()
       }
     }
+
+    Settings {
+      SettingsView(store: noteStore)
+    }
   }
 }
