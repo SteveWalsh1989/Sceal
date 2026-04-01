@@ -12,12 +12,15 @@ extension NSAttributedString.Key {
   static let markdownHeadingLevel = NSAttributedString.Key("dayra.headingLevel")
   static let markdownListType = NSAttributedString.Key("dayra.listType")
   static let markdownBold = NSAttributedString.Key("dayra.bold")
+  static let markdownItalic = NSAttributedString.Key("dayra.italic")
+  static let markdownStrikethrough = NSAttributedString.Key("dayra.strikethrough")
   static let markdownLinkURL = NSAttributedString.Key("dayra.linkURL")
   static let markdownCodeFence = NSAttributedString.Key("dayra.codeFence")
   static let markdownCodeBlock = NSAttributedString.Key("dayra.codeBlock")
   static let markdownSectionDivider = NSAttributedString.Key("dayra.sectionDivider")
   static let markdownInlineCode = NSAttributedString.Key("dayra.inlineCode")
   static let markdownHeadingColor = NSAttributedString.Key("dayra.headingColor")
+  static let markdownBlockquote = NSAttributedString.Key("dayra.blockquote")
 }
 
 enum MarkdownListType: String {
@@ -25,6 +28,39 @@ enum MarkdownListType: String {
   case numbered
   case checkboxUnchecked
   case checkboxChecked
+}
+
+// MARK: - Shared Color Palette
+
+/// Muted flat palette shared across headings, bullets, checkboxes, and future appearance settings.
+enum DayraPalette {
+
+  struct Entry {
+    let name: String
+    let color: NSColor
+  }
+
+  static let colors: [Entry] = [
+    Entry(name: "blue", color: NSColor(red: 0.35, green: 0.55, blue: 0.85, alpha: 1)),
+    Entry(name: "turquoise", color: NSColor(red: 0.30, green: 0.72, blue: 0.68, alpha: 1)),
+    Entry(name: "pink", color: NSColor(red: 0.85, green: 0.40, blue: 0.55, alpha: 1)),
+    Entry(name: "red", color: NSColor(red: 0.82, green: 0.35, blue: 0.35, alpha: 1)),
+    Entry(name: "purple", color: NSColor(red: 0.60, green: 0.42, blue: 0.78, alpha: 1)),
+    Entry(name: "orange", color: NSColor(red: 0.90, green: 0.58, blue: 0.30, alpha: 1)),
+    Entry(name: "grey", color: NSColor(red: 0.58, green: 0.58, blue: 0.60, alpha: 1)),
+    Entry(name: "white", color: NSColor(name: nil) { appearance in
+      appearance.bestMatch(from: [.darkAqua, .vibrantDark]) != nil
+        ? .white : .black
+    }),
+  ]
+
+  static func color(named name: String) -> NSColor? {
+    colors.first(where: { $0.name == name })?.color
+  }
+
+  static func name(for color: NSColor) -> String? {
+    colors.first(where: { $0.color == color })?.name
+  }
 }
 
 // MARK: - Styler
@@ -56,22 +92,17 @@ enum MarkdownStyler {
     accentColor
   }
 
-  // MARK: - Heading Color Presets
+  // MARK: - Heading Color Presets (backed by the shared palette)
 
-  static let headingColorPresets: [(name: String, color: NSColor)] = [
-    ("pink", .systemPink),
-    ("cyan", .systemCyan),
-    ("purple", .systemPurple),
-    ("orange", .systemOrange),
-    ("mint", .systemMint),
-  ]
+  static let headingColorPresets: [(name: String, color: NSColor)] =
+    DayraPalette.colors.map { ($0.name, $0.color) }
 
   static func headingColor(named name: String) -> NSColor? {
-    headingColorPresets.first(where: { $0.name == name })?.color
+    DayraPalette.color(named: name)
   }
 
   static func headingColorName(for color: NSColor) -> String? {
-    headingColorPresets.first(where: { $0.color == color })?.name
+    DayraPalette.name(for: color)
   }
 
   // MARK: - Checkbox Attachments
@@ -230,6 +261,7 @@ enum MarkdownStyler {
 
       let alreadyFormatted =
         attrs[.markdownHeadingLevel] != nil || attrs[.markdownListType] != nil
+        || attrs[.markdownBlockquote] as? Bool == true
 
       if alreadyFormatted {
         // Only process inline formatting on existing formatted lines
@@ -288,6 +320,9 @@ enum MarkdownStyler {
         ])
       stripInlineBold(
         in: result, defaultBoldFont: NSFont.systemFont(ofSize: fontSize, weight: .bold))
+      stripInlineItalic(
+        in: result, defaultItalicFont: NSFont.systemFont(ofSize: fontSize))
+      stripInlineStrikethrough(in: result)
       stripInlineCode(in: result)
       stripInlineLinks(in: result)
       return result
@@ -299,6 +334,8 @@ enum MarkdownStyler {
       let checkAttr = checkboxAttributedString(checked: true)
       let contentAttr = NSMutableAttributedString(string: " \(content)", attributes: baseAttrs)
       stripInlineBold(in: contentAttr, defaultBoldFont: NSFont.boldSystemFont(ofSize: defaultSize))
+      stripInlineItalic(in: contentAttr, defaultItalicFont: NSFont.systemFont(ofSize: defaultSize))
+      stripInlineStrikethrough(in: contentAttr)
       stripInlineCode(in: contentAttr)
       stripInlineLinks(in: contentAttr)
       let result = NSMutableAttributedString()
@@ -322,6 +359,8 @@ enum MarkdownStyler {
       let checkAttr = checkboxAttributedString(checked: false)
       let contentAttr = NSMutableAttributedString(string: " \(content)", attributes: baseAttrs)
       stripInlineBold(in: contentAttr, defaultBoldFont: NSFont.boldSystemFont(ofSize: defaultSize))
+      stripInlineItalic(in: contentAttr, defaultItalicFont: NSFont.systemFont(ofSize: defaultSize))
+      stripInlineStrikethrough(in: contentAttr)
       stripInlineCode(in: contentAttr)
       stripInlineLinks(in: contentAttr)
       let result = NSMutableAttributedString()
@@ -354,6 +393,8 @@ enum MarkdownStyler {
           .font: NSFont.systemFont(ofSize: 11, weight: .bold),
         ], range: NSRange(location: 0, length: 1))
       stripInlineBold(in: result, defaultBoldFont: NSFont.boldSystemFont(ofSize: defaultSize))
+      stripInlineItalic(in: result, defaultItalicFont: NSFont.systemFont(ofSize: defaultSize))
+      stripInlineStrikethrough(in: result)
       stripInlineCode(in: result)
       stripInlineLinks(in: result)
       return result
@@ -375,6 +416,28 @@ enum MarkdownStyler {
           range: NSRange(location: 0, length: numLength))
       }
       stripInlineBold(in: result, defaultBoldFont: NSFont.boldSystemFont(ofSize: defaultSize))
+      stripInlineItalic(in: result, defaultItalicFont: NSFont.systemFont(ofSize: defaultSize))
+      stripInlineStrikethrough(in: result)
+      stripInlineCode(in: result)
+      stripInlineLinks(in: result)
+      return result
+    }
+
+    // Blockquote (single-level only)
+    if rawLine.hasPrefix("> ") {
+      let content = String(rawLine.dropFirst(2))
+      let quoteStyle = blockquoteParagraphStyle()
+      let result = NSMutableAttributedString(
+        string: content,
+        attributes: [
+          .font: NSFont.systemFont(ofSize: defaultSize),
+          .foregroundColor: NSColor.secondaryLabelColor,
+          .markdownBlockquote: true,
+          .paragraphStyle: quoteStyle,
+        ])
+      stripInlineBold(in: result, defaultBoldFont: NSFont.boldSystemFont(ofSize: defaultSize))
+      stripInlineItalic(in: result, defaultItalicFont: NSFont.systemFont(ofSize: defaultSize))
+      stripInlineStrikethrough(in: result)
       stripInlineCode(in: result)
       stripInlineLinks(in: result)
       return result
@@ -383,6 +446,8 @@ enum MarkdownStyler {
     // Plain line — inline formatting only
     let result = NSMutableAttributedString(string: rawLine, attributes: baseAttrs)
     stripInlineBold(in: result, defaultBoldFont: NSFont.boldSystemFont(ofSize: defaultSize))
+    stripInlineItalic(in: result, defaultItalicFont: NSFont.systemFont(ofSize: defaultSize))
+    stripInlineStrikethrough(in: result)
     stripInlineLinks(in: result)
     return result
   }
@@ -416,6 +481,62 @@ enum MarkdownStyler {
         [
           .font: boldFont,
           .markdownBold: true,
+        ], range: newRange)
+    }
+  }
+
+  // Strips single-asterisk italic delimiters without matching double-asterisk bold
+  private static func stripInlineItalic(
+    in attrStr: NSMutableAttributedString, defaultItalicFont: NSFont
+  ) {
+    let regex = try! NSRegularExpression(pattern: #"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)"#)
+
+    while true {
+      let string = attrStr.string
+      guard
+        let match = regex.firstMatch(
+          in: string, range: NSRange(location: 0, length: string.utf16.count))
+      else { break }
+
+      let innerRange = match.range(at: 1)
+      let innerText = (string as NSString).substring(with: innerRange)
+
+      attrStr.replaceCharacters(in: match.range(at: 0), with: innerText)
+      let newRange = NSRange(location: match.range(at: 0).location, length: innerText.utf16.count)
+
+      let currentFont =
+        attrStr.attribute(.font, at: newRange.location, effectiveRange: nil) as? NSFont
+        ?? defaultItalicFont
+      let italicFont = NSFontManager.shared.convert(currentFont, toHaveTrait: .italicFontMask)
+      attrStr.addAttributes(
+        [
+          .font: italicFont,
+          .markdownItalic: true,
+        ], range: newRange)
+    }
+  }
+
+  // Strips ~~text~~ strikethrough delimiters and applies visual strikethrough style
+  private static func stripInlineStrikethrough(in attrStr: NSMutableAttributedString) {
+    let regex = try! NSRegularExpression(pattern: #"~~(.+?)~~"#)
+
+    while true {
+      let string = attrStr.string
+      guard
+        let match = regex.firstMatch(
+          in: string, range: NSRange(location: 0, length: string.utf16.count))
+      else { break }
+
+      let innerRange = match.range(at: 1)
+      let innerText = (string as NSString).substring(with: innerRange)
+
+      attrStr.replaceCharacters(in: match.range(at: 0), with: innerText)
+      let newRange = NSRange(location: match.range(at: 0).location, length: innerText.utf16.count)
+
+      attrStr.addAttributes(
+        [
+          .strikethroughStyle: NSUnderlineStyle.single.rawValue,
+          .markdownStrikethrough: true,
         ], range: newRange)
     }
   }
@@ -505,6 +626,67 @@ enum MarkdownStyler {
       textStorage.replaceCharacters(in: absoluteRange, with: innerText)
       let newRange = NSRange(location: absoluteRange.location, length: innerText.utf16.count)
       textStorage.addAttributes([.font: boldFont, .markdownBold: true], range: newRange)
+      textStorage.endEditing()
+    }
+
+    // Italic (single asterisks, avoiding double-asterisk bold)
+    let italicRegex = try! NSRegularExpression(pattern: #"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)"#)
+    while true {
+      let nsStringI = textStorage.string as NSString
+      let currentEndI = min(lineRange.location + lineRange.length, nsStringI.length)
+      let currentRangeI = NSRange(
+        location: lineRange.location, length: currentEndI - lineRange.location)
+      let textI = nsStringI.substring(with: currentRangeI)
+      guard
+        let match = italicRegex.firstMatch(
+          in: textI, range: NSRange(location: 0, length: textI.utf16.count))
+      else { break }
+
+      let innerRange = match.range(at: 1)
+      let innerText = (textI as NSString).substring(with: innerRange)
+      let absoluteRange = NSRange(
+        location: currentRangeI.location + match.range(at: 0).location,
+        length: match.range(at: 0).length)
+
+      let currentFont =
+        textStorage.attribute(.font, at: absoluteRange.location, effectiveRange: nil) as? NSFont
+        ?? defaultFont
+      let italicFont = NSFontManager.shared.convert(currentFont, toHaveTrait: .italicFontMask)
+
+      textStorage.beginEditing()
+      textStorage.replaceCharacters(in: absoluteRange, with: innerText)
+      let newRange = NSRange(location: absoluteRange.location, length: innerText.utf16.count)
+      textStorage.addAttributes([.font: italicFont, .markdownItalic: true], range: newRange)
+      textStorage.endEditing()
+    }
+
+    // Strikethrough
+    let strikeRegex = try! NSRegularExpression(pattern: #"~~(.+?)~~"#)
+    while true {
+      let nsStringS = textStorage.string as NSString
+      let currentEndS = min(lineRange.location + lineRange.length, nsStringS.length)
+      let currentRangeS = NSRange(
+        location: lineRange.location, length: currentEndS - lineRange.location)
+      let textS = nsStringS.substring(with: currentRangeS)
+      guard
+        let match = strikeRegex.firstMatch(
+          in: textS, range: NSRange(location: 0, length: textS.utf16.count))
+      else { break }
+
+      let innerRange = match.range(at: 1)
+      let innerText = (textS as NSString).substring(with: innerRange)
+      let absoluteRange = NSRange(
+        location: currentRangeS.location + match.range(at: 0).location,
+        length: match.range(at: 0).length)
+
+      textStorage.beginEditing()
+      textStorage.replaceCharacters(in: absoluteRange, with: innerText)
+      let newRange = NSRange(location: absoluteRange.location, length: innerText.utf16.count)
+      textStorage.addAttributes(
+        [
+          .strikethroughStyle: NSUnderlineStyle.single.rawValue,
+          .markdownStrikethrough: true,
+        ], range: newRange)
       textStorage.endEditing()
     }
 
@@ -617,6 +799,9 @@ enum MarkdownStyler {
         let inlineMarkdown = reconstructInlineMarkdown(from: attributedString, range: contentRange)
         return "<!-- hcolor:\(colorName) -->\n" + prefix + inlineMarkdown
       }
+    } else if attrs[.markdownBlockquote] as? Bool == true {
+      prefix = "> "
+      contentStart = 0
     } else if let rawType = attrs[.markdownListType] as? String,
       let listType = MarkdownListType(rawValue: rawType)
     {
@@ -660,19 +845,38 @@ enum MarkdownStyler {
     attributedString.enumerateAttributes(in: range, options: []) { attrs, spanRange, _ in
       let text = nsString.substring(with: spanRange)
       let isBold = attrs[.markdownBold] as? Bool == true
+      let isItalic = attrs[.markdownItalic] as? Bool == true
+      let isStrike = attrs[.markdownStrikethrough] as? Bool == true
       let isCode = attrs[.markdownInlineCode] as? Bool == true
       let linkURL = attrs[.markdownLinkURL] as? String
 
+      // Build the inner content with bold/italic/link wrapping
+      var inner: String
       if isCode {
-        result += "`\(text)`"
+        inner = "`\(text)`"
+      } else if isBold && isItalic, let url = linkURL {
+        inner = "***[\(text)](\(url))***"
+      } else if isBold && isItalic {
+        inner = "***\(text)***"
       } else if isBold, let url = linkURL {
-        result += "**[\(text)](\(url))**"
+        inner = "**[\(text)](\(url))**"
       } else if isBold {
-        result += "**\(text)**"
+        inner = "**\(text)**"
+      } else if isItalic, let url = linkURL {
+        inner = "*[\(text)](\(url))*"
+      } else if isItalic {
+        inner = "*\(text)*"
       } else if let url = linkURL {
-        result += "[\(text)](\(url))"
+        inner = "[\(text)](\(url))"
       } else {
-        result += text
+        inner = text
+      }
+
+      // Wrap with strikethrough delimiters if needed
+      if isStrike {
+        result += "~~\(inner)~~"
+      } else {
+        result += inner
       }
     }
 
@@ -727,6 +931,15 @@ enum MarkdownStyler {
     let style = NSMutableParagraphStyle()
     style.firstLineHeadIndent = 8
     style.headIndent = 28
+    style.paragraphSpacing = 2
+    return style
+  }
+
+  // Indented style for blockquote lines with a left border feel
+  static func blockquoteParagraphStyle() -> NSMutableParagraphStyle {
+    let style = NSMutableParagraphStyle()
+    style.firstLineHeadIndent = 20
+    style.headIndent = 20
     style.paragraphSpacing = 2
     return style
   }

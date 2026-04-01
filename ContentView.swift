@@ -12,7 +12,7 @@ struct ContentView: View {
   var body: some View {
     NavigationSplitView {
       SidebarView(store: store)
-        .frame(minWidth: 300, idealWidth: 340)
+        .navigationSplitViewColumnWidth(min: 240, ideal: 290, max: 360)
     } detail: {
       Group {
         if let selectedNoteID = store.selectedNoteID {

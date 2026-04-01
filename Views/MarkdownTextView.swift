@@ -158,6 +158,17 @@ struct MarkdownTextView: NSViewRepresentable {
         return true
       }
 
+      // Check if the line is an empty blockquote → cancel continuation
+      if isEmptyBlockquoteLine(lineText, in: textStorage, at: lineRange) {
+        textStorage.beginEditing()
+        textStorage.replaceCharacters(in: lineRange, with: "")
+        textStorage.endEditing()
+        textView.setSelectedRange(NSRange(location: lineRange.location, length: 0))
+        syncToBinding(textView)
+        isUpdating = false
+        return true
+      }
+
       // Slash commands FIRST so /section → --- is formatted in the same pass
       textStorage.beginEditing()
       let slashReplaced = SlashCommandHandler.detectAndReplace(
@@ -196,6 +207,16 @@ struct MarkdownTextView: NSViewRepresentable {
       textView.setSelectedRange(NSRange(location: formattedLineEnd, length: 0))
       textView.insertNewlineIgnoringFieldEditor(nil)
 
+      // Detect if the formatted line is a blockquote for continuation
+      let isBlockquoteLine: Bool = {
+        let updatedNS = textStorage.string as NSString
+        let updatedLine = updatedNS.lineRange(
+          for: NSRange(location: min(lineRange.location, updatedNS.length - 1), length: 0))
+        guard updatedLine.length > 0, updatedLine.location < textStorage.length else { return false }
+        return textStorage.attribute(
+          .markdownBlockquote, at: updatedLine.location, effectiveRange: nil) as? Bool == true
+      }()
+
       // List continuation
       if let listType = listType {
         let marker = continuationMarker(for: listType, previousLineText: lineText)
@@ -211,8 +232,15 @@ struct MarkdownTextView: NSViewRepresentable {
         }
       }
 
-      // Set typing attributes for the new line
-      if slashReplaced {
+      // Blockquote continuation — set typing attributes so the next line inherits blockquote style
+      if isBlockquoteLine, listType == nil {
+        textView.typingAttributes = [
+          .font: NSFont.systemFont(ofSize: 15),
+          .foregroundColor: NSColor.secondaryLabelColor,
+          .paragraphStyle: MarkdownStyler.blockquoteParagraphStyle(),
+          .markdownBlockquote: true,
+        ]
+      } else if slashReplaced {
         // After a section divider, auto-start a heading 1
         textView.typingAttributes = [
           .font: NSFont.systemFont(ofSize: 22, weight: .bold),
@@ -244,6 +272,20 @@ struct MarkdownTextView: NSViewRepresentable {
     }
 
     // MARK: - List Continuation Helpers
+
+    // Checks if a blockquote line has no content (just the blockquote attribute with empty text)
+    private func isEmptyBlockquoteLine(
+      _ lineText: String, in textStorage: NSTextStorage, at lineRange: NSRange
+    ) -> Bool {
+      guard lineRange.length >= 0, lineRange.location < textStorage.length else { return false }
+      let isQuote =
+        lineRange.length > 0
+        ? textStorage.attribute(.markdownBlockquote, at: lineRange.location, effectiveRange: nil)
+          as? Bool == true
+        : false
+      guard isQuote else { return false }
+      return lineText.trimmingCharacters(in: .whitespaces).isEmpty
+    }
 
     private func isEmptyListItem(_ lineText: String) -> Bool {
       let trimmed = lineText.trimmingCharacters(in: .whitespaces)
