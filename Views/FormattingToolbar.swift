@@ -116,18 +116,21 @@ class FormattingToolbar: NSView {
     let size = fittingSize
     let toolbarHeight = max(size.height, 34)
     let toolbarWidth = max(size.width, 100)
-    let gap: CGFloat = 6
+    let gap: CGFloat = 10
 
+    // In flipped coordinates: minY is top, maxY is bottom.
+    // Place toolbar above the selection.
     var origin = NSPoint(
       x: selectionRect.midX - toolbarWidth / 2,
-      y: selectionRect.maxY + gap
+      y: selectionRect.minY - toolbarHeight - gap
     )
 
     // Keep within parent bounds
     let parentBounds = parentView.bounds
     origin.x = max(4, min(origin.x, parentBounds.maxX - toolbarWidth - 4))
-    if origin.y + toolbarHeight > parentBounds.maxY - 4 {
-      origin.y = selectionRect.minY - toolbarHeight - gap
+    // If toolbar would go above the visible area, flip to below
+    if origin.y < 4 {
+      origin.y = selectionRect.maxY + gap
     }
 
     frame = NSRect(x: origin.x, y: origin.y, width: toolbarWidth, height: toolbarHeight)
@@ -262,30 +265,46 @@ class FormattingToolbar: NSView {
       // Apply — strip any existing list prefix, then add the new one
       let cleanText =
         currentType != nil ? stripDisplayListPrefix(lineText, listType: currentType!) : lineText
-
-      let marker: String
-      switch targetType {
-      case .bullet: marker = "\(MarkdownStyler.bulletMarker) "
-      case .numbered: marker = "1. "
-      case .checkboxUnchecked: marker = "\(MarkdownStyler.uncheckedMarker) "
-      case .checkboxChecked: marker = "\(MarkdownStyler.checkedMarker) "
-      }
-
-      let newText = marker + cleanText
       let listStyle = listParagraphStyle()
-      let result = NSMutableAttributedString(
-        string: newText,
-        attributes: [
-          .font: NSFont.systemFont(ofSize: 15),
-          .foregroundColor: NSColor.labelColor,
+
+      let result: NSMutableAttributedString
+
+      if targetType == .checkboxUnchecked || targetType == .checkboxChecked {
+        let checked = targetType == .checkboxChecked
+        result = NSMutableAttributedString()
+        result.append(MarkdownStyler.checkboxAttributedString(checked: checked))
+        result.append(NSAttributedString(
+          string: " \(cleanText)",
+          attributes: [
+            .font: NSFont.systemFont(ofSize: 15),
+            .foregroundColor: NSColor.labelColor,
+          ]))
+        let fullRange = NSRange(location: 0, length: result.length)
+        result.addAttributes([
           .markdownListType: targetType.rawValue,
           .paragraphStyle: listStyle,
-        ])
+        ], range: fullRange)
+      } else {
+        let marker: String
+        switch targetType {
+        case .bullet: marker = "\(MarkdownStyler.bulletMarker) "
+        case .numbered: marker = "1. "
+        default: marker = ""
+        }
 
-      // Style the marker
-      styleListMarker(in: result, listType: targetType)
+        let newText = marker + cleanText
+        result = NSMutableAttributedString(
+          string: newText,
+          attributes: [
+            .font: NSFont.systemFont(ofSize: 15),
+            .foregroundColor: NSColor.labelColor,
+            .markdownListType: targetType.rawValue,
+            .paragraphStyle: listStyle,
+          ])
 
-      // Remove heading if present
+        styleListMarker(in: result, listType: targetType)
+      }
+
       textStorage.replaceCharacters(in: lineRange, with: result)
     }
 
@@ -311,10 +330,9 @@ class FormattingToolbar: NSView {
     switch listType {
     case .bullet:
       if text.hasPrefix("\(MarkdownStyler.bulletMarker) ") { return String(text.dropFirst(2)) }
-    case .checkboxUnchecked:
-      if text.hasPrefix("\(MarkdownStyler.uncheckedMarker) ") { return String(text.dropFirst(2)) }
-    case .checkboxChecked:
-      if text.hasPrefix("\(MarkdownStyler.checkedMarker) ") { return String(text.dropFirst(2)) }
+    case .checkboxUnchecked, .checkboxChecked:
+      // Attachment character (U+FFFC) + space
+      if text.hasPrefix("\(MarkdownStyler.attachmentChar) ") { return String(text.dropFirst(2)) }
     case .numbered:
       if let match = text.range(of: #"^\d+\.\s+"#, options: .regularExpression) {
         return String(text[match.upperBound...])
@@ -328,17 +346,17 @@ class FormattingToolbar: NSView {
     switch listType {
     case .bullet:
       attrStr.addAttributes([
-        .foregroundColor: NSColor.controlAccentColor,
-        .font: NSFont.systemFont(ofSize: 13, weight: .regular),
+        .foregroundColor: MarkdownStyler.bulletColor,
+        .font: NSFont.systemFont(ofSize: 11, weight: .bold),
       ], range: NSRange(location: 0, length: 1))
     case .checkboxUnchecked:
       attrStr.addAttributes([
-        .foregroundColor: NSColor.secondaryLabelColor,
+        .foregroundColor: MarkdownStyler.checkboxUncheckedColor,
         .font: NSFont.systemFont(ofSize: 15, weight: .medium),
       ], range: NSRange(location: 0, length: 1))
     case .checkboxChecked:
       attrStr.addAttributes([
-        .foregroundColor: NSColor.systemGreen,
+        .foregroundColor: MarkdownStyler.checkboxCheckedColor,
         .font: NSFont.systemFont(ofSize: 15, weight: .medium),
       ], range: NSRange(location: 0, length: 1))
     case .numbered:

@@ -208,10 +208,8 @@ struct MarkdownTextView: NSViewRepresentable {
       let emptyMarkers = [
         "\(MarkdownStyler.bulletMarker) ",
         "\(MarkdownStyler.bulletMarker)",
-        "\(MarkdownStyler.uncheckedMarker) ",
-        "\(MarkdownStyler.uncheckedMarker)",
-        "\(MarkdownStyler.checkedMarker) ",
-        "\(MarkdownStyler.checkedMarker)",
+        "\(MarkdownStyler.attachmentChar) ",
+        "\(MarkdownStyler.attachmentChar)",
         "- ",
         "-",
       ]
@@ -253,36 +251,50 @@ struct MarkdownTextView: NSViewRepresentable {
     private func continuationAttributedMarker(
       for listType: MarkdownListType, marker: String, defaultFont: NSFont
     ) -> NSAttributedString {
-      let result = NSMutableAttributedString(
-        string: marker,
-        attributes: [
-          .font: defaultFont,
-          .foregroundColor: NSColor.labelColor,
-          .markdownListType: listType.rawValue,
-          .paragraphStyle: listParagraphStyle(),
-        ])
-
       switch listType {
-      case .bullet:
-        result.addAttributes([
-          .foregroundColor: NSColor.controlAccentColor,
-          .font: NSFont.systemFont(ofSize: defaultFont.pointSize - 2, weight: .regular),
-        ], range: NSRange(location: 0, length: 1))
       case .checkboxUnchecked, .checkboxChecked:
+        // Use SF Symbol attachment for checkbox continuation
+        let result = NSMutableAttributedString()
+        result.append(MarkdownStyler.checkboxAttributedString(checked: false))
+        result.append(NSAttributedString(
+          string: " ",
+          attributes: [
+            .font: defaultFont,
+            .foregroundColor: NSColor.labelColor,
+          ]))
+        let fullRange = NSRange(location: 0, length: result.length)
         result.addAttributes([
-          .foregroundColor: NSColor.secondaryLabelColor,
-          .font: NSFont.systemFont(ofSize: defaultFont.pointSize, weight: .medium),
-        ], range: NSRange(location: 0, length: 1))
-      case .numbered:
-        if let numEnd = marker.firstIndex(of: ".") {
-          let numLength = marker.distance(from: marker.startIndex, to: numEnd) + 1
-          result.addAttribute(
-            .foregroundColor, value: NSColor.secondaryLabelColor,
-            range: NSRange(location: 0, length: numLength))
-        }
-      }
+          .markdownListType: MarkdownListType.checkboxUnchecked.rawValue,
+          .paragraphStyle: listParagraphStyle(),
+        ], range: fullRange)
+        return result
 
-      return result
+      default:
+        let result = NSMutableAttributedString(
+          string: marker,
+          attributes: [
+            .font: defaultFont,
+            .foregroundColor: NSColor.labelColor,
+            .markdownListType: listType.rawValue,
+            .paragraphStyle: listParagraphStyle(),
+          ])
+
+        if listType == .bullet {
+          result.addAttributes([
+            .foregroundColor: MarkdownStyler.bulletColor,
+            .font: NSFont.systemFont(ofSize: 11, weight: .bold),
+          ], range: NSRange(location: 0, length: 1))
+        } else if listType == .numbered {
+          if let numEnd = marker.firstIndex(of: ".") {
+            let numLength = marker.distance(from: marker.startIndex, to: numEnd) + 1
+            result.addAttribute(
+              .foregroundColor, value: NSColor.secondaryLabelColor,
+              range: NSRange(location: 0, length: numLength))
+          }
+        }
+
+        return result
+      }
     }
 
     private func listParagraphStyle() -> NSMutableParagraphStyle {
@@ -302,11 +314,105 @@ struct MarkdownTextView: NSViewRepresentable {
   }
 }
 
-// MARK: - Plain-text paste subclass
+// MARK: - Custom NSTextView subclass
 
 private class DayraTextView: NSTextView {
   override func paste(_ sender: Any?) {
     guard let plainText = NSPasteboard.general.string(forType: .string) else { return }
     insertText(plainText, replacementRange: selectedRange())
+  }
+
+  override func mouseDown(with event: NSEvent) {
+    guard let textStorage = textStorage, let layoutManager = layoutManager,
+      let textContainer = textContainer
+    else {
+      super.mouseDown(with: event)
+      return
+    }
+
+    let point = convert(event.locationInWindow, from: nil)
+    let textPoint = NSPoint(
+      x: point.x - textContainerInset.width,
+      y: point.y - textContainerInset.height)
+    let charIndex = layoutManager.characterIndex(
+      for: textPoint, in: textContainer,
+      fractionOfDistanceBetweenInsertionPoints: nil)
+
+    guard charIndex < textStorage.length else {
+      super.mouseDown(with: event)
+      return
+    }
+
+    let attrs = textStorage.attributes(at: charIndex, effectiveRange: nil)
+    guard let listTypeRaw = attrs[.markdownListType] as? String,
+      (listTypeRaw == MarkdownListType.checkboxUnchecked.rawValue
+        || listTypeRaw == MarkdownListType.checkboxChecked.rawValue)
+    else {
+      super.mouseDown(with: event)
+      return
+    }
+
+    // Only toggle if clicking on the checkbox character itself (first char of the line)
+    let nsString = string as NSString
+    let lineRange = nsString.lineRange(for: NSRange(location: charIndex, length: 0))
+    guard charIndex == lineRange.location else {
+      super.mouseDown(with: event)
+      return
+    }
+
+    toggleCheckbox(at: charIndex)
+  }
+
+  private func toggleCheckbox(at charIndex: Int) {
+    guard let textStorage = textStorage else { return }
+    let nsString = textStorage.string as NSString
+    let lineRange = nsString.lineRange(for: NSRange(location: charIndex, length: 0))
+    var textRange = lineRange
+    if textRange.length > 0
+      && nsString.character(at: textRange.location + textRange.length - 1) == 0x0A
+    {
+      textRange.length -= 1
+    }
+
+    let currentTypeRaw =
+      textStorage.attribute(.markdownListType, at: charIndex, effectiveRange: nil) as? String
+    let isChecked = currentTypeRaw == MarkdownListType.checkboxChecked.rawValue
+
+    textStorage.beginEditing()
+
+    // Replace the attachment with the toggled version
+    let newAttachment = MarkdownStyler.checkboxAttachment(checked: !isChecked)
+    let attachmentStr = NSAttributedString(attachment: newAttachment)
+    textStorage.replaceCharacters(in: NSRange(location: charIndex, length: 1), with: attachmentStr)
+
+    // Recalculate the line range after replacement
+    let updatedNSString = textStorage.string as NSString
+    let updatedLineRange = updatedNSString.lineRange(for: NSRange(location: charIndex, length: 0))
+    var updatedTextRange = updatedLineRange
+    if updatedTextRange.length > 0
+      && updatedNSString.character(
+        at: updatedTextRange.location + updatedTextRange.length - 1) == 0x0A
+    {
+      updatedTextRange.length -= 1
+    }
+
+    let newType: MarkdownListType = isChecked ? .checkboxUnchecked : .checkboxChecked
+    textStorage.addAttribute(
+      .markdownListType, value: newType.rawValue, range: updatedTextRange)
+
+    // Toggle strikethrough on content (skip the attachment character + space)
+    let contentStart = min(charIndex + 2, updatedTextRange.location + updatedTextRange.length)
+    let contentLength = (updatedTextRange.location + updatedTextRange.length) - contentStart
+    if contentLength > 0 {
+      let contentRange = NSRange(location: contentStart, length: contentLength)
+      if isChecked {
+        textStorage.removeAttribute(.strikethroughStyle, range: contentRange)
+      } else {
+        textStorage.addAttribute(
+          .strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: contentRange)
+      }
+    }
+
+    textStorage.endEditing()
   }
 }

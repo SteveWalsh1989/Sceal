@@ -31,11 +31,48 @@ enum MarkdownListType: String {
 
 enum MarkdownStyler {
 
-  static let bulletMarker = "●"
-  static let uncheckedMarker = "☐"
-  static let checkedMarker = "☑"
+  static let bulletMarker = "•"
+  static let uncheckedMarker = "\u{FFFC}"
+  static let checkedMarker = "\u{FFFC}"
+  static let attachmentChar = "\u{FFFC}"
 
   private static let defaultSize: CGFloat = 15
+
+  // MARK: - Accent Colors (single source of truth for future settings)
+
+  static var accentColor: NSColor {
+    NSColor.systemPink
+  }
+
+  static var checkboxCheckedColor: NSColor {
+    NSColor.systemPink
+  }
+
+  static var checkboxUncheckedColor: NSColor {
+    accentColor
+  }
+
+  static var bulletColor: NSColor {
+    accentColor
+  }
+
+  // MARK: - Checkbox Attachments
+
+  static func checkboxAttachment(checked: Bool) -> NSTextAttachment {
+    let symbolName = checked ? "checkmark.circle.fill" : "circle"
+    let color = checked ? checkboxCheckedColor : checkboxUncheckedColor
+    let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+      .applying(NSImage.SymbolConfiguration(paletteColors: [color]))
+    let attachment = NSTextAttachment()
+    attachment.image = NSImage(
+      systemSymbolName: symbolName, accessibilityDescription: checked ? "Done" : "To do")?
+      .withSymbolConfiguration(config)
+    return attachment
+  }
+
+  static func checkboxAttributedString(checked: Bool) -> NSAttributedString {
+    NSAttributedString(attachment: checkboxAttachment(checked: checked))
+  }
 
   // MARK: - Raw Markdown → Display Attributed String
 
@@ -177,41 +214,41 @@ enum MarkdownStyler {
     // Checkbox checked
     if rawLine.hasPrefix("- [x] ") {
       let content = String(rawLine.dropFirst(6))
-      let displayText = "\(checkedMarker) \(content)"
-      let result = NSMutableAttributedString(string: displayText, attributes: baseAttrs)
+      let checkAttr = checkboxAttributedString(checked: true)
+      let contentAttr = NSMutableAttributedString(string: " \(content)", attributes: baseAttrs)
+      stripInlineBold(in: contentAttr, defaultBoldFont: NSFont.boldSystemFont(ofSize: defaultSize))
+      stripInlineCode(in: contentAttr)
+      stripInlineLinks(in: contentAttr)
+      let result = NSMutableAttributedString()
+      result.append(checkAttr)
+      result.append(contentAttr)
       let fullRange = NSRange(location: 0, length: result.length)
       result.addAttributes([
         .markdownListType: MarkdownListType.checkboxChecked.rawValue,
         .strikethroughStyle: NSUnderlineStyle.single.rawValue,
         .paragraphStyle: listParagraphStyle(),
       ], range: fullRange)
-      result.addAttributes([
-        .foregroundColor: NSColor.systemGreen,
-        .font: NSFont.systemFont(ofSize: defaultSize, weight: .medium),
-      ], range: NSRange(location: 0, length: 1))
-      stripInlineBold(in: result, defaultBoldFont: NSFont.boldSystemFont(ofSize: defaultSize))
-      stripInlineCode(in: result)
-      stripInlineLinks(in: result)
+      // Remove strikethrough from the checkbox character itself
+      result.removeAttribute(.strikethroughStyle, range: NSRange(location: 0, length: 1))
       return result
     }
 
     // Checkbox unchecked
     if rawLine.hasPrefix("- [ ] ") {
       let content = String(rawLine.dropFirst(6))
-      let displayText = "\(uncheckedMarker) \(content)"
-      let result = NSMutableAttributedString(string: displayText, attributes: baseAttrs)
+      let checkAttr = checkboxAttributedString(checked: false)
+      let contentAttr = NSMutableAttributedString(string: " \(content)", attributes: baseAttrs)
+      stripInlineBold(in: contentAttr, defaultBoldFont: NSFont.boldSystemFont(ofSize: defaultSize))
+      stripInlineCode(in: contentAttr)
+      stripInlineLinks(in: contentAttr)
+      let result = NSMutableAttributedString()
+      result.append(checkAttr)
+      result.append(contentAttr)
       let fullRange = NSRange(location: 0, length: result.length)
       result.addAttributes([
         .markdownListType: MarkdownListType.checkboxUnchecked.rawValue,
         .paragraphStyle: listParagraphStyle(),
       ], range: fullRange)
-      result.addAttributes([
-        .foregroundColor: NSColor.secondaryLabelColor,
-        .font: NSFont.systemFont(ofSize: defaultSize, weight: .medium),
-      ], range: NSRange(location: 0, length: 1))
-      stripInlineBold(in: result, defaultBoldFont: NSFont.boldSystemFont(ofSize: defaultSize))
-      stripInlineCode(in: result)
-      stripInlineLinks(in: result)
       return result
     }
 
@@ -227,8 +264,8 @@ enum MarkdownStyler {
         .paragraphStyle: listParagraphStyle(),
       ], range: fullRange)
       result.addAttributes([
-        .foregroundColor: NSColor.controlAccentColor,
-        .font: NSFont.systemFont(ofSize: defaultSize - 2, weight: .regular),
+        .foregroundColor: bulletColor,
+        .font: NSFont.systemFont(ofSize: 11, weight: .bold),
       ], range: NSRange(location: 0, length: 1))
       stripInlineBold(in: result, defaultBoldFont: NSFont.boldSystemFont(ofSize: defaultSize))
       stripInlineCode(in: result)
