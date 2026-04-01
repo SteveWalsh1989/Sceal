@@ -2,7 +2,6 @@
 //  MarkdownTextView.swift
 //  dayra
 //
-//  Created by Steve Walsh on 01/04/2026.
 //
 
 import AppKit
@@ -81,8 +80,9 @@ struct MarkdownTextView: NSViewRepresentable {
       let range = textView.selectedRange()
 
       if range.length > 0, let scrollView = textView.enclosingScrollView {
-        let glyphRange = textView.layoutManager?.glyphRange(
-          forCharacterRange: range, actualCharacterRange: nil) ?? range
+        let glyphRange =
+          textView.layoutManager?.glyphRange(
+            forCharacterRange: range, actualCharacterRange: nil) ?? range
         let selectionRect =
           textView.layoutManager?.boundingRect(
             forGlyphRange: glyphRange, in: textView.textContainer!) ?? .zero
@@ -256,17 +256,19 @@ struct MarkdownTextView: NSViewRepresentable {
         // Use SF Symbol attachment for checkbox continuation
         let result = NSMutableAttributedString()
         result.append(MarkdownStyler.checkboxAttributedString(checked: false))
-        result.append(NSAttributedString(
-          string: " ",
-          attributes: [
-            .font: defaultFont,
-            .foregroundColor: NSColor.labelColor,
-          ]))
+        result.append(
+          NSAttributedString(
+            string: " ",
+            attributes: [
+              .font: defaultFont,
+              .foregroundColor: NSColor.labelColor,
+            ]))
         let fullRange = NSRange(location: 0, length: result.length)
-        result.addAttributes([
-          .markdownListType: MarkdownListType.checkboxUnchecked.rawValue,
-          .paragraphStyle: listParagraphStyle(),
-        ], range: fullRange)
+        result.addAttributes(
+          [
+            .markdownListType: MarkdownListType.checkboxUnchecked.rawValue,
+            .paragraphStyle: listParagraphStyle(),
+          ], range: fullRange)
         return result
 
       default:
@@ -280,10 +282,11 @@ struct MarkdownTextView: NSViewRepresentable {
           ])
 
         if listType == .bullet {
-          result.addAttributes([
-            .foregroundColor: MarkdownStyler.bulletColor,
-            .font: NSFont.systemFont(ofSize: 11, weight: .bold),
-          ], range: NSRange(location: 0, length: 1))
+          result.addAttributes(
+            [
+              .foregroundColor: MarkdownStyler.bulletColor,
+              .font: NSFont.systemFont(ofSize: 11, weight: .bold),
+            ], range: NSRange(location: 0, length: 1))
         } else if listType == .numbered {
           if let numEnd = marker.firstIndex(of: ".") {
             let numLength = marker.distance(from: marker.startIndex, to: numEnd) + 1
@@ -345,8 +348,8 @@ private class DayraTextView: NSTextView {
 
     let attrs = textStorage.attributes(at: charIndex, effectiveRange: nil)
     guard let listTypeRaw = attrs[.markdownListType] as? String,
-      (listTypeRaw == MarkdownListType.checkboxUnchecked.rawValue
-        || listTypeRaw == MarkdownListType.checkboxChecked.rawValue)
+      listTypeRaw == MarkdownListType.checkboxUnchecked.rawValue
+        || listTypeRaw == MarkdownListType.checkboxChecked.rawValue
     else {
       super.mouseDown(with: event)
       return

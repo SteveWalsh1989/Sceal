@@ -2,7 +2,6 @@
 //  MarkdownStyler.swift
 //  dayra
 //
-//  Created by Steve Walsh on 01/04/2026.
 //
 
 import AppKit
@@ -16,8 +15,9 @@ extension NSAttributedString.Key {
   static let markdownLinkURL = NSAttributedString.Key("dayra.linkURL")
   static let markdownCodeFence = NSAttributedString.Key("dayra.codeFence")
   static let markdownCodeBlock = NSAttributedString.Key("dayra.codeBlock")
-  static let markdownBlockType = NSAttributedString.Key("dayra.blockType")
+  static let markdownSectionDivider = NSAttributedString.Key("dayra.sectionDivider")
   static let markdownInlineCode = NSAttributedString.Key("dayra.inlineCode")
+  static let markdownHeadingColor = NSAttributedString.Key("dayra.headingColor")
 }
 
 enum MarkdownListType: String {
@@ -56,6 +56,24 @@ enum MarkdownStyler {
     accentColor
   }
 
+  // MARK: - Heading Color Presets
+
+  static let headingColorPresets: [(name: String, color: NSColor)] = [
+    ("pink", .systemPink),
+    ("cyan", .systemCyan),
+    ("purple", .systemPurple),
+    ("orange", .systemOrange),
+    ("mint", .systemMint),
+  ]
+
+  static func headingColor(named name: String) -> NSColor? {
+    headingColorPresets.first(where: { $0.name == name })?.color
+  }
+
+  static func headingColorName(for color: NSColor) -> String? {
+    headingColorPresets.first(where: { $0.color == color })?.name
+  }
+
   // MARK: - Checkbox Attachments
 
   static func checkboxAttachment(checked: Bool) -> NSTextAttachment {
@@ -78,15 +96,39 @@ enum MarkdownStyler {
 
   static func formatForDisplay(_ rawMarkdown: String, defaultFont: NSFont) -> NSAttributedString {
     let result = NSMutableAttributedString()
-    let lines = rawMarkdown.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+    let lines = rawMarkdown.split(separator: "\n", omittingEmptySubsequences: false).map(
+      String.init)
     var insideCodeBlock = false
+    var pendingHeadingColor: NSColor? = nil
+    var pendingHeadingColorName: String? = nil
+    let hcolorRegex = try! NSRegularExpression(pattern: #"^<!-- hcolor:(\w+) -->$"#)
 
     for (index, line) in lines.enumerated() {
       if index > 0 {
         result.append(NSAttributedString(string: "\n"))
       }
 
+      // Check for heading color comment
+      if !insideCodeBlock,
+        let match = hcolorRegex.firstMatch(
+          in: line, range: NSRange(location: 0, length: line.utf16.count)),
+        let nameRange = Range(match.range(at: 1), in: line)
+      {
+        let colorName = String(line[nameRange])
+        if let color = headingColor(named: colorName) {
+          pendingHeadingColor = color
+          pendingHeadingColorName = colorName
+          continue
+        }
+      }
+
       if line.hasPrefix("```") {
+        // Flush pending color as-is if next line is a code fence
+        if let colorName = pendingHeadingColorName {
+          result.append(NSAttributedString(string: "<!-- hcolor:\(colorName) -->\n"))
+          pendingHeadingColor = nil
+          pendingHeadingColorName = nil
+        }
         insideCodeBlock.toggle()
         result.append(styledCodeFenceLine(line))
         continue
@@ -97,12 +139,41 @@ enum MarkdownStyler {
         continue
       }
 
-      if line.range(of: #"^<!--\s*block:(\w+)\s*-->$"#, options: .regularExpression) != nil {
-        result.append(styledBlockDividerLine(line))
+      if line.range(of: #"^-{3,}$"#, options: .regularExpression) != nil {
+        // Flush pending color as-is if next line is a divider
+        if let colorName = pendingHeadingColorName {
+          result.append(NSAttributedString(string: "<!-- hcolor:\(colorName) -->\n"))
+          pendingHeadingColor = nil
+          pendingHeadingColorName = nil
+        }
+        result.append(styledSectionDivider())
         continue
       }
 
-      result.append(buildDisplayLine(line, defaultFont: defaultFont))
+      let displayLine = buildDisplayLine(line, defaultFont: defaultFont)
+
+      // Apply pending heading color if this line is a heading
+      if let color = pendingHeadingColor, let colorName = pendingHeadingColorName {
+        let mutable = NSMutableAttributedString(attributedString: displayLine)
+        if mutable.length > 0 {
+          let attrs = mutable.attributes(at: 0, effectiveRange: nil)
+          if attrs[.markdownHeadingLevel] != nil {
+            let fullRange = NSRange(location: 0, length: mutable.length)
+            mutable.addAttribute(.foregroundColor, value: color, range: fullRange)
+            mutable.addAttribute(.markdownHeadingColor, value: colorName, range: fullRange)
+            result.append(mutable)
+            pendingHeadingColor = nil
+            pendingHeadingColorName = nil
+            continue
+          }
+        }
+        // Not a heading — flush the color comment back
+        result.append(NSAttributedString(string: "<!-- hcolor:\(colorName) -->\n"))
+        pendingHeadingColor = nil
+        pendingHeadingColorName = nil
+      }
+
+      result.append(displayLine)
     }
 
     return result
@@ -152,6 +223,11 @@ enum MarkdownStyler {
     // Check if line already has formatting attributes (was formatted before)
     if lineRange.length > 0 {
       let attrs = textStorage.attributes(at: lineRange.location, effectiveRange: nil)
+      // Section dividers are fully styled — no further processing needed
+      if attrs[.markdownSectionDivider] as? Bool == true {
+        return nil
+      }
+
       let alreadyFormatted =
         attrs[.markdownHeadingLevel] != nil || attrs[.markdownListType] != nil
 
@@ -193,6 +269,11 @@ enum MarkdownStyler {
       .foregroundColor: NSColor.labelColor,
     ]
 
+    // Section divider
+    if rawLine.range(of: #"^-{3,}$"#, options: .regularExpression) != nil {
+      return styledSectionDivider()
+    }
+
     // Heading
     if let match = rawLine.range(of: #"^(#{1,3})\s+"#, options: .regularExpression) {
       let level = rawLine[match].filter { $0 == "#" }.count
@@ -205,7 +286,8 @@ enum MarkdownStyler {
           .foregroundColor: NSColor.labelColor,
           .markdownHeadingLevel: level,
         ])
-      stripInlineBold(in: result, defaultBoldFont: NSFont.systemFont(ofSize: fontSize, weight: .bold))
+      stripInlineBold(
+        in: result, defaultBoldFont: NSFont.systemFont(ofSize: fontSize, weight: .bold))
       stripInlineCode(in: result)
       stripInlineLinks(in: result)
       return result
@@ -223,11 +305,12 @@ enum MarkdownStyler {
       result.append(checkAttr)
       result.append(contentAttr)
       let fullRange = NSRange(location: 0, length: result.length)
-      result.addAttributes([
-        .markdownListType: MarkdownListType.checkboxChecked.rawValue,
-        .strikethroughStyle: NSUnderlineStyle.single.rawValue,
-        .paragraphStyle: listParagraphStyle(),
-      ], range: fullRange)
+      result.addAttributes(
+        [
+          .markdownListType: MarkdownListType.checkboxChecked.rawValue,
+          .strikethroughStyle: NSUnderlineStyle.single.rawValue,
+          .paragraphStyle: listParagraphStyle(),
+        ], range: fullRange)
       // Remove strikethrough from the checkbox character itself
       result.removeAttribute(.strikethroughStyle, range: NSRange(location: 0, length: 1))
       return result
@@ -245,10 +328,11 @@ enum MarkdownStyler {
       result.append(checkAttr)
       result.append(contentAttr)
       let fullRange = NSRange(location: 0, length: result.length)
-      result.addAttributes([
-        .markdownListType: MarkdownListType.checkboxUnchecked.rawValue,
-        .paragraphStyle: listParagraphStyle(),
-      ], range: fullRange)
+      result.addAttributes(
+        [
+          .markdownListType: MarkdownListType.checkboxUnchecked.rawValue,
+          .paragraphStyle: listParagraphStyle(),
+        ], range: fullRange)
       return result
     }
 
@@ -259,14 +343,16 @@ enum MarkdownStyler {
       let displayText = "\(bulletMarker) \(content)"
       let result = NSMutableAttributedString(string: displayText, attributes: baseAttrs)
       let fullRange = NSRange(location: 0, length: result.length)
-      result.addAttributes([
-        .markdownListType: MarkdownListType.bullet.rawValue,
-        .paragraphStyle: listParagraphStyle(),
-      ], range: fullRange)
-      result.addAttributes([
-        .foregroundColor: bulletColor,
-        .font: NSFont.systemFont(ofSize: 11, weight: .bold),
-      ], range: NSRange(location: 0, length: 1))
+      result.addAttributes(
+        [
+          .markdownListType: MarkdownListType.bullet.rawValue,
+          .paragraphStyle: listParagraphStyle(),
+        ], range: fullRange)
+      result.addAttributes(
+        [
+          .foregroundColor: bulletColor,
+          .font: NSFont.systemFont(ofSize: 11, weight: .bold),
+        ], range: NSRange(location: 0, length: 1))
       stripInlineBold(in: result, defaultBoldFont: NSFont.boldSystemFont(ofSize: defaultSize))
       stripInlineCode(in: result)
       stripInlineLinks(in: result)
@@ -277,10 +363,11 @@ enum MarkdownStyler {
     if rawLine.range(of: #"^\d+\.\s+"#, options: .regularExpression) != nil {
       let result = NSMutableAttributedString(string: rawLine, attributes: baseAttrs)
       let fullRange = NSRange(location: 0, length: result.length)
-      result.addAttributes([
-        .markdownListType: MarkdownListType.numbered.rawValue,
-        .paragraphStyle: listParagraphStyle(),
-      ], range: fullRange)
+      result.addAttributes(
+        [
+          .markdownListType: MarkdownListType.numbered.rawValue,
+          .paragraphStyle: listParagraphStyle(),
+        ], range: fullRange)
       if let numMatch = rawLine.range(of: #"^\d+\."#, options: .regularExpression) {
         let numLength = rawLine.distance(from: numMatch.lowerBound, to: numMatch.upperBound)
         result.addAttribute(
@@ -325,10 +412,11 @@ enum MarkdownStyler {
         attrStr.attribute(.font, at: newRange.location, effectiveRange: nil) as? NSFont
         ?? defaultBoldFont
       let boldFont = NSFontManager.shared.convert(currentFont, toHaveTrait: .boldFontMask)
-      attrStr.addAttributes([
-        .font: boldFont,
-        .markdownBold: true,
-      ], range: newRange)
+      attrStr.addAttributes(
+        [
+          .font: boldFont,
+          .markdownBold: true,
+        ], range: newRange)
     }
   }
 
@@ -347,11 +435,12 @@ enum MarkdownStyler {
 
       attrStr.replaceCharacters(in: match.range(at: 0), with: innerText)
       let newRange = NSRange(location: match.range(at: 0).location, length: innerText.utf16.count)
-      attrStr.addAttributes([
-        .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
-        .backgroundColor: NSColor.quaternaryLabelColor,
-        .markdownInlineCode: true,
-      ], range: newRange)
+      attrStr.addAttributes(
+        [
+          .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
+          .backgroundColor: NSColor.quaternaryLabelColor,
+          .markdownInlineCode: true,
+        ], range: newRange)
     }
   }
 
@@ -441,11 +530,12 @@ enum MarkdownStyler {
       textStorage.beginEditing()
       textStorage.replaceCharacters(in: absoluteRange, with: innerText)
       let newRange = NSRange(location: absoluteRange.location, length: innerText.utf16.count)
-      textStorage.addAttributes([
-        .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
-        .backgroundColor: NSColor.quaternaryLabelColor,
-        .markdownInlineCode: true,
-      ], range: newRange)
+      textStorage.addAttributes(
+        [
+          .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
+          .backgroundColor: NSColor.quaternaryLabelColor,
+          .markdownInlineCode: true,
+        ], range: newRange)
       textStorage.endEditing()
     }
 
@@ -505,9 +595,9 @@ enum MarkdownStyler {
       return lineText
     }
 
-    // Block divider — pass through (raw comment text is preserved)
-    if attrs[.markdownBlockType] != nil {
-      return lineText
+    // Section divider — reconstruct as standard markdown horizontal rule
+    if attrs[.markdownSectionDivider] as? Bool == true {
+      return "---"
     }
 
     // Determine line prefix from attributes
@@ -517,6 +607,16 @@ enum MarkdownStyler {
     if let level = attrs[.markdownHeadingLevel] as? Int {
       prefix = String(repeating: "#", count: level) + " "
       contentStart = 0
+
+      // Heading color comment
+      if let colorName = attrs[.markdownHeadingColor] as? String {
+        let contentRange = NSRange(
+          location: textRange.location + contentStart,
+          length: textRange.length - contentStart
+        )
+        let inlineMarkdown = reconstructInlineMarkdown(from: attributedString, range: contentRange)
+        return "<!-- hcolor:\(colorName) -->\n" + prefix + inlineMarkdown
+      }
     } else if let rawType = attrs[.markdownListType] as? String,
       let listType = MarkdownListType(rawValue: rawType)
     {
@@ -602,34 +702,21 @@ enum MarkdownStyler {
       ])
   }
 
-  private static func styledBlockDividerLine(_ line: String) -> NSAttributedString {
-    let regex = try! NSRegularExpression(pattern: #"^<!--\s*block:(\w+)\s*-->$"#)
-    let match = regex.firstMatch(in: line, range: NSRange(location: 0, length: line.utf16.count))
-    let blockType = match.map { (line as NSString).substring(with: $0.range(at: 1)) } ?? "other"
+  private static func styledSectionDivider() -> NSAttributedString {
+    let dividerText = String(repeating: "\u{2500}", count: 40)
 
     let centeredParagraph = NSMutableParagraphStyle()
     centeredParagraph.alignment = .center
-    centeredParagraph.paragraphSpacingBefore = 12
-    centeredParagraph.paragraphSpacing = 8
-
-    let smallCapsFont = NSFont.systemFont(ofSize: 11, weight: .medium)
-    let descriptor = smallCapsFont.fontDescriptor.addingAttributes([
-      .featureSettings: [
-        [
-          NSFontDescriptor.FeatureKey.typeIdentifier: kUpperCaseType,
-          NSFontDescriptor.FeatureKey.selectorIdentifier: kUpperCaseSmallCapsSelector,
-        ]
-      ]
-    ])
-    let resolvedFont = NSFont(descriptor: descriptor, size: 0) ?? smallCapsFont
+    centeredParagraph.paragraphSpacingBefore = 16
+    centeredParagraph.paragraphSpacing = 12
 
     return NSAttributedString(
-      string: line,
+      string: dividerText,
       attributes: [
-        .font: resolvedFont,
-        .foregroundColor: NSColor.secondaryLabelColor,
+        .font: NSFont.systemFont(ofSize: 11),
+        .foregroundColor: MarkdownStyler.accentColor,
         .paragraphStyle: centeredParagraph,
-        .markdownBlockType: blockType,
+        .markdownSectionDivider: true,
       ])
   }
 

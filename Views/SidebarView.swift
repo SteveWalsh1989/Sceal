@@ -2,7 +2,6 @@
 //  SidebarView.swift
 //  dayra
 //
-//  Created by Steve Walsh on 01/04/2026.
 //
 
 import SwiftUI
@@ -73,9 +72,18 @@ private struct DayNoteCardView: View {
           .lineLimit(2)
           .foregroundStyle(.primary)
 
-        Text(note.id)
-          .font(.caption)
-          .foregroundStyle(.secondary)
+        HStack(spacing: 6) {
+          Text(note.id)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
+          if !note.tags.isEmpty {
+            Text(note.tags.joined(separator: ", "))
+              .font(.caption)
+              .foregroundStyle(.tertiary)
+              .lineLimit(1)
+          }
+        }
       }
 
       Spacer(minLength: 12)

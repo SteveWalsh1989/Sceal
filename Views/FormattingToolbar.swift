@@ -2,7 +2,6 @@
 //  FormattingToolbar.swift
 //  dayra
 //
-//  Created by Steve Walsh on 01/04/2026.
 //
 
 import AppKit
@@ -48,7 +47,8 @@ class FormattingToolbar: NSView {
     ])
 
     addTextButton("B", action: #selector(toggleBold), tooltip: "Bold", weight: .bold)
-    addSymbolButton("chevron.left.forwardslash.chevron.right", action: #selector(toggleCode), tooltip: "Code")
+    addSymbolButton(
+      "chevron.left.forwardslash.chevron.right", action: #selector(toggleCode), tooltip: "Code")
     addSeparator()
     addTextButton("H1", action: #selector(applyH1), tooltip: "Heading 1", size: 11)
     addTextButton("H2", action: #selector(applyH2), tooltip: "Heading 2", size: 11)
@@ -57,6 +57,10 @@ class FormattingToolbar: NSView {
     addSymbolButton("list.bullet", action: #selector(toggleBullet), tooltip: "Bullet List")
     addSymbolButton("list.number", action: #selector(toggleNumbered), tooltip: "Numbered List")
     addSymbolButton("checklist", action: #selector(toggleCheckbox), tooltip: "Checkbox")
+    addSeparator()
+    for preset in MarkdownStyler.headingColorPresets {
+      addColorSwatch(color: preset.color, name: preset.name)
+    }
   }
 
   private func addTextButton(
@@ -110,6 +114,23 @@ class FormattingToolbar: NSView {
     stackView.addArrangedSubview(sep)
   }
 
+  private func addColorSwatch(color: NSColor, name: String) {
+    let button = NSButton()
+    button.isBordered = false
+    button.bezelStyle = .inline
+    button.title = ""
+    button.wantsLayer = true
+    button.layer?.cornerRadius = 6
+    button.layer?.backgroundColor = color.cgColor
+    button.target = self
+    button.action = #selector(applyHeadingColor(_:))
+    button.toolTip = "Heading color: \(name)"
+    button.tag = MarkdownStyler.headingColorPresets.firstIndex(where: { $0.name == name }) ?? 0
+    button.widthAnchor.constraint(equalToConstant: 18).isActive = true
+    button.heightAnchor.constraint(equalToConstant: 18).isActive = true
+    stackView.addArrangedSubview(button)
+  }
+
   // MARK: - Positioning
 
   func show(relativeTo selectionRect: NSRect, in parentView: NSView) {
@@ -156,7 +177,10 @@ class FormattingToolbar: NSView {
 
     var allBold = true
     textStorage.enumerateAttribute(.markdownBold, in: range, options: []) { value, _, stop in
-      if value as? Bool != true { allBold = false; stop.pointee = true }
+      if value as? Bool != true {
+        allBold = false
+        stop.pointee = true
+      }
     }
 
     textStorage.beginEditing()
@@ -183,7 +207,10 @@ class FormattingToolbar: NSView {
     var allCode = true
     textStorage.enumerateAttribute(.markdownInlineCode, in: range, options: []) {
       value, _, stop in
-      if value as? Bool != true { allCode = false; stop.pointee = true }
+      if value as? Bool != true {
+        allCode = false
+        stop.pointee = true
+      }
     }
 
     textStorage.beginEditing()
@@ -192,12 +219,33 @@ class FormattingToolbar: NSView {
       textStorage.removeAttribute(.backgroundColor, range: range)
       textStorage.addAttribute(.font, value: NSFont.systemFont(ofSize: 15), range: range)
     } else {
-      textStorage.addAttributes([
-        .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
-        .backgroundColor: NSColor.quaternaryLabelColor,
-        .markdownInlineCode: true,
-      ], range: range)
+      textStorage.addAttributes(
+        [
+          .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
+          .backgroundColor: NSColor.quaternaryLabelColor,
+          .markdownInlineCode: true,
+        ], range: range)
     }
+    textStorage.endEditing()
+  }
+
+  // MARK: - Heading Color Action
+
+  @objc private func applyHeadingColor(_ sender: NSButton) {
+    guard let textView, let textStorage = textView.textStorage else { return }
+    let presetIndex = sender.tag
+    guard presetIndex < MarkdownStyler.headingColorPresets.count else { return }
+    let preset = MarkdownStyler.headingColorPresets[presetIndex]
+
+    let (lineRange, _) = currentLineRange()
+    guard lineRange.length > 0 else { return }
+
+    let attrs = textStorage.attributes(at: lineRange.location, effectiveRange: nil)
+    guard attrs[.markdownHeadingLevel] != nil else { return }
+
+    textStorage.beginEditing()
+    textStorage.addAttribute(.foregroundColor, value: preset.color, range: lineRange)
+    textStorage.addAttribute(.markdownHeadingColor, value: preset.name, range: lineRange)
     textStorage.endEditing()
   }
 
@@ -273,17 +321,19 @@ class FormattingToolbar: NSView {
         let checked = targetType == .checkboxChecked
         result = NSMutableAttributedString()
         result.append(MarkdownStyler.checkboxAttributedString(checked: checked))
-        result.append(NSAttributedString(
-          string: " \(cleanText)",
-          attributes: [
-            .font: NSFont.systemFont(ofSize: 15),
-            .foregroundColor: NSColor.labelColor,
-          ]))
+        result.append(
+          NSAttributedString(
+            string: " \(cleanText)",
+            attributes: [
+              .font: NSFont.systemFont(ofSize: 15),
+              .foregroundColor: NSColor.labelColor,
+            ]))
         let fullRange = NSRange(location: 0, length: result.length)
-        result.addAttributes([
-          .markdownListType: targetType.rawValue,
-          .paragraphStyle: listStyle,
-        ], range: fullRange)
+        result.addAttributes(
+          [
+            .markdownListType: targetType.rawValue,
+            .paragraphStyle: listStyle,
+          ], range: fullRange)
       } else {
         let marker: String
         switch targetType {
@@ -345,20 +395,23 @@ class FormattingToolbar: NSView {
     guard attrStr.length > 0 else { return }
     switch listType {
     case .bullet:
-      attrStr.addAttributes([
-        .foregroundColor: MarkdownStyler.bulletColor,
-        .font: NSFont.systemFont(ofSize: 11, weight: .bold),
-      ], range: NSRange(location: 0, length: 1))
+      attrStr.addAttributes(
+        [
+          .foregroundColor: MarkdownStyler.bulletColor,
+          .font: NSFont.systemFont(ofSize: 11, weight: .bold),
+        ], range: NSRange(location: 0, length: 1))
     case .checkboxUnchecked:
-      attrStr.addAttributes([
-        .foregroundColor: MarkdownStyler.checkboxUncheckedColor,
-        .font: NSFont.systemFont(ofSize: 15, weight: .medium),
-      ], range: NSRange(location: 0, length: 1))
+      attrStr.addAttributes(
+        [
+          .foregroundColor: MarkdownStyler.checkboxUncheckedColor,
+          .font: NSFont.systemFont(ofSize: 15, weight: .medium),
+        ], range: NSRange(location: 0, length: 1))
     case .checkboxChecked:
-      attrStr.addAttributes([
-        .foregroundColor: MarkdownStyler.checkboxCheckedColor,
-        .font: NSFont.systemFont(ofSize: 15, weight: .medium),
-      ], range: NSRange(location: 0, length: 1))
+      attrStr.addAttributes(
+        [
+          .foregroundColor: MarkdownStyler.checkboxCheckedColor,
+          .font: NSFont.systemFont(ofSize: 15, weight: .medium),
+        ], range: NSRange(location: 0, length: 1))
     case .numbered:
       let text = attrStr.string
       if let numMatch = text.range(of: #"^\d+\."#, options: .regularExpression) {

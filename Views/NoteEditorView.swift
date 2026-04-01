@@ -2,7 +2,6 @@
 //  NoteEditorView.swift
 //  dayra
 //
-//  Created by Steve Walsh on 01/04/2026.
 //
 
 import SwiftUI
@@ -13,17 +12,18 @@ struct NoteEditorView: View {
 
   var body: some View {
     if let note = store.note(withID: noteID) {
-      VStack(alignment: .leading, spacing: 18) {
-        TextField("Title", text: store.titleBinding(for: noteID))
-          .textFieldStyle(.plain)
-          .font(.system(size: 30, weight: .bold))
-
+      VStack(alignment: .leading, spacing: 12) {
         HStack(alignment: .center, spacing: 12) {
           Text(note.editorDateText)
             .font(.callout)
             .foregroundStyle(.secondary)
 
           Spacer()
+
+          TextField("Tags", text: store.tagsBinding(for: noteID))
+            .textFieldStyle(.plain)
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(.secondary)
 
           Button {
             store.selectToday()
@@ -34,15 +34,9 @@ struct NoteEditorView: View {
           .controlSize(.small)
         }
 
-        TextField("Tags", text: store.tagsBinding(for: noteID))
+        TextField("Title", text: store.titleBinding(for: noteID))
           .textFieldStyle(.plain)
-          .font(.system(size: 14, weight: .medium))
-          .padding(.horizontal, 14)
-          .padding(.vertical, 10)
-          .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-              .fill(Color.primary.opacity(0.04))
-          )
+          .font(.system(size: 30, weight: .bold))
 
         ZStack(alignment: .topLeading) {
           RoundedRectangle(cornerRadius: 24, style: .continuous)

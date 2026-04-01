@@ -2,7 +2,6 @@
 //  MarkdownNoteFile.swift
 //  dayra
 //
-//  Created by Steve Walsh on 01/04/2026.
 //
 
 import Foundation
