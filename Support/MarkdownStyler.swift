@@ -7,160 +7,506 @@
 
 import AppKit
 
+// MARK: - Custom Attribute Keys
+
+extension NSAttributedString.Key {
+  static let markdownHeadingLevel = NSAttributedString.Key("dayra.headingLevel")
+  static let markdownListType = NSAttributedString.Key("dayra.listType")
+  static let markdownBold = NSAttributedString.Key("dayra.bold")
+  static let markdownLinkURL = NSAttributedString.Key("dayra.linkURL")
+  static let markdownCodeFence = NSAttributedString.Key("dayra.codeFence")
+  static let markdownCodeBlock = NSAttributedString.Key("dayra.codeBlock")
+  static let markdownBlockType = NSAttributedString.Key("dayra.blockType")
+}
+
+enum MarkdownListType: String {
+  case bullet
+  case numbered
+  case checkboxUnchecked
+  case checkboxChecked
+}
+
+// MARK: - Styler
+
 enum MarkdownStyler {
 
-  // MARK: - Public API
+  static let bulletMarker = "●"
+  static let uncheckedMarker = "☐"
+  static let checkedMarker = "☑"
 
-  static func applyFormatting(to textStorage: NSTextStorage, defaultFont: NSFont) {
-    let fullString = textStorage.string as NSString
-    let fullRange = NSRange(location: 0, length: fullString.length)
+  private static let defaultSize: CGFloat = 15
 
-    textStorage.beginEditing()
+  // MARK: - Raw Markdown → Display Attributed String
 
-    // Reset all attributes to defaults
-    let defaultParagraph = NSMutableParagraphStyle()
-    textStorage.setAttributes([
-      .font: defaultFont,
-      .foregroundColor: NSColor.labelColor,
-      .paragraphStyle: defaultParagraph,
-    ], range: fullRange)
-
-    // Track which line ranges are inside fenced code blocks (used by both passes)
-    var codeBlockLineRanges: Set<Int> = []
+  static func formatForDisplay(_ rawMarkdown: String, defaultFont: NSFont) -> NSAttributedString {
+    let result = NSMutableAttributedString()
+    let lines = rawMarkdown.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
     var insideCodeBlock = false
 
-    // MARK: First pass — line-level patterns
+    for (index, line) in lines.enumerated() {
+      if index > 0 {
+        result.append(NSAttributedString(string: "\n"))
+      }
 
-    let lines = splitLines(fullString)
-
-    for (lineIndex, lineRange) in lines.enumerated() {
-      let line = fullString.substring(with: lineRange)
-
-      // Fenced code block toggle
       if line.hasPrefix("```") {
-        applyFenceMarker(textStorage, range: lineRange)
         insideCodeBlock.toggle()
+        result.append(styledCodeFenceLine(line))
         continue
       }
 
       if insideCodeBlock {
-        codeBlockLineRanges.insert(lineIndex)
-        applyCodeBlockLine(textStorage, range: lineRange)
+        result.append(styledCodeBlockLine(line))
         continue
       }
 
-      // Block dividers: <!-- block:type -->
-      if applyBlockDivider(textStorage, line: line, range: lineRange) {
+      if line.range(of: #"^<!--\s*block:(\w+)\s*-->$"#, options: .regularExpression) != nil {
+        result.append(styledBlockDividerLine(line))
         continue
       }
 
-      // Headings
-      if applyHeading(textStorage, line: line, range: lineRange, fullString: fullString) {
-        continue
+      result.append(buildDisplayLine(line, defaultFont: defaultFont))
+    }
+
+    return result
+  }
+
+  // MARK: - Display → Raw Markdown
+
+  static func convertToMarkdown(from attributedString: NSAttributedString) -> String {
+    let nsString = attributedString.string as NSString
+    guard nsString.length > 0 else { return "" }
+
+    var markdownLines: [String] = []
+    var lineStart = 0
+
+    while lineStart <= nsString.length {
+      if lineStart == nsString.length {
+        break
       }
 
-      // Checkboxes (checked) — must test before unchecked
-      if applyCheckedCheckbox(textStorage, line: line, range: lineRange, fullString: fullString) {
-        continue
+      let lineRange = nsString.lineRange(for: NSRange(location: lineStart, length: 0))
+      var textRange = lineRange
+
+      // Trim trailing newline from the text range
+      if textRange.length > 0
+        && nsString.character(at: textRange.location + textRange.length - 1) == 0x0A
+      {
+        textRange.length -= 1
       }
 
-      // Checkboxes (unchecked)
-      if applyUncheckedCheckbox(textStorage, line: line, range: lineRange, fullString: fullString) {
-        continue
-      }
+      let markdownLine = reconstructLine(from: attributedString, textRange: textRange)
+      markdownLines.append(markdownLine)
+      lineStart = NSMaxRange(lineRange)
+    }
 
-      // Bullet lists (excluding checkboxes, already handled above)
-      if applyBulletList(textStorage, line: line, range: lineRange, fullString: fullString) {
-        continue
-      }
+    return markdownLines.joined(separator: "\n")
+  }
 
-      // Numbered lists
-      if applyNumberedList(textStorage, line: line, range: lineRange, fullString: fullString) {
-        continue
+  // MARK: - Live Line Formatting (called on Enter)
+
+  @discardableResult
+  static func formatCurrentLine(
+    in textStorage: NSTextStorage, lineRange: NSRange, defaultFont: NSFont
+  ) -> MarkdownListType? {
+    let nsString = textStorage.string as NSString
+    let lineText = nsString.substring(with: lineRange)
+
+    // Check if line already has formatting attributes (was formatted before)
+    if lineRange.length > 0 {
+      let attrs = textStorage.attributes(at: lineRange.location, effectiveRange: nil)
+      let alreadyFormatted =
+        attrs[.markdownHeadingLevel] != nil || attrs[.markdownListType] != nil
+
+      if alreadyFormatted {
+        // Only process inline formatting on existing formatted lines
+        processInlinePatterns(in: textStorage, lineRange: lineRange, defaultFont: defaultFont)
+        if let rawType = attrs[.markdownListType] as? String {
+          return MarkdownListType(rawValue: rawType)
+        }
+        return nil
       }
     }
 
-    // MARK: Second pass — inline patterns (skip code block lines)
+    // Build formatted version of this raw markdown line
+    let displayLine = buildDisplayLine(lineText, defaultFont: defaultFont)
 
-    for (lineIndex, lineRange) in lines.enumerated() {
-      if codeBlockLineRanges.contains(lineIndex) { continue }
-
-      let line = fullString.substring(with: lineRange)
-      if line.hasPrefix("```") { continue }
-
-      applyBold(textStorage, searchRange: lineRange, fullString: fullString)
-      applyLinks(textStorage, searchRange: lineRange, fullString: fullString)
-    }
-
+    textStorage.beginEditing()
+    textStorage.replaceCharacters(in: lineRange, with: displayLine)
     textStorage.endEditing()
-  }
 
-  // MARK: - Line Splitting
-
-  private static func splitLines(_ string: NSString) -> [NSRange] {
-    var ranges: [NSRange] = []
-    var start = 0
-    let length = string.length
-
-    while start < length {
-      let lineEnd = NSMaxRange(string.lineRange(for: NSRange(location: start, length: 0)))
-      let lineLength = lineEnd - start
-
-      // Trim trailing newline from the range used for matching
-      var trimmedLength = lineLength
-      if trimmedLength > 0 && string.character(at: start + trimmedLength - 1) == UInt16(0x0A) {
-        trimmedLength -= 1
+    // Determine list type from the formatted line
+    if displayLine.length > 0 {
+      let attrs = displayLine.attributes(at: 0, effectiveRange: nil)
+      if let rawType = attrs[.markdownListType] as? String {
+        return MarkdownListType(rawValue: rawType)
       }
-
-      ranges.append(NSRange(location: start, length: trimmedLength))
-      start = lineEnd
     }
 
-    return ranges
+    return nil
   }
 
-  // MARK: - Fenced Code Blocks
+  // MARK: - Build Display Line (single raw markdown line → attributed string)
 
-  private static func applyFenceMarker(_ textStorage: NSTextStorage, range: NSRange) {
-    textStorage.addAttributes([
-      .foregroundColor: NSColor.tertiaryLabelColor,
-      .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
-    ], range: range)
-  }
+  private static func buildDisplayLine(_ rawLine: String, defaultFont: NSFont)
+    -> NSAttributedString
+  {
+    let baseAttrs: [NSAttributedString.Key: Any] = [
+      .font: defaultFont,
+      .foregroundColor: NSColor.labelColor,
+    ]
 
-  private static func applyCodeBlockLine(_ textStorage: NSTextStorage, range: NSRange) {
-    textStorage.addAttributes([
-      .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
-      .backgroundColor: NSColor.quaternaryLabelColor,
-    ], range: range)
-  }
-
-  // MARK: - Block Dividers
-
-  private static func applyBlockDivider(
-    _ textStorage: NSTextStorage, line: String, range: NSRange
-  ) -> Bool {
-    guard let regex = try? NSRegularExpression(pattern: #"^<!--\s*block:(\w+)\s*-->$"#),
-      let match = regex.firstMatch(in: line, range: NSRange(location: 0, length: line.utf16.count))
-    else {
-      return false
+    // Heading
+    if let match = rawLine.range(of: #"^(#{1,3})\s+"#, options: .regularExpression) {
+      let level = rawLine[match].filter { $0 == "#" }.count
+      let content = String(rawLine[match.upperBound...])
+      let fontSize: CGFloat = level == 1 ? 22 : level == 2 ? 19 : 17
+      let result = NSMutableAttributedString(
+        string: content,
+        attributes: [
+          .font: NSFont.systemFont(ofSize: fontSize, weight: .bold),
+          .foregroundColor: NSColor.labelColor,
+          .markdownHeadingLevel: level,
+        ])
+      stripInlineBold(in: result, defaultBoldFont: NSFont.systemFont(ofSize: fontSize, weight: .bold))
+      stripInlineLinks(in: result)
+      return result
     }
 
-    let delimiterColor = NSColor.tertiaryLabelColor.withAlphaComponent(0.5)
+    // Checkbox checked
+    if rawLine.hasPrefix("- [x] ") {
+      let content = String(rawLine.dropFirst(6))
+      let displayText = "\(checkedMarker) \(content)"
+      let result = NSMutableAttributedString(string: displayText, attributes: baseAttrs)
+      let fullRange = NSRange(location: 0, length: result.length)
+      result.addAttributes([
+        .markdownListType: MarkdownListType.checkboxChecked.rawValue,
+        .strikethroughStyle: NSUnderlineStyle.single.rawValue,
+        .paragraphStyle: listParagraphStyle(),
+      ], range: fullRange)
+      result.addAttributes([
+        .foregroundColor: NSColor.systemGreen,
+        .font: NSFont.systemFont(ofSize: defaultSize + 2, weight: .medium),
+      ], range: NSRange(location: 0, length: 1))
+      stripInlineBold(in: result, defaultBoldFont: NSFont.boldSystemFont(ofSize: defaultSize))
+      stripInlineLinks(in: result)
+      return result
+    }
 
-    // Style the opening <!--
-    let openRange = NSRange(location: range.location, length: 4)
-    textStorage.addAttribute(.foregroundColor, value: delimiterColor, range: openRange)
+    // Checkbox unchecked
+    if rawLine.hasPrefix("- [ ] ") {
+      let content = String(rawLine.dropFirst(6))
+      let displayText = "\(uncheckedMarker) \(content)"
+      let result = NSMutableAttributedString(string: displayText, attributes: baseAttrs)
+      let fullRange = NSRange(location: 0, length: result.length)
+      result.addAttributes([
+        .markdownListType: MarkdownListType.checkboxUnchecked.rawValue,
+        .paragraphStyle: listParagraphStyle(),
+      ], range: fullRange)
+      result.addAttributes([
+        .foregroundColor: NSColor.secondaryLabelColor,
+        .font: NSFont.systemFont(ofSize: defaultSize + 2, weight: .medium),
+      ], range: NSRange(location: 0, length: 1))
+      stripInlineBold(in: result, defaultBoldFont: NSFont.boldSystemFont(ofSize: defaultSize))
+      stripInlineLinks(in: result)
+      return result
+    }
 
-    // Style the closing -->
-    let closeStart = range.location + range.length - 3
-    let closeRange = NSRange(location: closeStart, length: 3)
-    textStorage.addAttribute(.foregroundColor, value: delimiterColor, range: closeRange)
+    // Bullet list
+    if rawLine.range(of: #"^-\s+"#, options: .regularExpression) != nil {
+      let prefixMatch = rawLine.range(of: #"^-\s+"#, options: .regularExpression)!
+      let content = String(rawLine[prefixMatch.upperBound...])
+      let displayText = "\(bulletMarker) \(content)"
+      let result = NSMutableAttributedString(string: displayText, attributes: baseAttrs)
+      let fullRange = NSRange(location: 0, length: result.length)
+      result.addAttributes([
+        .markdownListType: MarkdownListType.bullet.rawValue,
+        .paragraphStyle: listParagraphStyle(),
+      ], range: fullRange)
+      result.addAttributes([
+        .foregroundColor: NSColor.controlAccentColor,
+        .font: NSFont.systemFont(ofSize: defaultSize + 3, weight: .bold),
+      ], range: NSRange(location: 0, length: 1))
+      stripInlineBold(in: result, defaultBoldFont: NSFont.boldSystemFont(ofSize: defaultSize))
+      stripInlineLinks(in: result)
+      return result
+    }
 
-    // Style the block type label
-    let labelNSRange = match.range(at: 1)
-    let labelRange = NSRange(
-      location: range.location + labelNSRange.location, length: labelNSRange.length)
+    // Numbered list
+    if rawLine.range(of: #"^\d+\.\s+"#, options: .regularExpression) != nil {
+      let result = NSMutableAttributedString(string: rawLine, attributes: baseAttrs)
+      let fullRange = NSRange(location: 0, length: result.length)
+      result.addAttributes([
+        .markdownListType: MarkdownListType.numbered.rawValue,
+        .paragraphStyle: listParagraphStyle(),
+      ], range: fullRange)
+      if let numMatch = rawLine.range(of: #"^\d+\."#, options: .regularExpression) {
+        let numLength = rawLine.distance(from: numMatch.lowerBound, to: numMatch.upperBound)
+        result.addAttribute(
+          .foregroundColor, value: NSColor.secondaryLabelColor,
+          range: NSRange(location: 0, length: numLength))
+      }
+      stripInlineBold(in: result, defaultBoldFont: NSFont.boldSystemFont(ofSize: defaultSize))
+      stripInlineLinks(in: result)
+      return result
+    }
+
+    // Plain line — inline formatting only
+    let result = NSMutableAttributedString(string: rawLine, attributes: baseAttrs)
+    stripInlineBold(in: result, defaultBoldFont: NSFont.boldSystemFont(ofSize: defaultSize))
+    stripInlineLinks(in: result)
+    return result
+  }
+
+  // MARK: - Inline Formatting (strips delimiters from attributed string)
+
+  private static func stripInlineBold(
+    in attrStr: NSMutableAttributedString, defaultBoldFont: NSFont
+  ) {
+    let regex = try! NSRegularExpression(pattern: #"\*\*(.+?)\*\*"#)
+
+    // Iterate until no more matches (since positions shift after each replacement)
+    while true {
+      let string = attrStr.string
+      guard
+        let match = regex.firstMatch(
+          in: string, range: NSRange(location: 0, length: string.utf16.count))
+      else { break }
+
+      let innerRange = match.range(at: 1)
+      let innerText = (string as NSString).substring(with: innerRange)
+
+      attrStr.replaceCharacters(in: match.range(at: 0), with: innerText)
+      let newRange = NSRange(location: match.range(at: 0).location, length: innerText.utf16.count)
+
+      let currentFont =
+        attrStr.attribute(.font, at: newRange.location, effectiveRange: nil) as? NSFont
+        ?? defaultBoldFont
+      let boldFont = NSFontManager.shared.convert(currentFont, toHaveTrait: .boldFontMask)
+      attrStr.addAttributes([
+        .font: boldFont,
+        .markdownBold: true,
+      ], range: newRange)
+    }
+  }
+
+  private static func stripInlineLinks(in attrStr: NSMutableAttributedString) {
+    let regex = try! NSRegularExpression(pattern: #"\[([^\]]+)\]\(([^\)]+)\)"#)
+
+    while true {
+      let string = attrStr.string
+      guard
+        let match = regex.firstMatch(
+          in: string, range: NSRange(location: 0, length: string.utf16.count))
+      else { break }
+
+      let textRange = match.range(at: 1)
+      let urlRange = match.range(at: 2)
+      let linkText = (string as NSString).substring(with: textRange)
+      let urlString = (string as NSString).substring(with: urlRange)
+
+      attrStr.replaceCharacters(in: match.range(at: 0), with: linkText)
+      let newRange = NSRange(location: match.range(at: 0).location, length: linkText.utf16.count)
+
+      var attrs: [NSAttributedString.Key: Any] = [
+        .foregroundColor: NSColor.linkColor,
+        .underlineStyle: NSUnderlineStyle.single.rawValue,
+        .markdownLinkURL: urlString,
+      ]
+      if let url = URL(string: urlString) { attrs[.link] = url }
+      attrStr.addAttributes(attrs, range: newRange)
+    }
+  }
+
+  // MARK: - Inline Processing on Existing Text Storage
+
+  private static func processInlinePatterns(
+    in textStorage: NSTextStorage, lineRange: NSRange, defaultFont: NSFont
+  ) {
+    // Bold
+    let boldRegex = try! NSRegularExpression(pattern: #"\*\*(.+?)\*\*"#)
+    while true {
+      let nsString = textStorage.string as NSString
+      let currentLineEnd = min(lineRange.location + lineRange.length, nsString.length)
+      let currentLineRange = NSRange(
+        location: lineRange.location, length: currentLineEnd - lineRange.location)
+      let lineText = nsString.substring(with: currentLineRange)
+      guard
+        let match = boldRegex.firstMatch(
+          in: lineText, range: NSRange(location: 0, length: lineText.utf16.count))
+      else { break }
+
+      let innerRange = match.range(at: 1)
+      let innerText = (lineText as NSString).substring(with: innerRange)
+      let absoluteRange = NSRange(
+        location: currentLineRange.location + match.range(at: 0).location,
+        length: match.range(at: 0).length)
+
+      let currentFont =
+        textStorage.attribute(.font, at: absoluteRange.location, effectiveRange: nil) as? NSFont
+        ?? defaultFont
+      let boldFont = NSFontManager.shared.convert(currentFont, toHaveTrait: .boldFontMask)
+
+      textStorage.beginEditing()
+      textStorage.replaceCharacters(in: absoluteRange, with: innerText)
+      let newRange = NSRange(location: absoluteRange.location, length: innerText.utf16.count)
+      textStorage.addAttributes([.font: boldFont, .markdownBold: true], range: newRange)
+      textStorage.endEditing()
+    }
+
+    // Links
+    let linkRegex = try! NSRegularExpression(pattern: #"\[([^\]]+)\]\(([^\)]+)\)"#)
+    while true {
+      let nsString = textStorage.string as NSString
+      let currentLineEnd = min(lineRange.location + lineRange.length, nsString.length)
+      let currentLineRange = NSRange(
+        location: lineRange.location, length: currentLineEnd - lineRange.location)
+      let lineText = nsString.substring(with: currentLineRange)
+      guard
+        let match = linkRegex.firstMatch(
+          in: lineText, range: NSRange(location: 0, length: lineText.utf16.count))
+      else { break }
+
+      let textRange = match.range(at: 1)
+      let urlRange = match.range(at: 2)
+      let linkText = (lineText as NSString).substring(with: textRange)
+      let urlString = (lineText as NSString).substring(with: urlRange)
+      let absoluteRange = NSRange(
+        location: currentLineRange.location + match.range(at: 0).location,
+        length: match.range(at: 0).length)
+
+      textStorage.beginEditing()
+      textStorage.replaceCharacters(in: absoluteRange, with: linkText)
+      let newRange = NSRange(location: absoluteRange.location, length: linkText.utf16.count)
+      var attrs: [NSAttributedString.Key: Any] = [
+        .foregroundColor: NSColor.linkColor,
+        .underlineStyle: NSUnderlineStyle.single.rawValue,
+        .markdownLinkURL: urlString,
+      ]
+      if let url = URL(string: urlString) { attrs[.link] = url }
+      textStorage.addAttributes(attrs, range: newRange)
+      textStorage.endEditing()
+    }
+  }
+
+  // MARK: - Reconstruct Markdown from Display Line
+
+  private static func reconstructLine(
+    from attributedString: NSAttributedString, textRange: NSRange
+  ) -> String {
+    guard textRange.length > 0 else { return "" }
+
+    let nsString = attributedString.string as NSString
+    let lineText = nsString.substring(with: textRange)
+    let attrs = attributedString.attributes(at: textRange.location, effectiveRange: nil)
+
+    // Code fence — pass through
+    if attrs[.markdownCodeFence] as? Bool == true {
+      return lineText
+    }
+
+    // Code block — pass through
+    if attrs[.markdownCodeBlock] as? Bool == true {
+      return lineText
+    }
+
+    // Block divider — pass through (raw comment text is preserved)
+    if attrs[.markdownBlockType] != nil {
+      return lineText
+    }
+
+    // Determine line prefix from attributes
+    var prefix = ""
+    var contentStart = 0
+
+    if let level = attrs[.markdownHeadingLevel] as? Int {
+      prefix = String(repeating: "#", count: level) + " "
+      contentStart = 0
+    } else if let rawType = attrs[.markdownListType] as? String,
+      let listType = MarkdownListType(rawValue: rawType)
+    {
+      switch listType {
+      case .bullet:
+        prefix = "- "
+        contentStart = lineText.hasPrefix("\(bulletMarker) ") ? 2 : 0
+      case .checkboxUnchecked:
+        prefix = "- [ ] "
+        contentStart = lineText.hasPrefix("\(uncheckedMarker) ") ? 2 : 0
+      case .checkboxChecked:
+        prefix = "- [x] "
+        contentStart = lineText.hasPrefix("\(checkedMarker) ") ? 2 : 0
+      case .numbered:
+        // Number text is already in the display, pass through
+        return reconstructInlineMarkdown(
+          from: attributedString,
+          range: textRange
+        )
+      }
+    }
+
+    // Get the content portion (after display marker)
+    let contentRange = NSRange(
+      location: textRange.location + contentStart,
+      length: textRange.length - contentStart
+    )
+
+    let inlineMarkdown = reconstructInlineMarkdown(from: attributedString, range: contentRange)
+    return prefix + inlineMarkdown
+  }
+
+  private static func reconstructInlineMarkdown(
+    from attributedString: NSAttributedString, range: NSRange
+  ) -> String {
+    guard range.length > 0 else { return "" }
+
+    var result = ""
+    let nsString = attributedString.string as NSString
+
+    attributedString.enumerateAttributes(in: range, options: []) { attrs, spanRange, _ in
+      let text = nsString.substring(with: spanRange)
+      let isBold = attrs[.markdownBold] as? Bool == true
+      let linkURL = attrs[.markdownLinkURL] as? String
+
+      if isBold, let url = linkURL {
+        result += "**[\(text)](\(url))**"
+      } else if isBold {
+        result += "**\(text)**"
+      } else if let url = linkURL {
+        result += "[\(text)](\(url))"
+      } else {
+        result += text
+      }
+    }
+
+    return result
+  }
+
+  // MARK: - Styled Special Lines (kept as raw text, just styled)
+
+  private static func styledCodeFenceLine(_ line: String) -> NSAttributedString {
+    NSAttributedString(
+      string: line,
+      attributes: [
+        .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular),
+        .foregroundColor: NSColor.tertiaryLabelColor,
+        .markdownCodeFence: true,
+      ])
+  }
+
+  private static func styledCodeBlockLine(_ line: String) -> NSAttributedString {
+    NSAttributedString(
+      string: line,
+      attributes: [
+        .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
+        .backgroundColor: NSColor.quaternaryLabelColor,
+        .foregroundColor: NSColor.labelColor,
+        .markdownCodeBlock: true,
+      ])
+  }
+
+  private static func styledBlockDividerLine(_ line: String) -> NSAttributedString {
+    let regex = try! NSRegularExpression(pattern: #"^<!--\s*block:(\w+)\s*-->$"#)
+    let match = regex.firstMatch(in: line, range: NSRange(location: 0, length: line.utf16.count))
+    let blockType = match.map { (line as NSString).substring(with: $0.range(at: 1)) } ?? "other"
 
     let centeredParagraph = NSMutableParagraphStyle()
     centeredParagraph.alignment = .center
@@ -168,7 +514,7 @@ enum MarkdownStyler {
     centeredParagraph.paragraphSpacing = 8
 
     let smallCapsFont = NSFont.systemFont(ofSize: 11, weight: .medium)
-    let smallCapsDescriptor = smallCapsFont.fontDescriptor.addingAttributes([
+    let descriptor = smallCapsFont.fontDescriptor.addingAttributes([
       .featureSettings: [
         [
           NSFontDescriptor.FeatureKey.typeIdentifier: kUpperCaseType,
@@ -176,227 +522,25 @@ enum MarkdownStyler {
         ]
       ]
     ])
-    let resolvedSmallCaps = NSFont(descriptor: smallCapsDescriptor, size: 0) ?? smallCapsFont
+    let resolvedFont = NSFont(descriptor: descriptor, size: 0) ?? smallCapsFont
 
-    textStorage.addAttributes([
-      .foregroundColor: NSColor.secondaryLabelColor,
-      .font: resolvedSmallCaps,
-    ], range: labelRange)
-
-    // Apply centered paragraph to entire line
-    textStorage.addAttribute(.paragraphStyle, value: centeredParagraph, range: range)
-
-    // The portions between <!-- and label, and between label and --> are also delimiters
-    let betweenOpenAndLabel = NSRange(
-      location: openRange.location + openRange.length,
-      length: labelRange.location - (openRange.location + openRange.length))
-    if betweenOpenAndLabel.length > 0 {
-      textStorage.addAttribute(.foregroundColor, value: delimiterColor, range: betweenOpenAndLabel)
-    }
-
-    let betweenLabelAndClose = NSRange(
-      location: labelRange.location + labelRange.length,
-      length: closeRange.location - (labelRange.location + labelRange.length))
-    if betweenLabelAndClose.length > 0 {
-      textStorage.addAttribute(.foregroundColor, value: delimiterColor, range: betweenLabelAndClose)
-    }
-
-    return true
+    return NSAttributedString(
+      string: line,
+      attributes: [
+        .font: resolvedFont,
+        .foregroundColor: NSColor.secondaryLabelColor,
+        .paragraphStyle: centeredParagraph,
+        .markdownBlockType: blockType,
+      ])
   }
 
-  // MARK: - Headings
+  // MARK: - Helpers
 
-  private static func applyHeading(
-    _ textStorage: NSTextStorage, line: String, range: NSRange, fullString: NSString
-  ) -> Bool {
-    guard let regex = try? NSRegularExpression(pattern: #"^(#{1,3})\s+(.+)$"#),
-      let match = regex.firstMatch(in: line, range: NSRange(location: 0, length: line.utf16.count))
-    else {
-      return false
-    }
-
-    let hashRange = match.range(at: 1)
-    let level = hashRange.length
-    let fontSize: CGFloat = level == 1 ? 22 : level == 2 ? 19 : 17
-
-    // Style the # characters
-    let hashAbsoluteRange = NSRange(location: range.location + hashRange.location, length: hashRange.length)
-    textStorage.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: hashAbsoluteRange)
-
-    // Style the heading text (includes the space after #)
-    let textNSRange = match.range(at: 2)
-    let textAbsoluteRange = NSRange(
-      location: range.location + textNSRange.location, length: textNSRange.length)
-    textStorage.addAttribute(
-      .font, value: NSFont.systemFont(ofSize: fontSize, weight: .bold), range: textAbsoluteRange)
-
-    return true
-  }
-
-  // MARK: - Checkboxes
-
-  private static func applyCheckedCheckbox(
-    _ textStorage: NSTextStorage, line: String, range: NSRange, fullString: NSString
-  ) -> Bool {
-    guard let regex = try? NSRegularExpression(pattern: #"^(-\s+\[x\]\s+)(.+)$"#),
-      let match = regex.firstMatch(in: line, range: NSRange(location: 0, length: line.utf16.count))
-    else {
-      return false
-    }
-
-    let markerRange = match.range(at: 1)
-    let textRange = match.range(at: 2)
-
-    let markerAbsolute = NSRange(
-      location: range.location + markerRange.location, length: markerRange.length)
-    let textAbsolute = NSRange(
-      location: range.location + textRange.location, length: textRange.length)
-
-    textStorage.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: markerAbsolute)
-    textStorage.addAttribute(
-      .strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: textAbsolute)
-
-    return true
-  }
-
-  private static func applyUncheckedCheckbox(
-    _ textStorage: NSTextStorage, line: String, range: NSRange, fullString: NSString
-  ) -> Bool {
-    guard let regex = try? NSRegularExpression(pattern: #"^(-\s+\[\s\]\s+)(.+)$"#),
-      let match = regex.firstMatch(in: line, range: NSRange(location: 0, length: line.utf16.count))
-    else {
-      return false
-    }
-
-    let markerRange = match.range(at: 1)
-    let markerAbsolute = NSRange(
-      location: range.location + markerRange.location, length: markerRange.length)
-
-    textStorage.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: markerAbsolute)
-
-    return true
-  }
-
-  // MARK: - Bullet Lists
-
-  private static func applyBulletList(
-    _ textStorage: NSTextStorage, line: String, range: NSRange, fullString: NSString
-  ) -> Bool {
-    guard let regex = try? NSRegularExpression(pattern: #"^(-)\s+(.+)$"#),
-      let match = regex.firstMatch(in: line, range: NSRange(location: 0, length: line.utf16.count))
-    else {
-      return false
-    }
-
-    let dashRange = match.range(at: 1)
-    let dashAbsolute = NSRange(
-      location: range.location + dashRange.location, length: dashRange.length)
-
-    textStorage.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: dashAbsolute)
-
-    let listParagraph = NSMutableParagraphStyle()
-    listParagraph.firstLineHeadIndent = 0
-    listParagraph.headIndent = 20
-    textStorage.addAttribute(.paragraphStyle, value: listParagraph, range: range)
-
-    return true
-  }
-
-  // MARK: - Numbered Lists
-
-  private static func applyNumberedList(
-    _ textStorage: NSTextStorage, line: String, range: NSRange, fullString: NSString
-  ) -> Bool {
-    guard let regex = try? NSRegularExpression(pattern: #"^(\d+\.)\s+(.+)$"#),
-      let match = regex.firstMatch(in: line, range: NSRange(location: 0, length: line.utf16.count))
-    else {
-      return false
-    }
-
-    let numberRange = match.range(at: 1)
-    let numberAbsolute = NSRange(
-      location: range.location + numberRange.location, length: numberRange.length)
-
-    textStorage.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: numberAbsolute)
-
-    let listParagraph = NSMutableParagraphStyle()
-    listParagraph.firstLineHeadIndent = 0
-    listParagraph.headIndent = 20
-    textStorage.addAttribute(.paragraphStyle, value: listParagraph, range: range)
-
-    return true
-  }
-
-  // MARK: - Inline Bold
-
-  private static func applyBold(
-    _ textStorage: NSTextStorage, searchRange: NSRange, fullString: NSString
-  ) {
-    guard let regex = try? NSRegularExpression(pattern: #"\*\*(.+?)\*\*"#) else { return }
-
-    let line = fullString.substring(with: searchRange)
-    let matches = regex.matches(in: line, range: NSRange(location: 0, length: line.utf16.count))
-
-    for match in matches {
-      let fullMatchRange = match.range(at: 0)
-      let innerRange = match.range(at: 1)
-
-      // Style the opening **
-      let openStars = NSRange(
-        location: searchRange.location + fullMatchRange.location, length: 2)
-      textStorage.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: openStars)
-
-      // Style the closing **
-      let closeStars = NSRange(
-        location: searchRange.location + fullMatchRange.location + fullMatchRange.length - 2,
-        length: 2)
-      textStorage.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: closeStars)
-
-      // Bold the inner text
-      let innerAbsolute = NSRange(
-        location: searchRange.location + innerRange.location, length: innerRange.length)
-      let currentFont =
-        textStorage.attribute(.font, at: innerAbsolute.location, effectiveRange: nil) as? NSFont
-        ?? NSFont.systemFont(ofSize: 15)
-      let boldFont = NSFontManager.shared.convert(currentFont, toHaveTrait: .boldFontMask)
-      textStorage.addAttribute(.font, value: boldFont, range: innerAbsolute)
-    }
-  }
-
-  // MARK: - Inline Links
-
-  private static func applyLinks(
-    _ textStorage: NSTextStorage, searchRange: NSRange, fullString: NSString
-  ) {
-    guard let regex = try? NSRegularExpression(pattern: #"\[([^\]]+)\]\(([^\)]+)\)"#) else {
-      return
-    }
-
-    let line = fullString.substring(with: searchRange)
-    let matches = regex.matches(in: line, range: NSRange(location: 0, length: line.utf16.count))
-
-    for match in matches {
-      let fullMatchRange = match.range(at: 0)
-      let linkTextRange = match.range(at: 1)
-      let urlRange = match.range(at: 2)
-
-      let fullAbsolute = NSRange(
-        location: searchRange.location + fullMatchRange.location, length: fullMatchRange.length)
-
-      // Color all delimiter characters and the URL in tertiaryLabelColor
-      textStorage.addAttribute(
-        .foregroundColor, value: NSColor.tertiaryLabelColor, range: fullAbsolute)
-
-      // Style the link text
-      let linkTextAbsolute = NSRange(
-        location: searchRange.location + linkTextRange.location, length: linkTextRange.length)
-      textStorage.addAttribute(.foregroundColor, value: NSColor.linkColor, range: linkTextAbsolute)
-
-      // Add the link attribute
-      let urlString = (line as NSString).substring(with: urlRange)
-      if let url = URL(string: urlString) {
-        textStorage.addAttribute(.link, value: url, range: linkTextAbsolute)
-      }
-    }
+  private static func listParagraphStyle() -> NSMutableParagraphStyle {
+    let style = NSMutableParagraphStyle()
+    style.firstLineHeadIndent = 8
+    style.headIndent = 28
+    style.paragraphSpacing = 2
+    return style
   }
 }
