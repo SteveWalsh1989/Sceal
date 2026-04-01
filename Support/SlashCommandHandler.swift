@@ -22,7 +22,7 @@ enum SlashCommandHandler {
     }
 
     textStorage.beginEditing()
-    textStorage.replaceCharacters(in: lineRange, with: "---")
+    textStorage.replaceCharacters(in: lineRange, with: "<!-- section -->")
     textStorage.endEditing()
 
     return true

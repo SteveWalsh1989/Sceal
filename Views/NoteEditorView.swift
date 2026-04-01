@@ -4,11 +4,16 @@
 //
 //
 
+import AppKit
 import SwiftUI
 
 struct NoteEditorView: View {
   @ObservedObject var store: NoteStore
   let noteID: DayNote.ID
+
+  @State private var isShowingAppearancePopover = false
+  @State private var isShowingDeleteConfirmation = false
+  @State private var fontPanelController = NoteAppearanceFontPanelController()
 
   private var adjacentNoteIDs: (previous: DayNote.ID?, next: DayNote.ID?) {
     store.adjacentNoteIDs(for: noteID)
@@ -56,6 +61,23 @@ struct NoteEditorView: View {
           }
           .buttonStyle(.bordered)
           .controlSize(.small)
+
+          HeaderIconButton(
+            systemImage: "gearshape",
+            accessibilityLabel: "Open note appearance settings"
+          ) {
+            isShowingAppearancePopover.toggle()
+          }
+          .popover(isPresented: $isShowingAppearancePopover, arrowEdge: .top) {
+            QuickAppearancePopover(
+              store: store,
+              openFontPanel: openFontPanel,
+              confirmDelete: {
+                isShowingAppearancePopover = false
+                isShowingDeleteConfirmation = true
+              }
+            )
+          }
         }
 
         TextField("Title", text: store.titleBinding(for: noteID))
@@ -70,19 +92,40 @@ struct NoteEditorView: View {
               .padding(.vertical, 30)
           }
 
-          MarkdownTextView(text: store.bodyBinding(for: noteID))
+          MarkdownTextView(
+            text: store.bodyBinding(for: noteID),
+            appearanceSettings: store.appearanceSettings
+          )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
       }
       .padding(.horizontal, 24)
       .padding(.bottom, 24)
       .padding(.top, 12)
+      .alert("Delete this note?", isPresented: $isShowingDeleteConfirmation) {
+        Button("Delete", role: .destructive) {
+          store.deleteSelectedNote()
+        }
+
+        Button("Cancel", role: .cancel) {}
+      } message: {
+        Text("This cannot be undone.")
+      }
+      .onDisappear {
+        fontPanelController.detachIfNeeded()
+      }
     } else {
       ContentUnavailableView(
         "Note unavailable",
         systemImage: "square.and.pencil",
         description: Text("Select another day from the sidebar.")
       )
+    }
+  }
+
+  private func openFontPanel() {
+    fontPanelController.present(using: store.appearanceSettings) { selectedFontName in
+      store.updateBodyFontName(selectedFontName)
     }
   }
 }
@@ -103,5 +146,239 @@ private struct HeaderNavigationButton: View {
     }
     .buttonStyle(.plain)
     .accessibilityLabel(accessibilityLabel)
+  }
+}
+
+// Keeps header utility actions visually aligned with the navigation buttons.
+private struct HeaderIconButton: View {
+  let systemImage: String
+  let accessibilityLabel: String
+  let action: () -> Void
+
+  var body: some View {
+    Button(action: action) {
+      Image(systemName: systemImage)
+        .font(.system(size: 12, weight: .semibold))
+        .foregroundStyle(.secondary)
+        .frame(width: 28, height: 28)
+        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel(accessibilityLabel)
+  }
+}
+
+private struct QuickAppearancePopover: View {
+  @ObservedObject var store: NoteStore
+  let openFontPanel: () -> Void
+  let confirmDelete: () -> Void
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 18) {
+      Text("Appearance")
+        .font(.system(size: 14, weight: .semibold))
+
+      QuickAppearanceFontRow(
+        fontName: store.appearanceSettings.bodyFontDisplayName,
+        openFontPanel: openFontPanel
+      )
+
+      QuickAppearanceSliderRow(
+        title: "Font size",
+        valueLabel: "\(Int(store.appearanceSettings.bodyFontSize))",
+        value: Binding(
+          get: { Double(store.appearanceSettings.bodyFontSize) },
+          set: { store.updateBodyFontSize(CGFloat($0)) }
+        ),
+        range: Double(
+          NoteAppearanceSettings.minimumBodyFontSize)...Double(
+            NoteAppearanceSettings.maximumBodyFontSize),
+        step: 1
+      )
+
+      QuickAppearanceSliderRow(
+        title: "Line height",
+        valueLabel: String(format: "%.1fx", store.appearanceSettings.lineHeight),
+        value: Binding(
+          get: { Double(store.appearanceSettings.lineHeight) },
+          set: { store.updateLineHeight(CGFloat($0)) }
+        ),
+        range: Double(
+          NoteAppearanceSettings.minimumLineHeight)...Double(
+            NoteAppearanceSettings.maximumLineHeight),
+        step: 0.1
+      )
+
+      QuickAppearanceSliderRow(
+        title: "Bullet size",
+        valueLabel: "\(Int(store.appearanceSettings.bulletSize))",
+        value: Binding(
+          get: { Double(store.appearanceSettings.bulletSize) },
+          set: { store.updateBulletSize(CGFloat($0)) }
+        ),
+        range: Double(
+          NoteAppearanceSettings.minimumBulletSize)...Double(
+            NoteAppearanceSettings.maximumBulletSize),
+        step: 2
+      )
+
+      QuickAppearanceColorRow(
+        selectedColorName: store.appearanceSettings.accentColorName,
+        onSelect: store.updateAccentColorName
+      )
+
+      Divider()
+
+      Button(role: .destructive, action: confirmDelete) {
+        HStack(spacing: 8) {
+          Image(systemName: "trash")
+          Text("Delete note…")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+      }
+      .buttonStyle(.plain)
+      .foregroundStyle(.red)
+      .padding(.top, 2)
+    }
+    .padding(20)
+    .frame(width: 332)
+  }
+}
+
+private struct QuickAppearanceFontRow: View {
+  let fontName: String
+  let openFontPanel: () -> Void
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      HStack(alignment: .firstTextBaseline) {
+        Text("Font")
+          .font(.system(size: 12, weight: .medium))
+
+        Spacer()
+
+        Text(fontName)
+          .font(.system(size: 12))
+          .foregroundStyle(.secondary)
+      }
+
+      Button("Choose Font…", action: openFontPanel)
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+    }
+  }
+}
+
+private struct QuickAppearanceSliderRow: View {
+  let title: String
+  let valueLabel: String
+  @Binding var value: Double
+  let range: ClosedRange<Double>
+  let step: Double
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      HStack(alignment: .firstTextBaseline) {
+        Text(title)
+          .font(.system(size: 12, weight: .medium))
+
+        Spacer()
+
+        Text(valueLabel)
+          .font(.system(size: 12))
+          .foregroundStyle(.secondary)
+      }
+
+      Slider(value: $value, in: range, step: step)
+        .controlSize(.small)
+        .tint(.accentColor)
+    }
+  }
+}
+
+private struct QuickAppearanceColorRow: View {
+  let selectedColorName: String
+  let onSelect: (String) -> Void
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      HStack(alignment: .firstTextBaseline) {
+        Text("Default color")
+          .font(.system(size: 12, weight: .medium))
+
+        Spacer()
+
+        Text(selectedColorName.capitalized)
+          .font(.system(size: 12))
+          .foregroundStyle(.secondary)
+      }
+
+      HStack(spacing: 10) {
+        ForEach(DayraPalette.colors, id: \.name) { entry in
+          Button {
+            onSelect(entry.name)
+          } label: {
+            Circle()
+              .fill(Color(nsColor: entry.color))
+              .frame(width: 18, height: 18)
+              .overlay {
+                Circle()
+                  .strokeBorder(
+                    borderColor(for: entry.name),
+                    lineWidth: entry.name == selectedColorName ? 2 : 1
+                  )
+              }
+          }
+          .buttonStyle(.plain)
+          .accessibilityLabel("Use \(entry.name) accent color")
+        }
+      }
+    }
+  }
+
+  private func borderColor(for colorName: String) -> Color {
+    if colorName == selectedColorName {
+      return Color.primary
+    }
+
+    if colorName == "white" {
+      return Color.primary.opacity(0.2)
+    }
+
+    return Color.clear
+  }
+}
+
+@MainActor
+private final class NoteAppearanceFontPanelController: NSObject {
+  private var selectedFont = NoteAppearanceSettings.default.bodyFont
+  private var onFontChange: ((String) -> Void)?
+
+  func present(
+    using appearanceSettings: NoteAppearanceSettings, onChange: @escaping (String) -> Void
+  ) {
+    selectedFont = appearanceSettings.bodyFont
+    onFontChange = onChange
+
+    let fontManager = NSFontManager.shared
+    fontManager.target = self
+    fontManager.action = #selector(changeFont(_:))
+    fontManager.setSelectedFont(selectedFont, isMultiple: false)
+    NSFontPanel.shared.setPanelFont(selectedFont, isMultiple: false)
+    fontManager.orderFrontFontPanel(nil)
+  }
+
+  func detachIfNeeded() {
+    if (NSFontManager.shared.target as AnyObject?) === self {
+      NSFontManager.shared.target = nil
+    }
+  }
+
+  @objc private func changeFont(_ sender: NSFontManager) {
+    let convertedFont = sender.convert(selectedFont)
+    selectedFont =
+      NSFont(name: convertedFont.fontName, size: selectedFont.pointSize)
+      ?? NSFont.systemFont(ofSize: selectedFont.pointSize)
+    onFontChange?(selectedFont.fontName)
   }
 }

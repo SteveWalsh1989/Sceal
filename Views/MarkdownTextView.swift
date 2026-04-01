@@ -9,6 +9,7 @@ import SwiftUI
 
 struct MarkdownTextView: NSViewRepresentable {
   @Binding var text: String
+  let appearanceSettings: NoteAppearanceSettings
 
   func makeCoordinator() -> Coordinator {
     Coordinator(parent: self)
@@ -16,10 +17,11 @@ struct MarkdownTextView: NSViewRepresentable {
 
   func makeNSView(context: Context) -> NSScrollView {
     let textView = DayraTextView()
+    textView.appearanceSettings = appearanceSettings
     textView.isRichText = true
     textView.isEditable = true
     textView.isSelectable = true
-    textView.font = NSFont.systemFont(ofSize: 15)
+    textView.font = appearanceSettings.bodyFont
     textView.drawsBackground = false
     textView.allowsUndo = true
     textView.isAutomaticQuoteSubstitutionEnabled = false
@@ -31,7 +33,9 @@ struct MarkdownTextView: NSViewRepresentable {
       .backgroundColor: NSColor.selectedTextBackgroundColor.withAlphaComponent(0.28)
     ]
     textView.textContainerInset = NSSize(width: 22, height: 22)
+    textView.typingAttributes = MarkdownStyler.baseTypingAttributes(for: appearanceSettings)
     textView.delegate = context.coordinator
+    context.coordinator.toolbar.appearanceSettings = appearanceSettings
 
     textView.textContainer?.widthTracksTextView = true
     textView.textContainer?.heightTracksTextView = false
@@ -48,10 +52,10 @@ struct MarkdownTextView: NSViewRepresentable {
     scrollView.drawsBackground = false
 
     // Load initial content
-    let displayString = MarkdownStyler.formatForDisplay(
-      text, defaultFont: NSFont.systemFont(ofSize: 15))
+    let displayString = MarkdownStyler.formatForDisplay(text, appearance: appearanceSettings)
     textView.textStorage?.setAttributedString(displayString)
     context.coordinator.lastPushedMarkdown = text
+    context.coordinator.lastAppliedAppearance = appearanceSettings
 
     // Ensure text view fills at least the scroll view height
     textView.minSize = NSSize(width: 0, height: scrollView.contentSize.height)
@@ -62,6 +66,7 @@ struct MarkdownTextView: NSViewRepresentable {
   func updateNSView(_ scrollView: NSScrollView, context: Context) {
     guard !context.coordinator.isUpdating else { return }
     guard let textView = scrollView.documentView as? NSTextView else { return }
+    context.coordinator.toolbar.appearanceSettings = appearanceSettings
 
     // Keep text view filling the scroll view height
     let minH = scrollView.contentSize.height
@@ -69,14 +74,32 @@ struct MarkdownTextView: NSViewRepresentable {
       textView.minSize = NSSize(width: 0, height: minH)
     }
 
-    guard text != context.coordinator.lastPushedMarkdown else { return }
+    let textChanged = text != context.coordinator.lastPushedMarkdown
+    let appearanceChanged = appearanceSettings != context.coordinator.lastAppliedAppearance
+    guard textChanged || appearanceChanged else { return }
 
     context.coordinator.isUpdating = true
-    let displayString = MarkdownStyler.formatForDisplay(
-      text, defaultFont: NSFont.systemFont(ofSize: 15))
+    let selectedRange = clampedRange(textView.selectedRange(), maxLength: text.utf16.count)
+    let visibleOrigin = scrollView.contentView.bounds.origin
+    if let dayraTextView = textView as? DayraTextView {
+      dayraTextView.appearanceSettings = appearanceSettings
+    }
+    textView.font = appearanceSettings.bodyFont
+    textView.typingAttributes = MarkdownStyler.baseTypingAttributes(for: appearanceSettings)
+    let displayString = MarkdownStyler.formatForDisplay(text, appearance: appearanceSettings)
     textView.textStorage?.setAttributedString(displayString)
     context.coordinator.lastPushedMarkdown = text
+    context.coordinator.lastAppliedAppearance = appearanceSettings
+    textView.setSelectedRange(clampedRange(selectedRange, maxLength: textView.string.utf16.count))
+    scrollView.contentView.scroll(to: visibleOrigin)
+    scrollView.reflectScrolledClipView(scrollView.contentView)
     context.coordinator.isUpdating = false
+  }
+
+  private func clampedRange(_ range: NSRange, maxLength: Int) -> NSRange {
+    let safeLocation = min(range.location, maxLength)
+    let safeLength = min(range.length, max(maxLength - safeLocation, 0))
+    return NSRange(location: safeLocation, length: safeLength)
   }
 
   // MARK: - Coordinator
@@ -85,10 +108,12 @@ struct MarkdownTextView: NSViewRepresentable {
     var parent: MarkdownTextView
     var isUpdating = false
     var lastPushedMarkdown = ""
+    var lastAppliedAppearance = NoteAppearanceSettings.default
     let toolbar = FormattingToolbar()
 
     init(parent: MarkdownTextView) {
       self.parent = parent
+      toolbar.appearanceSettings = parent.appearanceSettings
     }
 
     func textViewDidChangeSelection(_ notification: Notification) {
@@ -198,7 +223,7 @@ struct MarkdownTextView: NSViewRepresentable {
 
       // Format the line (original text or replaced slash command)
       let listType = MarkdownStyler.formatCurrentLine(
-        in: textStorage, lineRange: formatLineRange, defaultFont: NSFont.systemFont(ofSize: 15))
+        in: textStorage, lineRange: formatLineRange, appearance: parent.appearanceSettings)
       textStorage.endEditing()
 
       // Position cursor at end of the formatted line, then insert newline
@@ -228,7 +253,7 @@ struct MarkdownTextView: NSViewRepresentable {
         let marker = continuationMarker(for: listType, previousLineText: lineText)
         if !marker.isEmpty {
           let markerAttr = continuationAttributedMarker(
-            for: listType, marker: marker, defaultFont: NSFont.systemFont(ofSize: 15))
+            for: listType, marker: marker, appearance: parent.appearanceSettings)
           let insertRange = textView.selectedRange()
           textStorage.beginEditing()
           textStorage.insert(markerAttr, at: insertRange.location)
@@ -241,25 +266,22 @@ struct MarkdownTextView: NSViewRepresentable {
       // Blockquote continuation — set typing attributes so the next line inherits blockquote style
       if isBlockquoteLine, listType == nil {
         textView.typingAttributes = [
-          .font: NSFont.systemFont(ofSize: 15),
+          .font: parent.appearanceSettings.bodyFont,
           .foregroundColor: NSColor.secondaryLabelColor,
-          .paragraphStyle: MarkdownStyler.blockquoteParagraphStyle(),
+          .paragraphStyle: MarkdownStyler.blockquoteParagraphStyle(for: parent.appearanceSettings),
           .markdownBlockquote: true,
         ]
       } else if slashReplaced {
         // After a section divider, auto-start a heading 1
         textView.typingAttributes = [
-          .font: NSFont.systemFont(ofSize: 22, weight: .bold),
+          .font: parent.appearanceSettings.boldBodyFont(ofSize: 22),
           .foregroundColor: NSColor.labelColor,
-          .paragraphStyle: NSParagraphStyle.default,
+          .paragraphStyle: MarkdownStyler.bodyParagraphStyle(for: parent.appearanceSettings),
           .markdownHeadingLevel: 1,
         ]
       } else if listType == nil {
-        textView.typingAttributes = [
-          .font: NSFont.systemFont(ofSize: 15),
-          .foregroundColor: NSColor.labelColor,
-          .paragraphStyle: NSParagraphStyle.default,
-        ]
+        textView.typingAttributes = MarkdownStyler.baseTypingAttributes(
+          for: parent.appearanceSettings)
       }
 
       syncToBinding(textView)
@@ -332,21 +354,26 @@ struct MarkdownTextView: NSViewRepresentable {
     }
 
     private func continuationAttributedMarker(
-      for listType: MarkdownListType, marker: String, defaultFont: NSFont
+      for listType: MarkdownListType, marker: String, appearance: NoteAppearanceSettings
     ) -> NSAttributedString {
       switch listType {
       case .checkboxUnchecked, .checkboxChecked:
         let result = NSMutableAttributedString()
-        result.append(MarkdownStyler.checkboxAttributedString(checked: false))
+        result.append(
+          MarkdownStyler.checkboxAttributedString(checked: false, appearance: appearance))
         result.append(
           NSAttributedString(
             string: " ",
-            attributes: [.font: defaultFont, .foregroundColor: NSColor.labelColor]))
+            attributes: [
+              .font: appearance.bodyFont,
+              .foregroundColor: NSColor.labelColor,
+              .paragraphStyle: MarkdownStyler.bodyParagraphStyle(for: appearance),
+            ]))
         let fullRange = NSRange(location: 0, length: result.length)
         result.addAttributes(
           [
             .markdownListType: MarkdownListType.checkboxUnchecked.rawValue,
-            .paragraphStyle: listParagraphStyle(),
+            .paragraphStyle: MarkdownStyler.listParagraphStyle(for: appearance),
           ], range: fullRange)
         return result
 
@@ -354,16 +381,16 @@ struct MarkdownTextView: NSViewRepresentable {
         let result = NSMutableAttributedString(
           string: marker,
           attributes: [
-            .font: defaultFont,
+            .font: appearance.bodyFont,
             .foregroundColor: NSColor.labelColor,
             .markdownListType: listType.rawValue,
-            .paragraphStyle: listParagraphStyle(),
+            .paragraphStyle: MarkdownStyler.listParagraphStyle(for: appearance),
           ])
         if listType == .bullet {
           result.addAttributes(
             [
-              .foregroundColor: MarkdownStyler.bulletColor,
-              .font: NSFont.systemFont(ofSize: 11, weight: .bold),
+              .foregroundColor: MarkdownStyler.bulletColor(for: appearance),
+              .font: NSFont.systemFont(ofSize: appearance.bulletSize, weight: .bold),
             ], range: NSRange(location: 0, length: 1))
         } else if listType == .numbered {
           if let numEnd = marker.firstIndex(of: ".") {
@@ -375,14 +402,6 @@ struct MarkdownTextView: NSViewRepresentable {
         }
         return result
       }
-    }
-
-    private func listParagraphStyle() -> NSMutableParagraphStyle {
-      let style = NSMutableParagraphStyle()
-      style.firstLineHeadIndent = 8
-      style.headIndent = 28
-      style.paragraphSpacing = 2
-      return style
     }
 
     private func syncToBinding(_ textView: NSTextView) {
@@ -398,6 +417,7 @@ struct MarkdownTextView: NSViewRepresentable {
 
 private class DayraTextView: NSTextView {
 
+  var appearanceSettings = NoteAppearanceSettings.default
   private let cardColor = NSColor.labelColor.withAlphaComponent(0.04)
   private let cardRadius: CGFloat = 24
   private let cardHInset: CGFloat = 0
@@ -429,9 +449,20 @@ private class DayraTextView: NSTextView {
       }
     }
 
-    // No dividers → one card covering everything
+    // Find horizontal rule positions (visible lines, not card-splitting)
+    var hrLineRanges: [NSRange] = []
+    textStorage.enumerateAttribute(.markdownHorizontalRule, in: fullRange, options: []) {
+      value, range, _ in
+      if value as? Bool == true {
+        let nsString = textStorage.string as NSString
+        hrLineRanges.append(nsString.lineRange(for: range))
+      }
+    }
+
+    // No section dividers → one card covering everything
     if dividerLineRanges.isEmpty {
       drawSingleCard(in: rect)
+      drawHorizontalRules(hrLineRanges, in: rect)
       return
     }
 
@@ -498,6 +529,8 @@ private class DayraTextView: NSTextView {
       cardColor.setFill()
       path.fill()
     }
+
+    drawHorizontalRules(hrLineRanges, in: rect)
   }
 
   private func drawSingleCard(in rect: NSRect) {
@@ -508,6 +541,33 @@ private class DayraTextView: NSTextView {
     let path = NSBezierPath(roundedRect: cardRect, xRadius: cardRadius, yRadius: cardRadius)
     cardColor.setFill()
     path.fill()
+  }
+
+  // Draws a thin visible line for each standard markdown horizontal rule (`---`).
+  private func drawHorizontalRules(_ ranges: [NSRange], in rect: NSRect) {
+    guard let layoutManager = layoutManager, let textContainer = textContainer,
+      !ranges.isEmpty
+    else { return }
+
+    let lineInset: CGFloat = 24
+    NSColor.separatorColor.setFill()
+
+    for range in ranges {
+      let glyphRange = layoutManager.glyphRange(
+        forCharacterRange: range, actualCharacterRange: nil)
+      let lineRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+      let midY = lineRect.midY + textContainerOrigin.y
+
+      let hrRect = NSRect(
+        x: lineInset,
+        y: midY,
+        width: bounds.width - (lineInset * 2),
+        height: 1
+      )
+
+      guard hrRect.intersects(rect) else { continue }
+      hrRect.fill()
+    }
   }
 
   // MARK: - Paste
@@ -576,7 +636,10 @@ private class DayraTextView: NSTextView {
 
     textStorage.beginEditing()
 
-    let newAttachment = MarkdownStyler.checkboxAttachment(checked: !isChecked)
+    let newAttachment = MarkdownStyler.checkboxAttachment(
+      checked: !isChecked,
+      appearance: appearanceSettings
+    )
     let attachmentStr = NSAttributedString(attachment: newAttachment)
     textStorage.replaceCharacters(
       in: NSRange(location: charIndex, length: 1), with: attachmentStr)
@@ -595,6 +658,11 @@ private class DayraTextView: NSTextView {
     let newType: MarkdownListType = isChecked ? .checkboxUnchecked : .checkboxChecked
     textStorage.addAttribute(
       .markdownListType, value: newType.rawValue, range: updatedTextRange)
+    textStorage.addAttribute(
+      .paragraphStyle,
+      value: MarkdownStyler.listParagraphStyle(for: appearanceSettings),
+      range: updatedTextRange
+    )
 
     let contentStart = min(charIndex + 2, updatedTextRange.location + updatedTextRange.length)
     let contentLength = (updatedTextRange.location + updatedTextRange.length) - contentStart

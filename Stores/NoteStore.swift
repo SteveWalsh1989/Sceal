@@ -24,23 +24,30 @@ struct NoteMonthSection: Identifiable, Equatable {
 @MainActor
 final class NoteStore: ObservableObject {
   @Published private(set) var notes: [DayNote]
+  @Published private(set) var appearanceSettings: NoteAppearanceSettings
   @Published var selectedNoteID: DayNote.ID?
   @Published private(set) var isLoading = false
   @Published var errorMessage: String?
 
   private let fileManager: FileManager
   private let calendar: Calendar
+  private let userDefaults: UserDefaults
   private var hasLoaded = false
   private var pendingSaveTasks: [DayNote.ID: Task<Void, Never>] = [:]
+
+  private static let appearanceSettingsDefaultsKey = "dayra.noteAppearanceSettings"
 
   init(
     fileManager: FileManager = .default,
     calendar: Calendar = .current,
+    userDefaults: UserDefaults = .standard,
     previewNotes: [DayNote] = []
   ) {
     self.fileManager = fileManager
     self.calendar = calendar
+    self.userDefaults = userDefaults
     self.notes = previewNotes.sorted(by: { $0.date > $1.date })
+    self.appearanceSettings = Self.loadAppearanceSettings(from: userDefaults)
     self.selectedNoteID = previewNotes.sorted(by: { $0.date > $1.date }).first?.id
     self.hasLoaded = !previewNotes.isEmpty
   }
@@ -113,9 +120,7 @@ final class NoteStore: ObservableObject {
     let noteIDs = Array(pendingSaveTasks.keys)
 
     for noteID in noteIDs {
-      pendingSaveTasks[noteID]?.cancel()
-      pendingSaveTasks[noteID] = nil
-      persistPendingSave(for: noteID)
+      flushPendingSave(for: noteID)
     }
   }
 
@@ -125,6 +130,44 @@ final class NoteStore: ObservableObject {
 
   func select(noteID: DayNote.ID) {
     selectedNoteID = noteID
+  }
+
+  func updateBodyFontName(_ bodyFontName: String) {
+    updateAppearanceSettings { settings in
+      settings.bodyFontName = bodyFontName
+    }
+  }
+
+  func updateBodyFontSize(_ bodyFontSize: CGFloat) {
+    updateAppearanceSettings { settings in
+      settings.bodyFontSize = bodyFontSize
+    }
+  }
+
+  func updateLineHeight(_ lineHeight: CGFloat) {
+    updateAppearanceSettings { settings in
+      settings.lineHeight = lineHeight
+    }
+  }
+
+  func updateBulletSize(_ bulletSize: CGFloat) {
+    updateAppearanceSettings { settings in
+      settings.bulletSize = bulletSize
+    }
+  }
+
+  func updateAccentColorName(_ accentColorName: String) {
+    updateAppearanceSettings { settings in
+      settings.accentColorName = accentColorName
+    }
+  }
+
+  func deleteSelectedNote() {
+    guard let selectedNoteID else {
+      return
+    }
+
+    delete(noteID: selectedNoteID)
   }
 
   // Returns the nearest older and newer notes so header arrows only step through saved notes.
@@ -231,6 +274,13 @@ final class NoteStore: ObservableObject {
     }
   }
 
+  private func updateAppearanceSettings(_ mutate: (inout NoteAppearanceSettings) -> Void) {
+    var updatedSettings = appearanceSettings
+    mutate(&updatedSettings)
+    appearanceSettings = updatedSettings.clamped
+    persistAppearanceSettings()
+  }
+
   private func update(noteID: DayNote.ID, mutate: (inout DayNote) -> Void) {
     guard let index = notes.firstIndex(where: { $0.id == noteID }) else {
       return
@@ -268,10 +318,90 @@ final class NoteStore: ObservableObject {
     }
   }
 
+  private func flushPendingSave(for noteID: DayNote.ID) {
+    let hadPendingSave = pendingSaveTasks[noteID] != nil
+    pendingSaveTasks[noteID]?.cancel()
+    pendingSaveTasks[noteID] = nil
+
+    guard hadPendingSave, let note = note(withID: noteID) else {
+      return
+    }
+
+    do {
+      try save(note)
+    } catch {
+      report(error, context: "Saving note before delete failed")
+    }
+  }
+
+  private func delete(noteID: DayNote.ID) {
+    guard let note = note(withID: noteID) else {
+      return
+    }
+
+    let adjacentNoteIDs = adjacentNoteIDs(for: noteID)
+    flushPendingSave(for: noteID)
+
+    do {
+      try deleteFile(for: note)
+    } catch {
+      report(error, context: "Deleting note failed")
+      return
+    }
+
+    notes.removeAll(where: { $0.id == noteID })
+
+    if notes.isEmpty {
+      do {
+        try seedStarterNotes()
+        selectedNoteID = notes.first?.id
+        errorMessage = nil
+      } catch {
+        report(error, context: "Loading sample notes after delete failed")
+        selectedNoteID = nil
+      }
+      return
+    }
+
+    selectedNoteID = adjacentNoteIDs.previous ?? adjacentNoteIDs.next ?? notes.first?.id
+  }
+
   private func save(_ note: DayNote) throws {
     let noteURL = try notesDirectoryURL().appendingPathComponent(note.fileName)
     let fileContents = try MarkdownNoteFile.encode(note)
     try fileContents.write(to: noteURL, atomically: true, encoding: .utf8)
+  }
+
+  private func deleteFile(for note: DayNote) throws {
+    let noteURL = try notesDirectoryURL().appendingPathComponent(note.fileName)
+
+    guard fileManager.fileExists(atPath: noteURL.path) else {
+      return
+    }
+
+    try fileManager.removeItem(at: noteURL)
+  }
+
+  private func persistAppearanceSettings() {
+    do {
+      let data = try JSONEncoder().encode(appearanceSettings)
+      userDefaults.set(data, forKey: Self.appearanceSettingsDefaultsKey)
+    } catch {
+      report(error, context: "Saving appearance settings failed")
+    }
+  }
+
+  private static func loadAppearanceSettings(from userDefaults: UserDefaults)
+    -> NoteAppearanceSettings
+  {
+    guard
+      let data = userDefaults.data(forKey: appearanceSettingsDefaultsKey),
+      let settings = try? JSONDecoder().decode(NoteAppearanceSettings.self, from: data)
+    else {
+      return .default
+    }
+
+    return settings.clamped
   }
 
   private func notesDirectoryURL() throws -> URL {

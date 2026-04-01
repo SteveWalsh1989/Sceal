@@ -18,6 +18,7 @@ extension NSAttributedString.Key {
   static let markdownCodeFence = NSAttributedString.Key("dayra.codeFence")
   static let markdownCodeBlock = NSAttributedString.Key("dayra.codeBlock")
   static let markdownSectionDivider = NSAttributedString.Key("dayra.sectionDivider")
+  static let markdownHorizontalRule = NSAttributedString.Key("dayra.horizontalRule")
   static let markdownInlineCode = NSAttributedString.Key("dayra.inlineCode")
   static let markdownHeadingColor = NSAttributedString.Key("dayra.headingColor")
   static let markdownBlockquote = NSAttributedString.Key("dayra.blockquote")
@@ -48,10 +49,12 @@ enum DayraPalette {
     Entry(name: "purple", color: NSColor(red: 0.60, green: 0.42, blue: 0.78, alpha: 1)),
     Entry(name: "orange", color: NSColor(red: 0.90, green: 0.58, blue: 0.30, alpha: 1)),
     Entry(name: "grey", color: NSColor(red: 0.58, green: 0.58, blue: 0.60, alpha: 1)),
-    Entry(name: "white", color: NSColor(name: nil) { appearance in
-      appearance.bestMatch(from: [.darkAqua, .vibrantDark]) != nil
-        ? .white : .black
-    }),
+    Entry(
+      name: "white",
+      color: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .vibrantDark]) != nil
+          ? .white : .black
+      }),
   ]
 
   static func color(named name: String) -> NSColor? {
@@ -72,26 +75,6 @@ enum MarkdownStyler {
   static let checkedMarker = "\u{FFFC}"
   static let attachmentChar = "\u{FFFC}"
 
-  private static let defaultSize: CGFloat = 15
-
-  // MARK: - Accent Colors (single source of truth for future settings)
-
-  static var accentColor: NSColor {
-    NSColor.systemPink
-  }
-
-  static var checkboxCheckedColor: NSColor {
-    NSColor.systemPink
-  }
-
-  static var checkboxUncheckedColor: NSColor {
-    accentColor
-  }
-
-  static var bulletColor: NSColor {
-    accentColor
-  }
-
   // MARK: - Heading Color Presets (backed by the shared palette)
 
   static let headingColorPresets: [(name: String, color: NSColor)] =
@@ -105,11 +88,69 @@ enum MarkdownStyler {
     DayraPalette.name(for: color)
   }
 
+  static func accentColor(for appearance: NoteAppearanceSettings) -> NSColor {
+    appearance.accentColor
+  }
+
+  static func checkboxCheckedColor(for appearance: NoteAppearanceSettings) -> NSColor {
+    accentColor(for: appearance)
+  }
+
+  static func checkboxUncheckedColor(for appearance: NoteAppearanceSettings) -> NSColor {
+    accentColor(for: appearance)
+  }
+
+  static func bulletColor(for appearance: NoteAppearanceSettings) -> NSColor {
+    accentColor(for: appearance)
+  }
+
+  static func bodyParagraphStyle(for appearance: NoteAppearanceSettings) -> NSMutableParagraphStyle
+  {
+    let style = NSMutableParagraphStyle()
+    style.lineHeightMultiple = appearance.lineHeight
+    return style
+  }
+
+  static func listParagraphStyle(for appearance: NoteAppearanceSettings) -> NSMutableParagraphStyle
+  {
+    let style = NSMutableParagraphStyle()
+    style.firstLineHeadIndent = 8
+    style.headIndent = 28
+    style.paragraphSpacing = 2
+    style.lineHeightMultiple = appearance.lineHeight
+    return style
+  }
+
+  // Indented style for blockquote lines with a left border feel.
+  static func blockquoteParagraphStyle(for appearance: NoteAppearanceSettings)
+    -> NSMutableParagraphStyle
+  {
+    let style = NSMutableParagraphStyle()
+    style.firstLineHeadIndent = 20
+    style.headIndent = 20
+    style.paragraphSpacing = 2
+    style.lineHeightMultiple = appearance.lineHeight
+    return style
+  }
+
+  static func baseTypingAttributes(for appearance: NoteAppearanceSettings)
+    -> [NSAttributedString.Key: Any]
+  {
+    [
+      .font: appearance.bodyFont,
+      .foregroundColor: NSColor.labelColor,
+      .paragraphStyle: bodyParagraphStyle(for: appearance),
+    ]
+  }
+
   // MARK: - Checkbox Attachments
 
-  static func checkboxAttachment(checked: Bool) -> NSTextAttachment {
+  static func checkboxAttachment(checked: Bool, appearance: NoteAppearanceSettings)
+    -> NSTextAttachment
+  {
     let symbolName = checked ? "checkmark.circle.fill" : "circle"
-    let color = checked ? checkboxCheckedColor : checkboxUncheckedColor
+    let color =
+      checked ? checkboxCheckedColor(for: appearance) : checkboxUncheckedColor(for: appearance)
     let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
       .applying(NSImage.SymbolConfiguration(paletteColors: [color]))
     let attachment = NSTextAttachment()
@@ -119,13 +160,17 @@ enum MarkdownStyler {
     return attachment
   }
 
-  static func checkboxAttributedString(checked: Bool) -> NSAttributedString {
-    NSAttributedString(attachment: checkboxAttachment(checked: checked))
+  static func checkboxAttributedString(checked: Bool, appearance: NoteAppearanceSettings)
+    -> NSAttributedString
+  {
+    NSAttributedString(attachment: checkboxAttachment(checked: checked, appearance: appearance))
   }
 
   // MARK: - Raw Markdown → Display Attributed String
 
-  static func formatForDisplay(_ rawMarkdown: String, defaultFont: NSFont) -> NSAttributedString {
+  static func formatForDisplay(_ rawMarkdown: String, appearance: NoteAppearanceSettings)
+    -> NSAttributedString
+  {
     let result = NSMutableAttributedString()
     let lines = rawMarkdown.split(separator: "\n", omittingEmptySubsequences: false).map(
       String.init)
@@ -170,8 +215,8 @@ enum MarkdownStyler {
         continue
       }
 
-      if line.range(of: #"^-{3,}$"#, options: .regularExpression) != nil {
-        // Flush pending color as-is if next line is a divider
+      // Section divider — dayra-specific card-gap marker
+      if line == "<!-- section -->" {
         if let colorName = pendingHeadingColorName {
           result.append(NSAttributedString(string: "<!-- hcolor:\(colorName) -->\n"))
           pendingHeadingColor = nil
@@ -181,7 +226,18 @@ enum MarkdownStyler {
         continue
       }
 
-      let displayLine = buildDisplayLine(line, defaultFont: defaultFont)
+      // Horizontal rule — standard markdown, renders as a visible line
+      if line.range(of: #"^-{3,}$"#, options: .regularExpression) != nil {
+        if let colorName = pendingHeadingColorName {
+          result.append(NSAttributedString(string: "<!-- hcolor:\(colorName) -->\n"))
+          pendingHeadingColor = nil
+          pendingHeadingColorName = nil
+        }
+        result.append(styledHorizontalRule())
+        continue
+      }
+
+      let displayLine = buildDisplayLine(line, appearance: appearance)
 
       // Apply pending heading color if this line is a heading
       if let color = pendingHeadingColor, let colorName = pendingHeadingColorName {
@@ -246,7 +302,7 @@ enum MarkdownStyler {
 
   @discardableResult
   static func formatCurrentLine(
-    in textStorage: NSTextStorage, lineRange: NSRange, defaultFont: NSFont
+    in textStorage: NSTextStorage, lineRange: NSRange, appearance: NoteAppearanceSettings
   ) -> MarkdownListType? {
     let nsString = textStorage.string as NSString
     let lineText = nsString.substring(with: lineRange)
@@ -254,8 +310,10 @@ enum MarkdownStyler {
     // Check if line already has formatting attributes (was formatted before)
     if lineRange.length > 0 {
       let attrs = textStorage.attributes(at: lineRange.location, effectiveRange: nil)
-      // Section dividers are fully styled — no further processing needed
-      if attrs[.markdownSectionDivider] as? Bool == true {
+      // Section dividers and horizontal rules are fully styled — no further processing needed
+      if attrs[.markdownSectionDivider] as? Bool == true
+        || attrs[.markdownHorizontalRule] as? Bool == true
+      {
         return nil
       }
 
@@ -265,7 +323,8 @@ enum MarkdownStyler {
 
       if alreadyFormatted {
         // Only process inline formatting on existing formatted lines
-        processInlinePatterns(in: textStorage, lineRange: lineRange, defaultFont: defaultFont)
+        processInlinePatterns(
+          in: textStorage, lineRange: lineRange, defaultFont: appearance.bodyFont)
         if let rawType = attrs[.markdownListType] as? String {
           return MarkdownListType(rawValue: rawType)
         }
@@ -274,7 +333,7 @@ enum MarkdownStyler {
     }
 
     // Build formatted version of this raw markdown line
-    let displayLine = buildDisplayLine(lineText, defaultFont: defaultFont)
+    let displayLine = buildDisplayLine(lineText, appearance: appearance)
 
     textStorage.beginEditing()
     textStorage.replaceCharacters(in: lineRange, with: displayLine)
@@ -293,35 +352,40 @@ enum MarkdownStyler {
 
   // MARK: - Build Display Line (single raw markdown line → attributed string)
 
-  private static func buildDisplayLine(_ rawLine: String, defaultFont: NSFont)
+  private static func buildDisplayLine(_ rawLine: String, appearance: NoteAppearanceSettings)
     -> NSAttributedString
   {
     let baseAttrs: [NSAttributedString.Key: Any] = [
-      .font: defaultFont,
+      .font: appearance.bodyFont,
       .foregroundColor: NSColor.labelColor,
+      .paragraphStyle: bodyParagraphStyle(for: appearance),
     ]
 
-    // Section divider
-    if rawLine.range(of: #"^-{3,}$"#, options: .regularExpression) != nil {
+    // Section divider — dayra card-gap marker
+    if rawLine == "<!-- section -->" {
       return styledSectionDivider()
+    }
+
+    // Horizontal rule — standard markdown visible line
+    if rawLine.range(of: #"^-{3,}$"#, options: .regularExpression) != nil {
+      return styledHorizontalRule()
     }
 
     // Heading
     if let match = rawLine.range(of: #"^(#{1,3})\s+"#, options: .regularExpression) {
       let level = rawLine[match].filter { $0 == "#" }.count
       let content = String(rawLine[match.upperBound...])
-      let fontSize: CGFloat = level == 1 ? 22 : level == 2 ? 19 : 17
+      let fontSize = headingFontSize(for: level)
       let result = NSMutableAttributedString(
         string: content,
         attributes: [
-          .font: NSFont.systemFont(ofSize: fontSize, weight: .bold),
+          .font: appearance.boldBodyFont(ofSize: fontSize),
           .foregroundColor: NSColor.labelColor,
           .markdownHeadingLevel: level,
+          .paragraphStyle: bodyParagraphStyle(for: appearance),
         ])
-      stripInlineBold(
-        in: result, defaultBoldFont: NSFont.systemFont(ofSize: fontSize, weight: .bold))
-      stripInlineItalic(
-        in: result, defaultItalicFont: NSFont.systemFont(ofSize: fontSize))
+      stripInlineBold(in: result, defaultBoldFont: appearance.boldBodyFont(ofSize: fontSize))
+      stripInlineItalic(in: result, defaultItalicFont: appearance.italicBodyFont(ofSize: fontSize))
       stripInlineStrikethrough(in: result)
       stripInlineCode(in: result)
       stripInlineLinks(in: result)
@@ -331,10 +395,13 @@ enum MarkdownStyler {
     // Checkbox checked
     if rawLine.hasPrefix("- [x] ") {
       let content = String(rawLine.dropFirst(6))
-      let checkAttr = checkboxAttributedString(checked: true)
+      let checkAttr = checkboxAttributedString(checked: true, appearance: appearance)
       let contentAttr = NSMutableAttributedString(string: " \(content)", attributes: baseAttrs)
-      stripInlineBold(in: contentAttr, defaultBoldFont: NSFont.boldSystemFont(ofSize: defaultSize))
-      stripInlineItalic(in: contentAttr, defaultItalicFont: NSFont.systemFont(ofSize: defaultSize))
+      stripInlineBold(
+        in: contentAttr, defaultBoldFont: appearance.boldBodyFont(ofSize: appearance.bodyFontSize))
+      stripInlineItalic(
+        in: contentAttr,
+        defaultItalicFont: appearance.italicBodyFont(ofSize: appearance.bodyFontSize))
       stripInlineStrikethrough(in: contentAttr)
       stripInlineCode(in: contentAttr)
       stripInlineLinks(in: contentAttr)
@@ -346,7 +413,7 @@ enum MarkdownStyler {
         [
           .markdownListType: MarkdownListType.checkboxChecked.rawValue,
           .strikethroughStyle: NSUnderlineStyle.single.rawValue,
-          .paragraphStyle: listParagraphStyle(),
+          .paragraphStyle: listParagraphStyle(for: appearance),
         ], range: fullRange)
       // Remove strikethrough from the checkbox character itself
       result.removeAttribute(.strikethroughStyle, range: NSRange(location: 0, length: 1))
@@ -356,10 +423,13 @@ enum MarkdownStyler {
     // Checkbox unchecked
     if rawLine.hasPrefix("- [ ] ") {
       let content = String(rawLine.dropFirst(6))
-      let checkAttr = checkboxAttributedString(checked: false)
+      let checkAttr = checkboxAttributedString(checked: false, appearance: appearance)
       let contentAttr = NSMutableAttributedString(string: " \(content)", attributes: baseAttrs)
-      stripInlineBold(in: contentAttr, defaultBoldFont: NSFont.boldSystemFont(ofSize: defaultSize))
-      stripInlineItalic(in: contentAttr, defaultItalicFont: NSFont.systemFont(ofSize: defaultSize))
+      stripInlineBold(
+        in: contentAttr, defaultBoldFont: appearance.boldBodyFont(ofSize: appearance.bodyFontSize))
+      stripInlineItalic(
+        in: contentAttr,
+        defaultItalicFont: appearance.italicBodyFont(ofSize: appearance.bodyFontSize))
       stripInlineStrikethrough(in: contentAttr)
       stripInlineCode(in: contentAttr)
       stripInlineLinks(in: contentAttr)
@@ -370,7 +440,7 @@ enum MarkdownStyler {
       result.addAttributes(
         [
           .markdownListType: MarkdownListType.checkboxUnchecked.rawValue,
-          .paragraphStyle: listParagraphStyle(),
+          .paragraphStyle: listParagraphStyle(for: appearance),
         ], range: fullRange)
       return result
     }
@@ -385,15 +455,17 @@ enum MarkdownStyler {
       result.addAttributes(
         [
           .markdownListType: MarkdownListType.bullet.rawValue,
-          .paragraphStyle: listParagraphStyle(),
+          .paragraphStyle: listParagraphStyle(for: appearance),
         ], range: fullRange)
       result.addAttributes(
         [
-          .foregroundColor: bulletColor,
-          .font: NSFont.systemFont(ofSize: 11, weight: .bold),
+          .foregroundColor: bulletColor(for: appearance),
+          .font: NSFont.systemFont(ofSize: appearance.bulletSize, weight: .bold),
         ], range: NSRange(location: 0, length: 1))
-      stripInlineBold(in: result, defaultBoldFont: NSFont.boldSystemFont(ofSize: defaultSize))
-      stripInlineItalic(in: result, defaultItalicFont: NSFont.systemFont(ofSize: defaultSize))
+      stripInlineBold(
+        in: result, defaultBoldFont: appearance.boldBodyFont(ofSize: appearance.bodyFontSize))
+      stripInlineItalic(
+        in: result, defaultItalicFont: appearance.italicBodyFont(ofSize: appearance.bodyFontSize))
       stripInlineStrikethrough(in: result)
       stripInlineCode(in: result)
       stripInlineLinks(in: result)
@@ -407,7 +479,7 @@ enum MarkdownStyler {
       result.addAttributes(
         [
           .markdownListType: MarkdownListType.numbered.rawValue,
-          .paragraphStyle: listParagraphStyle(),
+          .paragraphStyle: listParagraphStyle(for: appearance),
         ], range: fullRange)
       if let numMatch = rawLine.range(of: #"^\d+\."#, options: .regularExpression) {
         let numLength = rawLine.distance(from: numMatch.lowerBound, to: numMatch.upperBound)
@@ -415,8 +487,10 @@ enum MarkdownStyler {
           .foregroundColor, value: NSColor.secondaryLabelColor,
           range: NSRange(location: 0, length: numLength))
       }
-      stripInlineBold(in: result, defaultBoldFont: NSFont.boldSystemFont(ofSize: defaultSize))
-      stripInlineItalic(in: result, defaultItalicFont: NSFont.systemFont(ofSize: defaultSize))
+      stripInlineBold(
+        in: result, defaultBoldFont: appearance.boldBodyFont(ofSize: appearance.bodyFontSize))
+      stripInlineItalic(
+        in: result, defaultItalicFont: appearance.italicBodyFont(ofSize: appearance.bodyFontSize))
       stripInlineStrikethrough(in: result)
       stripInlineCode(in: result)
       stripInlineLinks(in: result)
@@ -426,17 +500,19 @@ enum MarkdownStyler {
     // Blockquote (single-level only)
     if rawLine.hasPrefix("> ") {
       let content = String(rawLine.dropFirst(2))
-      let quoteStyle = blockquoteParagraphStyle()
+      let quoteStyle = blockquoteParagraphStyle(for: appearance)
       let result = NSMutableAttributedString(
         string: content,
         attributes: [
-          .font: NSFont.systemFont(ofSize: defaultSize),
+          .font: appearance.bodyFont,
           .foregroundColor: NSColor.secondaryLabelColor,
           .markdownBlockquote: true,
           .paragraphStyle: quoteStyle,
         ])
-      stripInlineBold(in: result, defaultBoldFont: NSFont.boldSystemFont(ofSize: defaultSize))
-      stripInlineItalic(in: result, defaultItalicFont: NSFont.systemFont(ofSize: defaultSize))
+      stripInlineBold(
+        in: result, defaultBoldFont: appearance.boldBodyFont(ofSize: appearance.bodyFontSize))
+      stripInlineItalic(
+        in: result, defaultItalicFont: appearance.italicBodyFont(ofSize: appearance.bodyFontSize))
       stripInlineStrikethrough(in: result)
       stripInlineCode(in: result)
       stripInlineLinks(in: result)
@@ -445,8 +521,10 @@ enum MarkdownStyler {
 
     // Plain line — inline formatting only
     let result = NSMutableAttributedString(string: rawLine, attributes: baseAttrs)
-    stripInlineBold(in: result, defaultBoldFont: NSFont.boldSystemFont(ofSize: defaultSize))
-    stripInlineItalic(in: result, defaultItalicFont: NSFont.systemFont(ofSize: defaultSize))
+    stripInlineBold(
+      in: result, defaultBoldFont: appearance.boldBodyFont(ofSize: appearance.bodyFontSize))
+    stripInlineItalic(
+      in: result, defaultItalicFont: appearance.italicBodyFont(ofSize: appearance.bodyFontSize))
     stripInlineStrikethrough(in: result)
     stripInlineLinks(in: result)
     return result
@@ -777,8 +855,13 @@ enum MarkdownStyler {
       return lineText
     }
 
-    // Section divider — reconstruct as standard markdown horizontal rule
+    // Section divider — dayra-specific card-gap marker
     if attrs[.markdownSectionDivider] as? Bool == true {
+      return "<!-- section -->"
+    }
+
+    // Horizontal rule — standard markdown
+    if attrs[.markdownHorizontalRule] as? Bool == true {
       return "---"
     }
 
@@ -925,22 +1008,34 @@ enum MarkdownStyler {
       ])
   }
 
-  // MARK: - Helpers
-
-  private static func listParagraphStyle() -> NSMutableParagraphStyle {
+  // Visible thin line for standard markdown horizontal rules (e.g. imported `---`).
+  // The actual line is drawn by DayraTextView; this marker reserves the vertical space.
+  private static func styledHorizontalRule() -> NSAttributedString {
     let style = NSMutableParagraphStyle()
-    style.firstLineHeadIndent = 8
-    style.headIndent = 28
-    style.paragraphSpacing = 2
-    return style
+    style.paragraphSpacingBefore = 8
+    style.paragraphSpacing = 8
+    style.maximumLineHeight = 1
+
+    return NSAttributedString(
+      string: " ",
+      attributes: [
+        .font: NSFont.systemFont(ofSize: 1),
+        .foregroundColor: NSColor.clear,
+        .paragraphStyle: style,
+        .markdownHorizontalRule: true,
+      ])
   }
 
-  // Indented style for blockquote lines with a left border feel
-  static func blockquoteParagraphStyle() -> NSMutableParagraphStyle {
-    let style = NSMutableParagraphStyle()
-    style.firstLineHeadIndent = 20
-    style.headIndent = 20
-    style.paragraphSpacing = 2
-    return style
+  // MARK: - Helpers
+
+  private static func headingFontSize(for level: Int) -> CGFloat {
+    switch level {
+    case 1:
+      return 22
+    case 2:
+      return 19
+    default:
+      return 17
+    }
   }
 }

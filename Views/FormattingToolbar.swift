@@ -8,8 +8,11 @@ import AppKit
 
 class FormattingToolbar: NSView {
   weak var textView: NSTextView?
+  var appearanceSettings = NoteAppearanceSettings.default
 
   private let stackView = NSStackView()
+  private var colorSeparator: NSView?
+  private var colorSwatches: [NSView] = []
 
   override init(frame frameRect: NSRect) {
     super.init(frame: frameRect)
@@ -61,9 +64,11 @@ class FormattingToolbar: NSView {
     addSymbolButton("checklist", action: #selector(toggleCheckbox), tooltip: "Checkbox")
     addSymbolButton("text.quote", action: #selector(toggleBlockquote), tooltip: "Blockquote")
     addSymbolButton("link", action: #selector(showLinkPopover(_:)), tooltip: "Link")
-    addSeparator()
+    let sep = addSeparator()
+    colorSeparator = sep
     for (index, entry) in DayraPalette.colors.enumerated() {
-      addColorSwatch(color: entry.color, name: entry.name, index: index)
+      let swatch = addColorSwatch(color: entry.color, name: entry.name, index: index)
+      colorSwatches.append(swatch)
     }
   }
 
@@ -149,7 +154,8 @@ class FormattingToolbar: NSView {
     stackView.addArrangedSubview(button)
   }
 
-  private func addSeparator() {
+  @discardableResult
+  private func addSeparator() -> NSView {
     let sep = NSView()
     sep.wantsLayer = true
     sep.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.15).cgColor
@@ -157,9 +163,11 @@ class FormattingToolbar: NSView {
     sep.widthAnchor.constraint(equalToConstant: 1).isActive = true
     sep.heightAnchor.constraint(equalToConstant: 16).isActive = true
     stackView.addArrangedSubview(sep)
+    return sep
   }
 
-  private func addColorSwatch(color: NSColor, name: String, index: Int) {
+  @discardableResult
+  private func addColorSwatch(color: NSColor, name: String, index: Int) -> NSButton {
     let button = NSButton()
     button.isBordered = false
     button.bezelStyle = .inline
@@ -179,11 +187,28 @@ class FormattingToolbar: NSView {
     button.widthAnchor.constraint(equalToConstant: 18).isActive = true
     button.heightAnchor.constraint(equalToConstant: 18).isActive = true
     stackView.addArrangedSubview(button)
+    return button
+  }
+
+  // Shows or hides the color swatches based on whether the current line is a heading
+  func updateColorSwatchVisibility() {
+    let isHeading: Bool = {
+      guard let textView, let textStorage = textView.textStorage else { return false }
+      let (lineRange, _) = currentLineRange()
+      guard lineRange.length > 0 else { return false }
+      return textStorage.attribute(.markdownHeadingLevel, at: lineRange.location, effectiveRange: nil) != nil
+    }()
+
+    colorSeparator?.isHidden = !isHeading
+    for swatch in colorSwatches {
+      swatch.isHidden = !isHeading
+    }
   }
 
   // MARK: - Positioning
 
   func show(relativeTo selectionRect: NSRect, in parentView: NSView) {
+    updateColorSwatchVisibility()
     let size = fittingSize
     let toolbarHeight = max(size.height, 34)
     let toolbarWidth = max(size.width, 100)
@@ -236,12 +261,11 @@ class FormattingToolbar: NSView {
     textStorage.beginEditing()
     if allBold {
       textStorage.removeAttribute(.markdownBold, range: range)
-      let defaultFont = NSFont.systemFont(ofSize: 15)
-      textStorage.addAttribute(.font, value: defaultFont, range: range)
+      textStorage.addAttribute(.font, value: appearanceSettings.bodyFont, range: range)
     } else {
       let currentFont =
         textStorage.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont
-        ?? NSFont.systemFont(ofSize: 15)
+        ?? appearanceSettings.bodyFont
       let boldFont = NSFontManager.shared.convert(currentFont, toHaveTrait: .boldFontMask)
       textStorage.addAttribute(.font, value: boldFont, range: range)
       textStorage.addAttribute(.markdownBold, value: true, range: range)
@@ -268,13 +292,13 @@ class FormattingToolbar: NSView {
       textStorage.removeAttribute(.markdownItalic, range: range)
       let currentFont =
         textStorage.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont
-        ?? NSFont.systemFont(ofSize: 15)
+        ?? appearanceSettings.bodyFont
       let unitalicFont = NSFontManager.shared.convert(currentFont, toNotHaveTrait: .italicFontMask)
       textStorage.addAttribute(.font, value: unitalicFont, range: range)
     } else {
       let currentFont =
         textStorage.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont
-        ?? NSFont.systemFont(ofSize: 15)
+        ?? appearanceSettings.bodyFont
       let italicFont = NSFontManager.shared.convert(currentFont, toHaveTrait: .italicFontMask)
       textStorage.addAttribute(.font, value: italicFont, range: range)
       textStorage.addAttribute(.markdownItalic, value: true, range: range)
@@ -329,7 +353,7 @@ class FormattingToolbar: NSView {
     if allCode {
       textStorage.removeAttribute(.markdownInlineCode, range: range)
       textStorage.removeAttribute(.backgroundColor, range: range)
-      textStorage.addAttribute(.font, value: NSFont.systemFont(ofSize: 15), range: range)
+      textStorage.addAttribute(.font, value: appearanceSettings.bodyFont, range: range)
     } else {
       textStorage.addAttributes(
         [
@@ -381,15 +405,19 @@ class FormattingToolbar: NSView {
       // Toggle off
       textStorage.removeAttribute(.markdownHeadingLevel, range: lineRange)
       textStorage.addAttribute(
-        .font, value: NSFont.systemFont(ofSize: 15), range: lineRange)
+        .font, value: appearanceSettings.bodyFont, range: lineRange)
+      textStorage.addAttribute(
+        .paragraphStyle, value: MarkdownStyler.bodyParagraphStyle(for: appearanceSettings),
+        range: lineRange)
     } else {
       let fontSize: CGFloat = level == 1 ? 22 : level == 2 ? 19 : 17
       textStorage.addAttribute(.markdownHeadingLevel, value: level, range: lineRange)
       textStorage.addAttribute(
-        .font, value: NSFont.systemFont(ofSize: fontSize, weight: .bold), range: lineRange)
+        .font, value: appearanceSettings.boldBodyFont(ofSize: fontSize), range: lineRange)
       textStorage.removeAttribute(.markdownListType, range: lineRange)
       textStorage.addAttribute(
-        .paragraphStyle, value: NSParagraphStyle.default, range: lineRange)
+        .paragraphStyle, value: MarkdownStyler.bodyParagraphStyle(for: appearanceSettings),
+        range: lineRange)
     }
     textStorage.endEditing()
   }
@@ -477,9 +505,9 @@ class FormattingToolbar: NSView {
     if isBlockquote {
       // Toggle off — remove blockquote styling, restore default attributes
       let attrs: [NSAttributedString.Key: Any] = [
-        .font: NSFont.systemFont(ofSize: 15),
+        .font: appearanceSettings.bodyFont,
         .foregroundColor: NSColor.labelColor,
-        .paragraphStyle: NSParagraphStyle.default,
+        .paragraphStyle: MarkdownStyler.bodyParagraphStyle(for: appearanceSettings),
       ]
       textStorage.replaceCharacters(
         in: lineRange,
@@ -498,11 +526,11 @@ class FormattingToolbar: NSView {
         cleanText = lineText
       }
 
-      let quoteStyle = MarkdownStyler.blockquoteParagraphStyle()
+      let quoteStyle = MarkdownStyler.blockquoteParagraphStyle(for: appearanceSettings)
       let result = NSAttributedString(
         string: cleanText,
         attributes: [
-          .font: NSFont.systemFont(ofSize: 15),
+          .font: appearanceSettings.bodyFont,
           .foregroundColor: NSColor.secondaryLabelColor,
           .markdownBlockquote: true,
           .paragraphStyle: quoteStyle,
@@ -528,9 +556,9 @@ class FormattingToolbar: NSView {
       // Toggle off — remove list prefix and attributes
       let cleanText = stripDisplayListPrefix(lineText, listType: targetType)
       let attrs: [NSAttributedString.Key: Any] = [
-        .font: NSFont.systemFont(ofSize: 15),
+        .font: appearanceSettings.bodyFont,
         .foregroundColor: NSColor.labelColor,
-        .paragraphStyle: NSParagraphStyle.default,
+        .paragraphStyle: MarkdownStyler.bodyParagraphStyle(for: appearanceSettings),
       ]
       textStorage.replaceCharacters(
         in: lineRange,
@@ -539,20 +567,22 @@ class FormattingToolbar: NSView {
       // Apply — strip any existing list prefix, then add the new one
       let cleanText =
         currentType != nil ? stripDisplayListPrefix(lineText, listType: currentType!) : lineText
-      let listStyle = listParagraphStyle()
+      let listStyle = MarkdownStyler.listParagraphStyle(for: appearanceSettings)
 
       let result: NSMutableAttributedString
 
       if targetType == .checkboxUnchecked || targetType == .checkboxChecked {
         let checked = targetType == .checkboxChecked
         result = NSMutableAttributedString()
-        result.append(MarkdownStyler.checkboxAttributedString(checked: checked))
+        result.append(
+          MarkdownStyler.checkboxAttributedString(checked: checked, appearance: appearanceSettings))
         result.append(
           NSAttributedString(
             string: " \(cleanText)",
             attributes: [
-              .font: NSFont.systemFont(ofSize: 15),
+              .font: appearanceSettings.bodyFont,
               .foregroundColor: NSColor.labelColor,
+              .paragraphStyle: MarkdownStyler.bodyParagraphStyle(for: appearanceSettings),
             ]))
         let fullRange = NSRange(location: 0, length: result.length)
         result.addAttributes(
@@ -572,7 +602,7 @@ class FormattingToolbar: NSView {
         result = NSMutableAttributedString(
           string: newText,
           attributes: [
-            .font: NSFont.systemFont(ofSize: 15),
+            .font: appearanceSettings.bodyFont,
             .foregroundColor: NSColor.labelColor,
             .markdownListType: targetType.rawValue,
             .paragraphStyle: listStyle,
@@ -623,20 +653,20 @@ class FormattingToolbar: NSView {
     case .bullet:
       attrStr.addAttributes(
         [
-          .foregroundColor: MarkdownStyler.bulletColor,
-          .font: NSFont.systemFont(ofSize: 11, weight: .bold),
+          .foregroundColor: MarkdownStyler.bulletColor(for: appearanceSettings),
+          .font: NSFont.systemFont(ofSize: appearanceSettings.bulletSize, weight: .bold),
         ], range: NSRange(location: 0, length: 1))
     case .checkboxUnchecked:
       attrStr.addAttributes(
         [
-          .foregroundColor: MarkdownStyler.checkboxUncheckedColor,
-          .font: NSFont.systemFont(ofSize: 15, weight: .medium),
+          .foregroundColor: MarkdownStyler.checkboxUncheckedColor(for: appearanceSettings),
+          .font: appearanceSettings.bodyFont,
         ], range: NSRange(location: 0, length: 1))
     case .checkboxChecked:
       attrStr.addAttributes(
         [
-          .foregroundColor: MarkdownStyler.checkboxCheckedColor,
-          .font: NSFont.systemFont(ofSize: 15, weight: .medium),
+          .foregroundColor: MarkdownStyler.checkboxCheckedColor(for: appearanceSettings),
+          .font: appearanceSettings.bodyFont,
         ], range: NSRange(location: 0, length: 1))
     case .numbered:
       let text = attrStr.string
@@ -649,13 +679,6 @@ class FormattingToolbar: NSView {
     }
   }
 
-  private func listParagraphStyle() -> NSMutableParagraphStyle {
-    let style = NSMutableParagraphStyle()
-    style.firstLineHeadIndent = 8
-    style.headIndent = 28
-    style.paragraphSpacing = 2
-    return style
-  }
 }
 
 // MARK: - Link Popover View Controller

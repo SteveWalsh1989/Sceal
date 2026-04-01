@@ -60,60 +60,45 @@ extension DayNote {
   private static let sampleSeedDefinitions: [SampleSeedDefinition] = [
     SampleSeedDefinition(
       offset: -1,
-      title: "Soft launch prep and one neat little win",
-      tags: ["work", "demo"],
+      title: "Starter note: sections, colors, lists, and a few calm moments",
+      tags: ["starter", "demo", "journal"],
       body: [
         "<!-- hcolor:turquoise -->",
         "# Morning reset",
         "",
-        "- Opened the app with tea and a clean desk",
+        "A longer sample note that shows how the editor looks once a day has some shape.",
+        "",
+        "- Opened the windows",
         "- Wrote the demo beats in **tiny, clear chunks**",
+        "- Kept the plan *light enough to finish*",
         "",
-        "---",
         "",
-        "<!-- hcolor:orange -->",
-        "## Nice surprise",
+        "<!-- section -->",
         "",
-        "The new section cards make the day feel calmer to scan.",
-      ].joined(separator: "\n")
-    ),
-    SampleSeedDefinition(
-      offset: -2,
-      title: "Rain on the tram and a very practical list",
-      tags: ["routine", "commute"],
-      body: [
         "<!-- hcolor:pink -->",
-        "## On the way in",
-        "",
-        "*Grey skies, warm coffee, zero rush.*",
+        "## Practical list",
         "",
         "- [x] Pack charger",
         "- [x] Reply to Aoife",
         "- [ ] Move the `release-notes` draft into today's plan",
         "",
-        "~~Missed the first tram~~ The second one was quieter anyway.",
-      ].joined(separator: "\n")
-    ),
-    SampleSeedDefinition(
-      offset: -3,
-      title: "Sunday reset and a slow walk by the river",
-      tags: ["weekend", "reset"],
-      body: [
+        "~~Missed the first tram~~ The quieter second one was better anyway.",
+        "",
+        "",
+        "<!-- section -->",
+        "",
         "<!-- hcolor:blue -->",
-        "# Sunday reset",
+        "## Sunday reset",
         "",
         "> The best kind of plan was the one that fit on half a page.",
         "",
         "1. Open the windows",
         "2. Water the plants",
         "3. Bookmark [that cafe](https://example.com) for Friday",
-      ].joined(separator: "\n")
-    ),
-    SampleSeedDefinition(
-      offset: -4,
-      title: "Late tidy-up before the month turned",
-      tags: ["home", "quiet"],
-      body: [
+        "",
+        "",
+        "<!-- section -->",
+        "",
         "<!-- hcolor:purple -->",
         "## Quick capture",
         "",
@@ -123,17 +108,18 @@ extension DayNote {
         "print(\"Back up the note before sleep\")",
         "```",
         "",
-        "---",
+        "",
+        "<!-- section -->",
         "",
         "<!-- hcolor:grey -->",
         "### Tomorrow",
         "",
         "Leave the title simple and let the note do the work.",
       ].joined(separator: "\n")
-    ),
+    )
   ]
 
-  // Seeds a short four-day history so an empty library shows the editor features immediately.
+  // Seeds a longer starter note so an empty library shows the editor features immediately.
   static func sampleSeedNotes(relativeTo referenceDate: Date, calendar: Calendar = .current)
     -> [DayNote]
   {
