@@ -15,6 +15,7 @@ struct DayraApp: App {
     WindowGroup {
       ContentView(store: noteStore)
     }
+    .windowStyle(.hiddenTitleBar)
     .onChange(of: scenePhase) { _, newScenePhase in
       if newScenePhase != .active {
         noteStore.flushPendingSaves()

@@ -26,6 +26,10 @@ struct MarkdownTextView: NSViewRepresentable {
     textView.isAutomaticDashSubstitutionEnabled = false
     textView.isAutomaticTextReplacementEnabled = false
     textView.isAutomaticSpellingCorrectionEnabled = false
+    // Keep the active selection visible without hiding attributed foreground colors.
+    textView.selectedTextAttributes = [
+      .backgroundColor: NSColor.selectedTextBackgroundColor.withAlphaComponent(0.28)
+    ]
     textView.textContainerInset = NSSize(width: 22, height: 22)
     textView.delegate = context.coordinator
 
@@ -212,7 +216,9 @@ struct MarkdownTextView: NSViewRepresentable {
         let updatedNS = textStorage.string as NSString
         let updatedLine = updatedNS.lineRange(
           for: NSRange(location: min(lineRange.location, updatedNS.length - 1), length: 0))
-        guard updatedLine.length > 0, updatedLine.location < textStorage.length else { return false }
+        guard updatedLine.length > 0, updatedLine.location < textStorage.length else {
+          return false
+        }
         return textStorage.attribute(
           .markdownBlockquote, at: updatedLine.location, effectiveRange: nil) as? Bool == true
       }()
@@ -332,14 +338,16 @@ struct MarkdownTextView: NSViewRepresentable {
       case .checkboxUnchecked, .checkboxChecked:
         let result = NSMutableAttributedString()
         result.append(MarkdownStyler.checkboxAttributedString(checked: false))
-        result.append(NSAttributedString(
-          string: " ",
-          attributes: [.font: defaultFont, .foregroundColor: NSColor.labelColor]))
+        result.append(
+          NSAttributedString(
+            string: " ",
+            attributes: [.font: defaultFont, .foregroundColor: NSColor.labelColor]))
         let fullRange = NSRange(location: 0, length: result.length)
-        result.addAttributes([
-          .markdownListType: MarkdownListType.checkboxUnchecked.rawValue,
-          .paragraphStyle: listParagraphStyle(),
-        ], range: fullRange)
+        result.addAttributes(
+          [
+            .markdownListType: MarkdownListType.checkboxUnchecked.rawValue,
+            .paragraphStyle: listParagraphStyle(),
+          ], range: fullRange)
         return result
 
       default:
@@ -352,10 +360,11 @@ struct MarkdownTextView: NSViewRepresentable {
             .paragraphStyle: listParagraphStyle(),
           ])
         if listType == .bullet {
-          result.addAttributes([
-            .foregroundColor: MarkdownStyler.bulletColor,
-            .font: NSFont.systemFont(ofSize: 11, weight: .bold),
-          ], range: NSRange(location: 0, length: 1))
+          result.addAttributes(
+            [
+              .foregroundColor: MarkdownStyler.bulletColor,
+              .font: NSFont.systemFont(ofSize: 11, weight: .bold),
+            ], range: NSRange(location: 0, length: 1))
         } else if listType == .numbered {
           if let numEnd = marker.firstIndex(of: ".") {
             let numLength = marker.distance(from: marker.startIndex, to: numEnd) + 1
@@ -493,7 +502,8 @@ private class DayraTextView: NSTextView {
 
   private func drawSingleCard(in rect: NSRect) {
     let fullHeight = max(bounds.height, enclosingScrollView?.contentSize.height ?? bounds.height)
-    let cardRect = NSRect(x: cardHInset, y: 0, width: bounds.width - cardHInset * 2, height: fullHeight)
+    let cardRect = NSRect(
+      x: cardHInset, y: 0, width: bounds.width - cardHInset * 2, height: fullHeight)
     guard cardRect.intersects(rect) else { return }
     let path = NSBezierPath(roundedRect: cardRect, xRadius: cardRadius, yRadius: cardRadius)
     cardColor.setFill()

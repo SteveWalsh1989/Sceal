@@ -29,6 +29,7 @@ struct ContentView: View {
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
       .background(Color.primary.opacity(0.02))
+      .ignoresSafeArea(.container, edges: .top)
     }
     .navigationSplitViewStyle(.balanced)
     .task {

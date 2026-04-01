@@ -127,6 +127,18 @@ final class NoteStore: ObservableObject {
     selectedNoteID = noteID
   }
 
+  // Returns the nearest older and newer notes so header arrows only step through saved notes.
+  func adjacentNoteIDs(for noteID: DayNote.ID) -> (previous: DayNote.ID?, next: DayNote.ID?) {
+    guard let currentIndex = notes.firstIndex(where: { $0.id == noteID }) else {
+      return (nil, nil)
+    }
+
+    let previousNoteID = notes.indices.contains(currentIndex + 1) ? notes[currentIndex + 1].id : nil
+    let nextNoteID = currentIndex > notes.startIndex ? notes[currentIndex - 1].id : nil
+
+    return (previousNoteID, nextNoteID)
+  }
+
   func titleBinding(for noteID: DayNote.ID) -> Binding<String> {
     Binding(
       get: { self.note(withID: noteID)?.title ?? "" },
@@ -162,12 +174,27 @@ final class NoteStore: ObservableObject {
       .map(loadNote)
       .sorted(by: { $0.date > $1.date })
 
-    notes = loadedNotes
+    if loadedNotes.isEmpty {
+      try seedStarterNotes()
+    } else {
+      notes = loadedNotes
+    }
 
     try ensureTodayNoteExists()
 
     let todayID = dayID(for: .now)
     selectedNoteID = note(withID: todayID) == nil ? notes.first?.id : todayID
+  }
+
+  // Seeds recent example notes so the first launch shows formatting features immediately.
+  private func seedStarterNotes() throws {
+    let sampleNotes = DayNote.sampleSeedNotes(relativeTo: .now, calendar: calendar)
+
+    for note in sampleNotes {
+      try save(note)
+    }
+
+    notes = sampleNotes
   }
 
   private func ensureTodayNoteExists() throws {

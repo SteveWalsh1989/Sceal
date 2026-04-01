@@ -10,13 +10,37 @@ struct NoteEditorView: View {
   @ObservedObject var store: NoteStore
   let noteID: DayNote.ID
 
+  private var adjacentNoteIDs: (previous: DayNote.ID?, next: DayNote.ID?) {
+    store.adjacentNoteIDs(for: noteID)
+  }
+
   var body: some View {
     if let note = store.note(withID: noteID) {
       VStack(alignment: .leading, spacing: 12) {
         HStack(alignment: .center, spacing: 12) {
-          Text(note.editorDateText)
-            .font(.callout)
-            .foregroundStyle(.secondary)
+          HStack(spacing: 8) {
+            Text(note.editorDateText)
+              .font(.callout)
+              .foregroundStyle(.secondary)
+
+            if let previousNoteID = adjacentNoteIDs.previous {
+              HeaderNavigationButton(
+                systemImage: "chevron.left",
+                accessibilityLabel: "Open older note"
+              ) {
+                store.select(noteID: previousNoteID)
+              }
+            }
+
+            if let nextNoteID = adjacentNoteIDs.next {
+              HeaderNavigationButton(
+                systemImage: "chevron.right",
+                accessibilityLabel: "Open newer note"
+              ) {
+                store.select(noteID: nextNoteID)
+              }
+            }
+          }
 
           Spacer()
 
@@ -50,7 +74,9 @@ struct NoteEditorView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
       }
-      .padding(24)
+      .padding(.horizontal, 24)
+      .padding(.bottom, 24)
+      .padding(.top, 12)
     } else {
       ContentUnavailableView(
         "Note unavailable",
@@ -58,5 +84,24 @@ struct NoteEditorView: View {
         description: Text("Select another day from the sidebar.")
       )
     }
+  }
+}
+
+// Keeps header note-jump actions compact and visually aligned with the date.
+private struct HeaderNavigationButton: View {
+  let systemImage: String
+  let accessibilityLabel: String
+  let action: () -> Void
+
+  var body: some View {
+    Button(action: action) {
+      Image(systemName: systemImage)
+        .font(.system(size: 11, weight: .semibold))
+        .foregroundStyle(.secondary)
+        .frame(width: 24, height: 24)
+        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel(accessibilityLabel)
   }
 }
