@@ -11,11 +11,7 @@ struct SidebarView: View {
   @ObservedObject var store: NoteStore
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 18) {
-      header
-
-      Divider()
-
+    Group {
       ScrollView {
         LazyVStack(alignment: .leading, spacing: 14) {
           ForEach(store.monthSections) { section in
@@ -38,37 +34,8 @@ struct SidebarView: View {
       }
     }
     .padding(.horizontal, 20)
-    .padding(.vertical, 20)
+    .padding(.vertical, 16)
     .background(Color.primary.opacity(0.03))
-  }
-
-  private var header: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      HStack {
-        VStack(alignment: .leading, spacing: 4) {
-          Text("dayra")
-            .font(.title2.weight(.bold))
-
-          Text("Daily notes")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
-
-        Spacer()
-
-        Button {
-          store.selectToday()
-        } label: {
-          Image(systemName: "calendar.badge.plus")
-        }
-        .buttonStyle(.bordered)
-        .help("Open today's note")
-      }
-
-      Text("A single vertical history with clear month breaks and one note per day.")
-        .font(.caption)
-        .foregroundStyle(.secondary)
-    }
   }
 }
 
@@ -126,13 +93,6 @@ private struct DayNoteCardView: View {
     .padding(.horizontal, 16)
     .padding(.vertical, 14)
     .background(cardBackground)
-    .overlay(alignment: .bottomLeading) {
-      RoundedRectangle(cornerRadius: 999, style: .continuous)
-        .fill(isSelected ? Color.accentColor : Color.accentColor.opacity(0.35))
-        .frame(width: isSelected ? 124 : 84, height: 3)
-        .padding(.horizontal, 16)
-        .padding(.bottom, 8)
-    }
     .overlay(
       RoundedRectangle(cornerRadius: 22, style: .continuous)
         .strokeBorder(isSelected ? Color.accentColor.opacity(0.4) : Color.clear, lineWidth: 1)
