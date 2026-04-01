@@ -4,6 +4,7 @@
 //
 //
 
+import AppKit
 import Combine
 import Foundation
 import SwiftUI
@@ -25,6 +26,7 @@ struct NoteMonthSection: Identifiable, Equatable {
 final class NoteStore: ObservableObject {
   @Published private(set) var notes: [DayNote]
   @Published private(set) var appearanceSettings: NoteAppearanceSettings
+  @Published private(set) var newNoteDefault: NewNoteDefault
   @Published var selectedNoteID: DayNote.ID?
   @Published private(set) var isLoading = false
   @Published var errorMessage: String?
@@ -36,6 +38,7 @@ final class NoteStore: ObservableObject {
   private var pendingSaveTasks: [DayNote.ID: Task<Void, Never>] = [:]
 
   private static let appearanceSettingsDefaultsKey = "dayra.noteAppearanceSettings"
+  private static let newNoteDefaultKey = "dayra.newNoteDefault"
 
   init(
     fileManager: FileManager = .default,
@@ -48,6 +51,7 @@ final class NoteStore: ObservableObject {
     self.userDefaults = userDefaults
     self.notes = previewNotes.sorted(by: { $0.date > $1.date })
     self.appearanceSettings = Self.loadAppearanceSettings(from: userDefaults)
+    self.newNoteDefault = Self.loadNewNoteDefault(from: userDefaults)
     self.selectedNoteID = previewNotes.sorted(by: { $0.date > $1.date }).first?.id
     self.hasLoaded = !previewNotes.isEmpty
   }
@@ -67,6 +71,10 @@ final class NoteStore: ObservableObject {
         )
       }
       .sorted(by: { $0.monthStartDate > $1.monthStartDate })
+  }
+
+  var hasTodayNote: Bool {
+    note(withID: dayID(for: .now)) != nil
   }
 
   var selectedNote: DayNote? {
@@ -162,12 +170,80 @@ final class NoteStore: ObservableObject {
     }
   }
 
-  func deleteSelectedNote() {
-    guard let selectedNoteID else {
+  func updateNewNoteDefault(_ value: NewNoteDefault) {
+    newNoteDefault = value
+    userDefaults.set(value.rawValue, forKey: Self.newNoteDefaultKey)
+  }
+
+  // Opens a folder picker and imports notes from an unzipped Diarly export.
+  func importFromDiarly() {
+    let panel = NSOpenPanel()
+    panel.title = "Select Diarly Export Folder"
+    panel.message = "Choose the unzipped Diarly export folder (e.g. Export)"
+    panel.canChooseDirectories = true
+    panel.canChooseFiles = false
+    panel.allowsMultipleSelection = false
+
+    guard panel.runModal() == .OK, let folderURL = panel.url else { return }
+
+    let existingIDs = Set(notes.map(\.id))
+
+    do {
+      let result = try DiarlyImporter.importNotes(
+        from: folderURL, existingNoteIDs: existingIDs, calendar: calendar)
+
+      for note in result.imported {
+        try save(note)
+      }
+
+      notes = (notes + result.imported).sorted(by: { $0.date > $1.date })
+
+      if result.imported.isEmpty && result.skipped > 0 {
+        errorMessage = "No new notes imported. \(result.skipped) dates already exist in dayra."
+      } else if result.imported.isEmpty {
+        errorMessage = "No Diarly notes found in the selected folder."
+      } else {
+        let skippedSuffix =
+          result.skipped > 0 ? " (\(result.skipped) skipped — dates already exist)" : ""
+        errorMessage = "Imported \(result.imported.count) notes.\(skippedSuffix)"
+        selectedNoteID = result.imported.first?.id
+      }
+    } catch {
+      report(error, context: "Importing from Diarly failed")
+    }
+  }
+
+  // Deletes the requested note so shared UI flows can confirm destructive actions centrally.
+  func delete(noteID: DayNote.ID) {
+    guard let note = note(withID: noteID) else {
       return
     }
 
-    delete(noteID: selectedNoteID)
+    let adjacentNoteIDs = adjacentNoteIDs(for: noteID)
+    flushPendingSave(for: noteID)
+
+    do {
+      try deleteFile(for: note)
+    } catch {
+      report(error, context: "Deleting note failed")
+      return
+    }
+
+    notes.removeAll(where: { $0.id == noteID })
+
+    if notes.isEmpty {
+      do {
+        try seedStarterNotes()
+        selectedNoteID = notes.first?.id
+        errorMessage = nil
+      } catch {
+        report(error, context: "Loading sample notes after delete failed")
+        selectedNoteID = nil
+      }
+      return
+    }
+
+    selectedNoteID = adjacentNoteIDs.previous ?? adjacentNoteIDs.next ?? notes.first?.id
   }
 
   // Returns the nearest older and newer notes so header arrows only step through saved notes.
@@ -223,10 +299,7 @@ final class NoteStore: ObservableObject {
       notes = loadedNotes
     }
 
-    try ensureTodayNoteExists()
-
-    let todayID = dayID(for: .now)
-    selectedNoteID = note(withID: todayID) == nil ? notes.first?.id : todayID
+    selectedNoteID = notes.first?.id
   }
 
   // Seeds recent example notes so the first launch shows formatting features immediately.
@@ -246,7 +319,13 @@ final class NoteStore: ObservableObject {
       return
     }
 
-    let todayNote = DayNote.empty(for: .now, calendar: calendar)
+    let todayNote: DayNote
+    if newNoteDefault == .copyPrevious, let mostRecent = notes.first {
+      todayNote = mostRecent.copyForToday(calendar: calendar)
+    } else {
+      todayNote = DayNote.empty(for: .now, calendar: calendar)
+    }
+
     notes = ([todayNote] + notes).sorted(by: { $0.date > $1.date })
     try save(todayNote)
   }
@@ -334,38 +413,6 @@ final class NoteStore: ObservableObject {
     }
   }
 
-  private func delete(noteID: DayNote.ID) {
-    guard let note = note(withID: noteID) else {
-      return
-    }
-
-    let adjacentNoteIDs = adjacentNoteIDs(for: noteID)
-    flushPendingSave(for: noteID)
-
-    do {
-      try deleteFile(for: note)
-    } catch {
-      report(error, context: "Deleting note failed")
-      return
-    }
-
-    notes.removeAll(where: { $0.id == noteID })
-
-    if notes.isEmpty {
-      do {
-        try seedStarterNotes()
-        selectedNoteID = notes.first?.id
-        errorMessage = nil
-      } catch {
-        report(error, context: "Loading sample notes after delete failed")
-        selectedNoteID = nil
-      }
-      return
-    }
-
-    selectedNoteID = adjacentNoteIDs.previous ?? adjacentNoteIDs.next ?? notes.first?.id
-  }
-
   private func save(_ note: DayNote) throws {
     let noteURL = try notesDirectoryURL().appendingPathComponent(note.fileName)
     let fileContents = try MarkdownNoteFile.encode(note)
@@ -402,6 +449,17 @@ final class NoteStore: ObservableObject {
     }
 
     return settings.clamped
+  }
+
+  private static func loadNewNoteDefault(from userDefaults: UserDefaults) -> NewNoteDefault {
+    guard
+      let rawValue = userDefaults.string(forKey: newNoteDefaultKey),
+      let value = NewNoteDefault(rawValue: rawValue)
+    else {
+      return .blank
+    }
+
+    return value
   }
 
   private func notesDirectoryURL() throws -> URL {

@@ -8,15 +8,20 @@ import SwiftUI
 
 struct ContentView: View {
   @ObservedObject var store: NoteStore
+  @State private var notePendingDeletionID: DayNote.ID?
 
   var body: some View {
     NavigationSplitView {
-      SidebarView(store: store)
-        .navigationSplitViewColumnWidth(min: 240, ideal: 290, max: 360)
+      SidebarView(store: store) { noteID in
+        notePendingDeletionID = noteID
+      }
+      .navigationSplitViewColumnWidth(min: 240, ideal: 290, max: 360)
     } detail: {
       Group {
         if let selectedNoteID = store.selectedNoteID {
-          NoteEditorView(store: store, noteID: selectedNoteID)
+          NoteEditorView(store: store, noteID: selectedNoteID) { noteID in
+            notePendingDeletionID = noteID
+          }
         } else if store.isLoading {
           ProgressView("Loading notes…")
         } else {
@@ -35,6 +40,22 @@ struct ContentView: View {
     .task {
       store.loadIfNeeded()
     }
+    .alert("Delete this note?", isPresented: isShowingDeleteConfirmation) {
+      Button("Delete", role: .destructive) {
+        guard let notePendingDeletionID else {
+          return
+        }
+
+        store.delete(noteID: notePendingDeletionID)
+        self.notePendingDeletionID = nil
+      }
+
+      Button("Cancel", role: .cancel) {
+        notePendingDeletionID = nil
+      }
+    } message: {
+      Text("This cannot be undone.")
+    }
     .overlay(alignment: .top) {
       if let errorMessage = store.errorMessage {
         ErrorBanner(message: errorMessage) {
@@ -43,6 +64,18 @@ struct ContentView: View {
         .padding(.top, 12)
       }
     }
+  }
+
+  // Keeps delete confirmation shared between header settings and sidebar actions.
+  private var isShowingDeleteConfirmation: Binding<Bool> {
+    Binding(
+      get: { notePendingDeletionID != nil },
+      set: { isPresented in
+        if !isPresented {
+          notePendingDeletionID = nil
+        }
+      }
+    )
   }
 }
 

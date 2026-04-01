@@ -16,6 +16,13 @@ struct DayraApp: App {
       ContentView(store: noteStore)
     }
     .windowStyle(.hiddenTitleBar)
+    .commands {
+      CommandGroup(after: .importExport) {
+        Button("Import from Diarly…") {
+          noteStore.importFromDiarly()
+        }
+      }
+    }
     .onChange(of: scenePhase) { _, newScenePhase in
       if newScenePhase != .active {
         noteStore.flushPendingSaves()

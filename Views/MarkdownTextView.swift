@@ -110,6 +110,8 @@ struct MarkdownTextView: NSViewRepresentable {
     var lastPushedMarkdown = ""
     var lastAppliedAppearance = NoteAppearanceSettings.default
     let toolbar = FormattingToolbar()
+    let slashPopup = SlashCommandPopup()
+    private var slashTriggerLocation: Int?
 
     init(parent: MarkdownTextView) {
       self.parent = parent
@@ -119,6 +121,16 @@ struct MarkdownTextView: NSViewRepresentable {
     func textViewDidChangeSelection(_ notification: Notification) {
       guard let textView = notification.object as? NSTextView else { return }
       let range = textView.selectedRange()
+
+      // Dismiss slash popup if cursor moved away from the trigger line
+      if slashPopup.isVisible, let triggerLoc = slashTriggerLocation {
+        let nsString = textView.string as NSString
+        let triggerLine = nsString.lineRange(for: NSRange(location: triggerLoc, length: 0))
+        let cursorLine = nsString.lineRange(for: NSRange(location: range.location, length: 0))
+        if triggerLine != cursorLine || range.length > 0 {
+          dismissSlashPopup()
+        }
+      }
 
       if range.length > 0, let scrollView = textView.enclosingScrollView {
         let glyphRange =
@@ -150,12 +162,34 @@ struct MarkdownTextView: NSViewRepresentable {
 
       // Force full background redraw for section card updates (e.g., backspace deleting a divider)
       textView.setNeedsDisplay(textView.bounds)
+
+      checkSlashCommandTrigger(in: textView)
     }
 
     func textView(
       _ textView: NSTextView,
       doCommandBy commandSelector: Selector
     ) -> Bool {
+      // Intercept navigation keys while slash command popup is visible
+      if slashPopup.isVisible {
+        switch commandSelector {
+        case #selector(NSResponder.moveUp(_:)):
+          slashPopup.moveSelectionUp()
+          return true
+        case #selector(NSResponder.moveDown(_:)):
+          slashPopup.moveSelectionDown()
+          return true
+        case #selector(NSResponder.insertNewline(_:)):
+          slashPopup.confirmSelection()
+          return true
+        case #selector(NSResponder.cancelOperation(_:)):
+          dismissSlashPopup()
+          return true
+        default:
+          break
+        }
+      }
+
       guard commandSelector == #selector(NSResponder.insertNewline(_:)),
         let textStorage = textView.textStorage
       else {
@@ -404,6 +438,87 @@ struct MarkdownTextView: NSViewRepresentable {
       }
     }
 
+    // MARK: - Slash Command Popup
+
+    private func checkSlashCommandTrigger(in textView: NSTextView) {
+      let cursorLocation = textView.selectedRange().location
+      guard cursorLocation > 0 else { dismissSlashPopup(); return }
+
+      let nsString = textView.string as NSString
+      let lineRange = nsString.lineRange(for: NSRange(location: cursorLocation, length: 0))
+
+      // Get text from line start to cursor
+      let prefixLength = cursorLocation - lineRange.location
+      guard prefixLength > 0 else { dismissSlashPopup(); return }
+      let prefixRange = NSRange(location: lineRange.location, length: prefixLength)
+      let prefixText = nsString.substring(with: prefixRange)
+      let trimmed = prefixText.trimmingCharacters(in: .whitespaces)
+
+      // Must start with "/" and only have whitespace before it
+      guard trimmed.hasPrefix("/") else { dismissSlashPopup(); return }
+
+      let filtered = SlashCommandHandler.filteredCommands(for: trimmed)
+      guard !filtered.isEmpty else { dismissSlashPopup(); return }
+
+      // Track where the "/" character starts
+      if slashTriggerLocation == nil {
+        let whitespaceCount = prefixText.count - trimmed.count
+        slashTriggerLocation = lineRange.location + whitespaceCount
+      }
+
+      slashPopup.updateFilter(trimmed)
+
+      // Position popup near the cursor
+      guard let layoutManager = textView.layoutManager,
+        let textContainer = textView.textContainer,
+        let scrollView = textView.enclosingScrollView
+      else { return }
+
+      let glyphIndex = layoutManager.glyphIndexForCharacter(at: cursorLocation)
+      let lineFragment = layoutManager.lineFragmentRect(
+        forGlyphAt: glyphIndex, effectiveRange: nil)
+      let cursorRect = NSRect(
+        x: lineFragment.minX + textView.textContainerOrigin.x,
+        y: lineFragment.maxY + textView.textContainerOrigin.y,
+        width: 1,
+        height: lineFragment.height
+      )
+      let rectInScrollView = textView.convert(cursorRect, to: scrollView)
+      slashPopup.show(relativeTo: rectInScrollView, in: scrollView)
+
+      // Wire up selection callback (idempotent — closure captures current textView)
+      slashPopup.onSelect = { [weak self, weak textView] entry in
+        guard let self, let textView else { return }
+        self.applySlashCommand(entry, in: textView)
+      }
+    }
+
+    private func dismissSlashPopup() {
+      slashPopup.hide()
+      slashTriggerLocation = nil
+    }
+
+    // Replaces the partially-typed command with the full command text, then fires Enter
+    private func applySlashCommand(_ entry: SlashCommandEntry, in textView: NSTextView) {
+      guard let triggerLoc = slashTriggerLocation else { return }
+      let cursorLoc = textView.selectedRange().location
+      guard cursorLoc >= triggerLoc else { return }
+
+      let replaceRange = NSRange(location: triggerLoc, length: cursorLoc - triggerLoc)
+      textView.textStorage?.beginEditing()
+      textView.textStorage?.replaceCharacters(in: replaceRange, with: entry.command)
+      textView.textStorage?.endEditing()
+
+      let newCursorLoc = triggerLoc + entry.command.utf16.count
+      textView.setSelectedRange(NSRange(location: newCursorLoc, length: 0))
+
+      dismissSlashPopup()
+
+      // Trigger the existing Enter key flow which handles slash command detection + formatting
+      isUpdating = true
+      let _ = self.textView(textView, doCommandBy: #selector(NSResponder.insertNewline(_:)))
+    }
+
     private func syncToBinding(_ textView: NSTextView) {
       guard let textStorage = textView.textStorage else { return }
       let markdown = MarkdownStyler.convertToMarkdown(from: textStorage)
@@ -496,7 +611,9 @@ private class DayraTextView: NSTextView {
     for (index, sectionRange) in sections.enumerated() {
       let glyphRange = layoutManager.glyphRange(
         forCharacterRange: sectionRange, actualCharacterRange: nil)
-      guard glyphRange.length > 0 else { continue }
+      let isLastSection = (index == sections.count - 1)
+      // Always draw the last section so the card gap appears immediately after a divider
+      guard glyphRange.length > 0 || isLastSection else { continue }
 
       // Card top: y=0 for first section, divider midpoint for others
       let cardTop: CGFloat

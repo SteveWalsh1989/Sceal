@@ -10,9 +10,9 @@ import SwiftUI
 struct NoteEditorView: View {
   @ObservedObject var store: NoteStore
   let noteID: DayNote.ID
+  let requestDelete: (DayNote.ID) -> Void
 
   @State private var isShowingAppearancePopover = false
-  @State private var isShowingDeleteConfirmation = false
   @State private var fontPanelController = NoteAppearanceFontPanelController()
 
   private var adjacentNoteIDs: (previous: DayNote.ID?, next: DayNote.ID?) {
@@ -74,7 +74,7 @@ struct NoteEditorView: View {
               openFontPanel: openFontPanel,
               confirmDelete: {
                 isShowingAppearancePopover = false
-                isShowingDeleteConfirmation = true
+                requestDelete(noteID)
               }
             )
           }
@@ -102,15 +102,6 @@ struct NoteEditorView: View {
       .padding(.horizontal, 24)
       .padding(.bottom, 24)
       .padding(.top, 12)
-      .alert("Delete this note?", isPresented: $isShowingDeleteConfirmation) {
-        Button("Delete", role: .destructive) {
-          store.deleteSelectedNote()
-        }
-
-        Button("Cancel", role: .cancel) {}
-      } message: {
-        Text("This cannot be undone.")
-      }
       .onDisappear {
         fontPanelController.detachIfNeeded()
       }
@@ -225,6 +216,13 @@ private struct QuickAppearancePopover: View {
       QuickAppearanceColorRow(
         selectedColorName: store.appearanceSettings.accentColorName,
         onSelect: store.updateAccentColorName
+      )
+
+      Divider()
+
+      QuickNewNoteDefaultRow(
+        selection: store.newNoteDefault,
+        onSelect: store.updateNewNoteDefault
       )
 
       Divider()
@@ -346,6 +344,36 @@ private struct QuickAppearanceColorRow: View {
     }
 
     return Color.clear
+  }
+}
+
+private struct QuickNewNoteDefaultRow: View {
+  let selection: NewNoteDefault
+  let onSelect: (NewNoteDefault) -> Void
+
+  var body: some View {
+    HStack {
+      Text("New note default")
+        .font(.system(size: 12, weight: .medium))
+
+      Spacer()
+
+      Picker(
+        "",
+        selection: Binding(
+          get: { selection },
+          set: { onSelect($0) }
+        )
+      ) {
+        ForEach(NewNoteDefault.allCases, id: \.self) { option in
+          Text(option.displayName).tag(option)
+        }
+      }
+      .labelsHidden()
+      .pickerStyle(.menu)
+      .controlSize(.small)
+      .fixedSize()
+    }
   }
 }
 

@@ -47,6 +47,16 @@ struct DayNote: Identifiable, Equatable {
       body: ""
     )
   }
+
+  // Duplicates this note's content onto today's date for the "copy previous" new-note default.
+  func copyForToday(calendar: Calendar = .current) -> DayNote {
+    DayNote(
+      date: calendar.startOfDay(for: .now),
+      title: title,
+      tags: tags,
+      body: body
+    )
+  }
 }
 
 extension DayNote {

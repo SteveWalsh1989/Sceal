@@ -8,14 +8,23 @@ import SwiftUI
 
 struct SidebarView: View {
   @ObservedObject var store: NoteStore
+  let requestDelete: (DayNote.ID) -> Void
 
   var body: some View {
     Group {
       if store.monthSections.isEmpty {
-        SidebarEmptyStateView()
+        SidebarEmptyStateView {
+          store.selectToday()
+        }
       } else {
         ScrollView {
           LazyVStack(alignment: .leading, spacing: 12) {
+            if !store.hasTodayNote {
+              AddTodayButton {
+                store.selectToday()
+              }
+            }
+
             ForEach(store.monthSections) { section in
               MonthDividerView(title: section.title)
 
@@ -29,6 +38,13 @@ struct SidebarView: View {
                   )
                 }
                 .buttonStyle(.plain)
+                .contextMenu {
+                  Button(role: .destructive) {
+                    requestDelete(note.id)
+                  } label: {
+                    Label("Delete note…", systemImage: "trash")
+                  }
+                }
               }
             }
           }
@@ -44,6 +60,8 @@ struct SidebarView: View {
 
 // Shown when no notes exist yet — keeps the sidebar from feeling broken on first launch.
 private struct SidebarEmptyStateView: View {
+  let addToday: () -> Void
+
   var body: some View {
     VStack(spacing: 10) {
       Image(systemName: "note.text")
@@ -54,11 +72,36 @@ private struct SidebarEmptyStateView: View {
         .font(.headline)
         .foregroundStyle(.secondary)
 
-      Text("Press Today to start writing")
-        .font(.subheadline)
-        .foregroundStyle(.tertiary)
+      Button(action: addToday) {
+        Label("Add today", systemImage: "plus")
+      }
+      .buttonStyle(.bordered)
+      .controlSize(.small)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
+  }
+}
+
+// Appears at the top of the sidebar when today has no note, so the user can manually create one.
+private struct AddTodayButton: View {
+  let action: () -> Void
+
+  var body: some View {
+    Button(action: action) {
+      HStack(spacing: 6) {
+        Image(systemName: "plus")
+          .font(.system(size: 12, weight: .semibold))
+
+        Text("Add today")
+          .font(.system(size: 13, weight: .medium))
+      }
+      .frame(maxWidth: .infinity)
+      .padding(.vertical, 8)
+      .background(
+        Color.accentColor.opacity(0.1), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+    .buttonStyle(.plain)
+    .foregroundStyle(Color.accentColor)
   }
 }
 
