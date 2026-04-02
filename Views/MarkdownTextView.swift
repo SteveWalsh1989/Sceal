@@ -2034,7 +2034,7 @@ private enum DividerResolutionPreference {
 
     let popover = NSPopover()
     popover.behavior = .transient
-    popover.contentSize = NSSize(width: 240, height: 240)
+    popover.contentSize = NSSize(width: 264, height: 240)
 
     let controller = SectionColorPopoverViewController(
       headingColorName: currentHeading,
@@ -2227,7 +2227,8 @@ private enum DividerResolutionPreference {
   required init?(coder: NSCoder) { fatalError() }
 
   override func loadView() {
-    let container = NSView(frame: NSRect(x: 0, y: 0, width: 264, height: 240))
+    let popoverWidth: CGFloat = 264
+    let container = NSView(frame: NSRect(x: 0, y: 0, width: popoverWidth, height: 240))
 
     var y: CGFloat = 220
 
@@ -2283,7 +2284,9 @@ private enum DividerResolutionPreference {
     applyBtn.bezelStyle = .rounded
     applyBtn.keyEquivalent = "\r"
     applyBtn.sizeToFit()
-    applyBtn.frame.origin = NSPoint(x: 264 - applyBtn.frame.width - 16, y: 8)
+    let swatchRowTrailingX =
+      16 + 36 + 4 + CGFloat(ScealPalette.colors.count) * 20 + CGFloat(max(ScealPalette.colors.count - 1, 0)) * 4
+    applyBtn.frame.origin = NSPoint(x: swatchRowTrailingX - applyBtn.frame.width, y: 8)
     container.addSubview(applyBtn)
 
     self.view = container
