@@ -48,6 +48,7 @@ final class NoteStore: ObservableObject {
   private var hasLoaded = false
   private var noteIndex: [DayNote.ID: Int] = [:]
   private var pendingSaveTasks: [DayNote.ID: Task<Void, Never>] = [:]
+  private var periodicFlushTask: Task<Void, Never>?
 
   private static let appearanceSettingsDefaultsKey = "sceal.noteAppearanceSettings"
   private static let newNoteDefaultKey = "sceal.newNoteDefault"
@@ -124,6 +125,7 @@ final class NoteStore: ObservableObject {
 
     hasLoaded = true
     isLoading = false
+    startPeriodicFlush()
   }
 
   func selectToday() {
@@ -144,6 +146,17 @@ final class NoteStore: ObservableObject {
 
     for noteID in noteIDs {
       flushPendingSave(for: noteID)
+    }
+  }
+
+  // Flushes pending saves every 5 seconds as a safety net against data loss on crash.
+  private func startPeriodicFlush() {
+    periodicFlushTask = Task { [weak self] in
+      while !Task.isCancelled {
+        try? await Task.sleep(nanoseconds: 5_000_000_000)
+        guard !Task.isCancelled else { break }
+        self?.flushPendingSaves()
+      }
     }
   }
 

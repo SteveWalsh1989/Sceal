@@ -99,7 +99,10 @@ enum DiarlyImporter {
     components.month = month
     components.day = day
 
-    guard let date = calendar.date(from: components) else { return nil }
+    guard let date = calendar.date(from: components),
+      calendar.component(.month, from: date) == month,
+      calendar.component(.day, from: date) == day
+    else { return nil }
     return calendar.startOfDay(for: date)
   }
 
