@@ -54,7 +54,7 @@ struct AppearanceSettingsView: View {
       Section("Layout") {
         SliderRow(
           title: "Line height",
-          valueLabel: String(format: "%.1fx", store.appearanceSettings.lineHeight),
+          valueLabel: String(format: "%.2fx", store.appearanceSettings.lineHeight),
           value: Binding(
             get: { Double(store.appearanceSettings.lineHeight) },
             set: { store.updateLineHeight(CGFloat($0)) }
@@ -62,7 +62,7 @@ struct AppearanceSettingsView: View {
           range: Double(
             NoteAppearanceSettings.minimumLineHeight)...Double(
               NoteAppearanceSettings.maximumLineHeight),
-          step: 0.1
+          step: 0.05
         )
 
         SliderRow(
@@ -75,7 +75,7 @@ struct AppearanceSettingsView: View {
           range: Double(
             NoteAppearanceSettings.minimumListItemSpacing)...Double(
               NoteAppearanceSettings.maximumListItemSpacing),
-          step: 0.5
+          step: 0.25
         )
 
         SliderRow(
@@ -88,7 +88,7 @@ struct AppearanceSettingsView: View {
           range: Double(
             NoteAppearanceSettings.minimumBulletSize)...Double(
               NoteAppearanceSettings.maximumBulletSize),
-          step: 2
+          step: 1
         )
       }
 
@@ -160,9 +160,9 @@ private struct SliderRow: View {
       Text(valueLabel)
         .monospacedDigit()
         .foregroundStyle(.secondary)
-        .frame(width: 36, alignment: .trailing)
+        .frame(width: 44, alignment: .trailing)
       Slider(value: $value, in: range, step: step)
-        .frame(width: 140)
+        .frame(width: 220)
     }
   }
 }
