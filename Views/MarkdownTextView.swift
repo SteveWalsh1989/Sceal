@@ -56,7 +56,10 @@ struct MarkdownTextView: NSViewRepresentable {
     scrollView.hasHorizontalScroller = false
     scrollView.drawsBackground = false
     scrollView.automaticallyAdjustsContentInsets = false
-    scrollView.contentInsets = .init()
+    // Overscroll: generous bottom inset so the user can scroll content well above the
+    // bottom edge, even when there is no more text below.
+    let visibleHeight = scrollView.contentSize.height
+    scrollView.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: visibleHeight * 0.75, right: 0)
 
     // Load initial content
     let displayString = MarkdownStyler.formatForDisplay(text, appearance: appearanceSettings)
@@ -67,9 +70,9 @@ struct MarkdownTextView: NSViewRepresentable {
     context.coordinator.lastDividerCount = textView.sectionDividerCount
     context.coordinator.lastNoteID = noteID
 
-    // Ensure text view fills at least the visible area plus bottom padding so clicks
-    // anywhere in the editor land on the text view rather than dead scroll-view space.
-    textView.minSize = NSSize(width: 0, height: scrollView.contentSize.height + 300)
+    // Ensure text view fills at least the visible area so clicks anywhere in the
+    // editor land on the text view rather than dead scroll-view space.
+    textView.minSize = NSSize(width: 0, height: visibleHeight)
 
     return scrollView
   }
@@ -80,10 +83,15 @@ struct MarkdownTextView: NSViewRepresentable {
     context.coordinator.parent = self
     context.coordinator.toolbar.appearanceSettings = appearanceSettings
 
-    // Keep text view filling the visible area plus bottom padding
-    let minH = scrollView.contentSize.height + 300
+    // Keep text view filling the visible area and overscroll inset in sync with resizes.
+    let visibleHeight = scrollView.contentSize.height
+    let minH = visibleHeight
     if textView.minSize.height != minH {
       textView.minSize = NSSize(width: 0, height: minH)
+    }
+    let bottomInset = visibleHeight * 0.75
+    if scrollView.contentInsets.bottom != bottomInset {
+      scrollView.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: bottomInset, right: 0)
     }
 
     let noteChanged = noteID != context.coordinator.lastNoteID
@@ -2219,7 +2227,7 @@ private enum DividerResolutionPreference {
   required init?(coder: NSCoder) { fatalError() }
 
   override func loadView() {
-    let container = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 240))
+    let container = NSView(frame: NSRect(x: 0, y: 0, width: 264, height: 240))
 
     var y: CGFloat = 220
 
@@ -2275,7 +2283,7 @@ private enum DividerResolutionPreference {
     applyBtn.bezelStyle = .rounded
     applyBtn.keyEquivalent = "\r"
     applyBtn.sizeToFit()
-    applyBtn.frame.origin = NSPoint(x: 240 - applyBtn.frame.width - 16, y: 8)
+    applyBtn.frame.origin = NSPoint(x: 264 - applyBtn.frame.width - 16, y: 8)
     container.addSubview(applyBtn)
 
     self.view = container

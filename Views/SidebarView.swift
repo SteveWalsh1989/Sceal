@@ -29,16 +29,14 @@ struct SidebarView: View {
               MonthDividerView(title: section.title)
 
               ForEach(section.notes) { note in
-                Button {
+                DayNoteCardView(
+                  note: note,
+                  appearanceSettings: store.appearanceSettings,
+                  isSelected: store.selectedNoteID == note.id
+                )
+                .onTapGesture {
                   store.select(noteID: note.id)
-                } label: {
-                  DayNoteCardView(
-                    note: note,
-                    appearanceSettings: store.appearanceSettings,
-                    isSelected: store.selectedNoteID == note.id
-                  )
                 }
-                .buttonStyle(.plain)
                 .contextMenu {
                   Button(role: .destructive) {
                     requestDelete(note.id)
@@ -56,6 +54,7 @@ struct SidebarView: View {
     .padding(.horizontal, 16)
     .padding(.vertical, 14)
     .background(sidebarBackgroundColor)
+    .environment(\.controlActiveState, .inactive)
     .background {
       // Captures arrow keys at the AppKit level when the editor isn't first responder.
       SidebarKeyboardHelper(
@@ -259,7 +258,7 @@ private struct DayNoteCardView: View {
     )
     .overlay(
       RoundedRectangle(cornerRadius: 20, style: .continuous)
-        .strokeBorder(isSelected ? Color.accentColor.opacity(0.4) : Color.clear, lineWidth: 1)
+        .strokeBorder(Color.clear, lineWidth: 0)
     )
     .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
   }
@@ -282,11 +281,14 @@ private struct DayNoteCardView: View {
 
   private var cardBackground: Color {
     if isSelected {
-      return Color.accentColor.opacity(0.14)
+      return colorScheme == .dark
+        ? Color(red: 0.175, green: 0.175, blue: 0.2)
+        : Color.black.opacity(0.08)
     }
 
     return colorScheme == .dark
       ? Color(red: 0.13, green: 0.13, blue: 0.15)
       : Color.black.opacity(0.04)
   }
+
 }
