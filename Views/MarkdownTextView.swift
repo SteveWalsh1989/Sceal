@@ -50,6 +50,9 @@ struct MarkdownTextView: NSViewRepresentable {
     scrollView.hasVerticalScroller = true
     scrollView.hasHorizontalScroller = false
     scrollView.drawsBackground = false
+    // Extra bottom space so the cursor area never gets stuck at the viewport edge.
+    scrollView.automaticallyAdjustsContentInsets = false
+    scrollView.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: 300, right: 0)
 
     // Load initial content
     let displayString = MarkdownStyler.formatForDisplay(text, appearance: appearanceSettings)
@@ -84,7 +87,9 @@ struct MarkdownTextView: NSViewRepresentable {
     guard noteChanged || textChanged || appearanceChanged else { return }
 
     context.coordinator.isUpdating = true
-    let selectedRange = clampedRange(textView.selectedRange(), maxLength: text.utf16.count)
+    let selectedRange = noteChanged
+      ? NSRange(location: 0, length: 0)
+      : clampedRange(textView.selectedRange(), maxLength: text.utf16.count)
     let visibleOrigin = scrollView.contentView.bounds.origin
     if let scealTextView = textView as? ScealTextView {
       scealTextView.appearanceSettings = appearanceSettings
@@ -102,7 +107,14 @@ struct MarkdownTextView: NSViewRepresentable {
       scealTextView.refreshSectionLayout()
       context.coordinator.lastDividerCount = scealTextView.sectionDividerCount
     }
-    scrollView.contentView.scroll(to: visibleOrigin)
+
+    if noteChanged {
+      // Scroll to top and resign first responder so the sidebar keeps keyboard focus.
+      scrollView.contentView.scroll(to: .zero)
+      textView.window?.makeFirstResponder(nil)
+    } else {
+      scrollView.contentView.scroll(to: visibleOrigin)
+    }
     scrollView.reflectScrolledClipView(scrollView.contentView)
     context.coordinator.isUpdating = false
   }
@@ -183,6 +195,12 @@ struct MarkdownTextView: NSViewRepresentable {
         toolbar.show(relativeTo: rectInScrollView, in: scrollView)
       } else {
         toolbar.hide()
+      }
+
+      // Keep typing attributes in sync so new text inherits correct font/color,
+      // not bare system defaults from unformatted newline characters.
+      if range.length == 0, let textStorage = textView.textStorage {
+        syncTypingAttributesToInsertionPoint(in: textView, textStorage: textStorage)
       }
     }
 
@@ -357,27 +375,47 @@ struct MarkdownTextView: NSViewRepresentable {
       }
       var continuedListType: MarkdownListType?
       var continuedBlockquote = false
+      // Track whether the cursor is mid-line so we split there instead of at line end.
+      let cursorOffsetInLine = cursorLocation - lineRange.location
+      let cursorAtLineEnd = cursorOffsetInLine >= lineRange.length
 
       let handled = textView.performEditorEdit(
         affectedRange: lineRange,
         replacementString: "\n",
         actionName: "Insert Newline"
       ) { textStorage in
+        let priorLineLength = lineRange.length
         continuedListType = MarkdownStyler.formatCurrentLine(
           in: textStorage,
           lineRange: lineRange,
           appearance: parent.appearanceSettings
         )
 
-        let formattedLineEnd = min(
-          NSMaxRange(
-            (textStorage.string as NSString).lineRange(
-              for: NSRange(location: lineRange.location, length: 0))),
-          textStorage.string.utf16.count
-        )
+        let formattedNS = textStorage.string as NSString
+        let formattedFullRange = formattedNS.lineRange(
+          for: NSRange(location: min(lineRange.location, max(formattedNS.length - 1, 0)), length: 0))
+        let formattedLineEnd = min(NSMaxRange(formattedFullRange), formattedNS.length)
+        var formattedLineLength = formattedLineEnd - lineRange.location
+        if formattedLineLength > 0,
+          formattedNS.character(at: lineRange.location + formattedLineLength - 1) == 0x0A
+        {
+          formattedLineLength -= 1
+        }
 
-        textStorage.insert(NSAttributedString(string: "\n"), at: formattedLineEnd)
-        var nextInsertionLocation = formattedLineEnd + 1
+        // Determine split point: end of line or mapped cursor position
+        let splitPoint: Int
+        if cursorAtLineEnd {
+          splitPoint = lineRange.location + formattedLineLength
+        } else {
+          let delta = formattedLineLength - priorLineLength
+          let adjustedOffset = max(0, min(cursorOffsetInLine + delta, formattedLineLength))
+          splitPoint = lineRange.location + adjustedOffset
+        }
+
+        let newlineAttrs = MarkdownStyler.baseTypingAttributes(for: parent.appearanceSettings)
+        textStorage.insert(
+          NSAttributedString(string: "\n", attributes: newlineAttrs), at: splitPoint)
+        var nextInsertionLocation = splitPoint + 1
 
         let updatedNS = textStorage.string as NSString
         let updatedLine = updatedNS.lineRange(

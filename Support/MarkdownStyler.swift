@@ -177,10 +177,12 @@ enum MarkdownStyler {
     var pendingHeadingColor: NSColor? = nil
     var pendingHeadingColorName: String? = nil
     let hcolorRegex = try! NSRegularExpression(pattern: #"^<!-- hcolor:(\w+) -->$"#)
+    // Newlines must carry real attributes so NSTextView never inherits bare system defaults.
+    let newlineAttrs = baseTypingAttributes(for: appearance)
 
     for (index, line) in lines.enumerated() {
       if index > 0 {
-        result.append(NSAttributedString(string: "\n"))
+        result.append(NSAttributedString(string: "\n", attributes: newlineAttrs))
       }
 
       // Check for heading color comment
