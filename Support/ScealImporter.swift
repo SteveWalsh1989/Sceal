@@ -13,7 +13,7 @@ enum ScealImporter {
     let failed: Int
   }
 
-  /// Walks a Scéal export folder for .md files, decodes via front matter, and skips existing dates.
+  // Walks a Scéal export folder for .md files, decodes via front matter, and skips existing dates.
   static func importNotes(
     from folderURL: URL,
     existingNoteIDs: Set<DayNote.ID>

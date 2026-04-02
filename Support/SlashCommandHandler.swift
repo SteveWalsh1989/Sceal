@@ -34,14 +34,14 @@ enum SlashCommandHandler {
       command: "/code", description: "Insert fenced code block", action: .codeBlock),
   ]
 
-  /// Returns commands whose name starts with the given prefix (e.g. "/" or "/d").
+  // Returns commands whose name starts with the given prefix (e.g. "/" or "/d").
   static func filteredCommands(for prefix: String) -> [SlashCommandEntry] {
     let lower = prefix.lowercased()
     if lower == "/" { return commands }
     return commands.filter { $0.command.lowercased().hasPrefix(lower) }
   }
 
-  /// Returns the matching slash command for the current line, if any.
+  // Returns the matching slash command for the current line, if any.
   static func matchedCommand(in textStorage: NSTextStorage, lineRange: NSRange)
     -> SlashCommandEntry?
   {

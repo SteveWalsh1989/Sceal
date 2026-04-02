@@ -50,9 +50,8 @@ struct MarkdownTextView: NSViewRepresentable {
     scrollView.hasVerticalScroller = true
     scrollView.hasHorizontalScroller = false
     scrollView.drawsBackground = false
-    // Extra bottom space so the cursor area never gets stuck at the viewport edge.
     scrollView.automaticallyAdjustsContentInsets = false
-    scrollView.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: 300, right: 0)
+    scrollView.contentInsets = .init()
 
     // Load initial content
     let displayString = MarkdownStyler.formatForDisplay(text, appearance: appearanceSettings)
@@ -63,8 +62,9 @@ struct MarkdownTextView: NSViewRepresentable {
     context.coordinator.lastDividerCount = textView.sectionDividerCount
     context.coordinator.lastNoteID = noteID
 
-    // Ensure text view fills at least the scroll view height
-    textView.minSize = NSSize(width: 0, height: scrollView.contentSize.height)
+    // Ensure text view fills at least the visible area plus bottom padding so clicks
+    // anywhere in the editor land on the text view rather than dead scroll-view space.
+    textView.minSize = NSSize(width: 0, height: scrollView.contentSize.height + 300)
 
     return scrollView
   }
@@ -75,8 +75,8 @@ struct MarkdownTextView: NSViewRepresentable {
     context.coordinator.parent = self
     context.coordinator.toolbar.appearanceSettings = appearanceSettings
 
-    // Keep text view filling the scroll view height
-    let minH = scrollView.contentSize.height
+    // Keep text view filling the visible area plus bottom padding
+    let minH = scrollView.contentSize.height + 300
     if textView.minSize.height != minH {
       textView.minSize = NSSize(width: 0, height: minH)
     }
@@ -265,6 +265,14 @@ struct MarkdownTextView: NSViewRepresentable {
         }
       }
 
+      // Handle Tab/Shift-Tab for list indentation
+      if commandSelector == #selector(NSResponder.insertTab(_:)) {
+        return handleListIndent(textView: textView, increase: true)
+      }
+      if commandSelector == #selector(NSResponder.insertBacktab(_:)) {
+        return handleListIndent(textView: textView, increase: false)
+      }
+
       guard commandSelector == #selector(NSResponder.insertNewline(_:)),
         let textStorage = textView.textStorage
       else {
@@ -375,6 +383,12 @@ struct MarkdownTextView: NSViewRepresentable {
       }
       var continuedListType: MarkdownListType?
       var continuedBlockquote = false
+      // Carry forward indent level from the current line
+      let currentIndentLevel: Int = {
+        guard lineRange.length > 0 else { return 0 }
+        return textStorage.attribute(.markdownIndentLevel, at: lineRange.location, effectiveRange: nil)
+          as? Int ?? 0
+      }()
       // Track whether the cursor is mid-line so we split there instead of at line end.
       let cursorOffsetInLine = cursorLocation - lineRange.location
       let cursorAtLineEnd = cursorOffsetInLine >= lineRange.length
@@ -435,7 +449,8 @@ struct MarkdownTextView: NSViewRepresentable {
             let markerAttr = continuationAttributedMarker(
               for: listType,
               marker: marker,
-              appearance: parent.appearanceSettings
+              appearance: parent.appearanceSettings,
+              indentLevel: currentIndentLevel
             )
             textStorage.insert(markerAttr, at: nextInsertionLocation)
             nextInsertionLocation += markerAttr.length
@@ -529,8 +544,10 @@ struct MarkdownTextView: NSViewRepresentable {
     }
 
     private func continuationAttributedMarker(
-      for listType: MarkdownListType, marker: String, appearance: NoteAppearanceSettings
+      for listType: MarkdownListType, marker: String, appearance: NoteAppearanceSettings,
+      indentLevel: Int = 0
     ) -> NSAttributedString {
+      let listStyle = MarkdownStyler.listParagraphStyle(for: appearance, indentLevel: indentLevel)
       switch listType {
       case .checkboxUnchecked, .checkboxChecked:
         let result = NSMutableAttributedString()
@@ -548,7 +565,8 @@ struct MarkdownTextView: NSViewRepresentable {
         result.addAttributes(
           [
             .markdownListType: MarkdownListType.checkboxUnchecked.rawValue,
-            .paragraphStyle: MarkdownStyler.listParagraphStyle(for: appearance),
+            .paragraphStyle: listStyle,
+            .markdownIndentLevel: indentLevel,
           ], range: fullRange)
         return result
 
@@ -559,7 +577,8 @@ struct MarkdownTextView: NSViewRepresentable {
             .font: appearance.bodyFont,
             .foregroundColor: NSColor.labelColor,
             .markdownListType: listType.rawValue,
-            .paragraphStyle: MarkdownStyler.listParagraphStyle(for: appearance),
+            .paragraphStyle: listStyle,
+            .markdownIndentLevel: indentLevel,
           ])
         if listType == .bullet {
           result.addAttributes(
@@ -576,6 +595,65 @@ struct MarkdownTextView: NSViewRepresentable {
           }
         }
         return result
+      }
+    }
+
+    // MARK: - List Indentation
+
+    // Increases or decreases indent level on list lines covered by the selection
+    private func handleListIndent(textView: NSTextView, increase: Bool) -> Bool {
+      guard let textStorage = textView.textStorage else { return false }
+      let nsString = textStorage.string as NSString
+      let selectedRange = textView.selectedRange()
+      let fullRange = nsString.lineRange(for: selectedRange)
+
+      // Check if any line in the selection is a list item
+      var hasListLine = false
+      var scanStart = fullRange.location
+      while scanStart < NSMaxRange(fullRange) {
+        let lineRange = nsString.lineRange(for: NSRange(location: scanStart, length: 0))
+        if lineRange.length > 0 {
+          let attrs = textStorage.attributes(at: lineRange.location, effectiveRange: nil)
+          if attrs[.markdownListType] as? String != nil {
+            hasListLine = true
+            break
+          }
+        }
+        scanStart = NSMaxRange(lineRange)
+      }
+
+      guard hasListLine else { return false }
+
+      let appearance = (textView as? ScealTextView)?.appearanceSettings ?? .default
+      return textView.performEditorEdit(
+        affectedRange: fullRange,
+        actionName: increase ? "Indent" : "Outdent"
+      ) { textStorage in
+        var scanStart = fullRange.location
+        while scanStart < NSMaxRange(fullRange) {
+          let lineRange = nsString.lineRange(for: NSRange(location: scanStart, length: 0))
+          var textRange = lineRange
+          if textRange.length > 0
+            && nsString.character(at: textRange.location + textRange.length - 1) == 0x0A
+          {
+            textRange.length -= 1
+          }
+          if textRange.length > 0 {
+            let attrs = textStorage.attributes(at: textRange.location, effectiveRange: nil)
+            if attrs[.markdownListType] as? String != nil {
+              let currentLevel = attrs[.markdownIndentLevel] as? Int ?? 0
+              let newLevel = increase ? min(currentLevel + 1, 3) : max(currentLevel - 1, 0)
+              if newLevel != currentLevel {
+                let newStyle = MarkdownStyler.listParagraphStyle(
+                  for: appearance, indentLevel: newLevel)
+                textStorage.addAttribute(.markdownIndentLevel, value: newLevel, range: textRange)
+                textStorage.addAttribute(.paragraphStyle, value: newStyle, range: textRange)
+              }
+            }
+          }
+          scanStart = NSMaxRange(lineRange)
+        }
+        return nil
       }
     }
 
@@ -673,7 +751,7 @@ struct MarkdownTextView: NSViewRepresentable {
 
     private func headingTypingAttributes(level: Int) -> [NSAttributedString.Key: Any] {
       [
-        .font: parent.appearanceSettings.boldBodyFont(ofSize: headingFontSize(for: level)),
+        .font: parent.appearanceSettings.boldBodyFont(ofSize: MarkdownStyler.headingFontSize(for: level)),
         .foregroundColor: NSColor.labelColor,
         .paragraphStyle: MarkdownStyler.bodyParagraphStyle(for: parent.appearanceSettings),
         .markdownHeadingLevel: level,
@@ -687,17 +765,6 @@ struct MarkdownTextView: NSViewRepresentable {
         .foregroundColor: NSColor.labelColor,
         .markdownCodeBlock: true,
       ]
-    }
-
-    private func headingFontSize(for level: Int) -> CGFloat {
-      switch level {
-      case 1:
-        return 22
-      case 2:
-        return 19
-      default:
-        return 17
-      }
     }
 
     // Expand the popup selection into its full slash command, then reuse the normal Enter path.
@@ -923,7 +990,7 @@ private enum DividerResolutionPreference {
   case nearest
 }
 
-private class ScealTextView: NSTextView {
+@MainActor private class ScealTextView: NSTextView {
 
   var appearanceSettings = NoteAppearanceSettings.default
   private let cardColor = NSColor.labelColor.withAlphaComponent(0.04)
@@ -1166,6 +1233,54 @@ private class ScealTextView: NSTextView {
   override func paste(_ sender: Any?) {
     guard let plainText = NSPasteboard.general.string(forType: .string) else { return }
     insertText(plainText, replacementRange: selectedRange())
+  }
+
+  // MARK: - Keyboard Shortcuts
+
+  override func performKeyEquivalent(with event: NSEvent) -> Bool {
+    guard event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command else {
+      return super.performKeyEquivalent(with: event)
+    }
+    switch event.charactersIgnoringModifiers {
+    case "b":
+      toggleBoldInSelection()
+      return true
+    default:
+      return super.performKeyEquivalent(with: event)
+    }
+  }
+
+  // Toggles bold on the current selection, mirroring FormattingToolbar.toggleBold()
+  private func toggleBoldInSelection() {
+    guard let textStorage else { return }
+    let range = selectedRange()
+    guard range.length > 0 else { return }
+
+    var allBold = true
+    textStorage.enumerateAttribute(.markdownBold, in: range, options: []) { value, _, stop in
+      if value as? Bool != true {
+        allBold = false
+        stop.pointee = true
+      }
+    }
+
+    performEditorEdit(
+      affectedRange: range,
+      actionName: allBold ? "Remove Bold" : "Bold"
+    ) { textStorage in
+      if allBold {
+        textStorage.removeAttribute(.markdownBold, range: range)
+        textStorage.addAttribute(.font, value: self.appearanceSettings.bodyFont, range: range)
+      } else {
+        let currentFont =
+          textStorage.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont
+          ?? self.appearanceSettings.bodyFont
+        let boldFont = NSFontManager.shared.convert(currentFont, toHaveTrait: .boldFontMask)
+        textStorage.addAttribute(.font, value: boldFont, range: range)
+        textStorage.addAttribute(.markdownBold, value: true, range: range)
+      }
+      return nil
+    }
   }
 
   // MARK: - Checkbox Click

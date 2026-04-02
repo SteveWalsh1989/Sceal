@@ -3,7 +3,7 @@
 //
 
 // Controls whether a new "today" note starts blank or copies the most recent previous note.
-enum NewNoteDefault: String, Codable, CaseIterable {
+enum NewNoteDefault: String, Codable, CaseIterable, Sendable {
   case blank
   case copyPrevious
 

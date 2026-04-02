@@ -56,9 +56,9 @@ struct ContentView: View {
       Text("This cannot be undone.")
     }
     .overlay(alignment: .top) {
-      if let errorMessage = store.errorMessage {
-        ErrorBanner(message: errorMessage) {
-          store.dismissError()
+      if let message = store.userMessage {
+        ErrorBanner(message: message.text, kind: message.kind) {
+          store.dismissMessage()
         }
         .padding(.top, 12)
       }
@@ -80,12 +80,13 @@ struct ContentView: View {
 
 private struct ErrorBanner: View {
   let message: String
+  let kind: UserMessageKind
   let dismiss: () -> Void
 
   var body: some View {
     HStack(spacing: 12) {
-      Image(systemName: "exclamationmark.triangle.fill")
-        .foregroundStyle(.orange)
+      Image(systemName: kind == .error ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+        .foregroundStyle(kind == .error ? .orange : .green)
 
       Text(message)
         .font(.callout)

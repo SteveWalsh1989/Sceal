@@ -4,7 +4,7 @@
 
 import Foundation
 
-enum SidebarDateFormat: String, CaseIterable, Codable {
+enum SidebarDateFormat: String, CaseIterable, Codable, Sendable {
   case yearMonthDay
   case dayMonthYear
   case dayMonthYearSlashes

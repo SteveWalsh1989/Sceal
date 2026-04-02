@@ -23,6 +23,7 @@ enum MarkdownNoteFile {
   }
 
   static func decode(contents: String, sourceURL: URL) throws -> DayNote {
+    let contents = contents.replacingOccurrences(of: "\r\n", with: "\n")
     let prefix = "\(frontMatterMarker)\n"
     guard contents.hasPrefix(prefix) else {
       throw MarkdownNoteFileError.missingFrontMatter(sourceURL)

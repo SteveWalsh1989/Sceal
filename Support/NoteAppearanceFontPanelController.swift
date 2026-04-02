@@ -5,7 +5,7 @@
 import AppKit
 
 // Presents the system font panel and forwards font-name changes to a callback.
-final class SettingsFontPanelController: NSObject {
+@MainActor final class SettingsFontPanelController: NSObject {
   private var selectedFont = NoteAppearanceSettings.default.bodyFont
   private var onFontChange: ((String) -> Void)?
 

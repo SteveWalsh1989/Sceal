@@ -7,7 +7,7 @@ import Foundation
 // Exports notes to a year-organized zip archive using the native markdown format.
 enum ScealExporter {
 
-  /// Writes the given notes into a temp directory and zips it, returning the zip URL.
+  // Writes the given notes into a temp directory and zips it, returning the zip URL.
   static func exportNotes(_ notes: [DayNote]) throws -> URL {
     guard !notes.isEmpty else {
       throw ScealExporterError.noNotesToExport
@@ -45,7 +45,7 @@ enum ScealExporter {
     return zipURL
   }
 
-  /// Removes the temp directory that contains the zip after the caller has moved it.
+  // Removes the temp directory that contains the zip after the caller has moved it.
   static func cleanUp(zipURL: URL) {
     let parentDir = zipURL.deletingLastPathComponent()
     try? FileManager.default.removeItem(at: parentDir)

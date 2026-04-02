@@ -48,7 +48,7 @@ extension NSTextView {
   }
 }
 
-class FormattingToolbar: NSView {
+@MainActor class FormattingToolbar: NSView {
   weak var textView: NSTextView?
   var appearanceSettings = NoteAppearanceSettings.default
 
@@ -502,7 +502,7 @@ class FormattingToolbar: NSView {
       if currentLevel == level {
         applyParagraphAttributes(in: textStorage, range: lineRange)
       } else {
-        let fontSize: CGFloat = level == 1 ? 22 : level == 2 ? 19 : 17
+        let fontSize = MarkdownStyler.headingFontSize(for: level)
         textStorage.addAttribute(.markdownHeadingLevel, value: level, range: lineRange)
         textStorage.addAttribute(
           .font, value: appearanceSettings.boldBodyFont(ofSize: fontSize), range: lineRange)
@@ -575,7 +575,6 @@ class FormattingToolbar: NSView {
         let newRange = NSRange(location: range.location, length: newText.utf16.count)
         var attrs: [NSAttributedString.Key: Any] = [
           .foregroundColor: NSColor.linkColor,
-          .underlineStyle: NSUnderlineStyle.single.rawValue,
           .markdownLinkURL: newURL,
         ]
         if let url = URL(string: newURL) { attrs[.link] = url }
@@ -641,81 +640,114 @@ class FormattingToolbar: NSView {
 
   private func toggleListType(_ targetType: MarkdownListType) {
     guard let textView, let textStorage = textView.textStorage else { return }
-    let (lineRange, lineText) = currentLineRange()
+    let nsString = textStorage.string as NSString
 
-    let currentTypeRaw =
-      lineRange.length > 0
-      ? textStorage.attribute(.markdownListType, at: lineRange.location, effectiveRange: nil)
-        as? String : nil
-    let currentType = currentTypeRaw.flatMap { MarkdownListType(rawValue: $0) }
+    // Collect individual line ranges covering the entire selection
+    let selectedRange = textView.selectedRange()
+    let fullRange = nsString.lineRange(for: selectedRange)
+    var lines: [(range: NSRange, text: String)] = []
+    var scanStart = fullRange.location
+    while scanStart < NSMaxRange(fullRange) {
+      var lineRange = nsString.lineRange(for: NSRange(location: scanStart, length: 0))
+      // Trim trailing newline for the text range
+      if lineRange.length > 0
+        && nsString.character(at: lineRange.location + lineRange.length - 1) == 0x0A
+      {
+        lineRange.length -= 1
+      }
+      let lineText = nsString.substring(with: lineRange)
+      lines.append((lineRange, lineText))
+      scanStart = lineRange.location + lineRange.length + 1  // +1 to skip past newline
+    }
 
-    _ = textView.performEditorEdit(affectedRange: lineRange, actionName: "List Style") {
+    guard !lines.isEmpty else { return }
+
+    _ = textView.performEditorEdit(affectedRange: fullRange, actionName: "List Style") {
       textStorage in
-      if currentType == targetType {
-        // Toggle off — remove list prefix and attributes
-        let cleanText = stripDisplayListPrefix(lineText, listType: targetType)
-        let attrs: [NSAttributedString.Key: Any] = [
-          .font: appearanceSettings.bodyFont,
-          .foregroundColor: NSColor.labelColor,
-          .paragraphStyle: MarkdownStyler.bodyParagraphStyle(for: appearanceSettings),
-        ]
-        textStorage.replaceCharacters(
-          in: lineRange,
-          with: NSAttributedString(string: cleanText, attributes: attrs))
-      } else {
-        // Apply — strip any existing list prefix, then add the new one
-        let cleanText =
-          currentType != nil ? stripDisplayListPrefix(lineText, listType: currentType!) : lineText
-        let listStyle = MarkdownStyler.listParagraphStyle(for: appearanceSettings)
+      // Process lines in reverse so replacements don't shift later ranges
+      for (index, line) in lines.enumerated().reversed() {
+        let currentTypeRaw =
+          line.range.length > 0
+          ? textStorage.attribute(
+            .markdownListType, at: line.range.location, effectiveRange: nil
+          ) as? String : nil
+        let currentType = currentTypeRaw.flatMap { MarkdownListType(rawValue: $0) }
+        // Preserve indent level when converting between list types
+        let indentLevel: Int = line.range.length > 0
+          ? textStorage.attribute(
+            .markdownIndentLevel, at: line.range.location, effectiveRange: nil
+          ) as? Int ?? 0 : 0
 
-        let result: NSMutableAttributedString
+        if currentType == targetType {
+          // Toggle off — remove list prefix and attributes
+          let cleanText = stripDisplayListPrefix(line.text, listType: targetType)
+          let attrs: [NSAttributedString.Key: Any] = [
+            .font: appearanceSettings.bodyFont,
+            .foregroundColor: NSColor.labelColor,
+            .paragraphStyle: MarkdownStyler.bodyParagraphStyle(for: appearanceSettings),
+          ]
+          textStorage.replaceCharacters(
+            in: line.range,
+            with: NSAttributedString(string: cleanText, attributes: attrs))
+        } else {
+          // Apply — strip any existing list prefix, then add the new one
+          let cleanText =
+            currentType != nil
+            ? stripDisplayListPrefix(line.text, listType: currentType!) : line.text
+          let listStyle = MarkdownStyler.listParagraphStyle(
+            for: appearanceSettings, indentLevel: indentLevel)
 
-        if targetType == .checkboxUnchecked || targetType == .checkboxChecked {
-          let checked = targetType == .checkboxChecked
-          result = NSMutableAttributedString()
-          result.append(
-            MarkdownStyler.checkboxAttributedString(
-              checked: checked,
-              appearance: appearanceSettings
-            ))
-          result.append(
-            NSAttributedString(
-              string: " \(cleanText)",
+          let result: NSMutableAttributedString
+
+          if targetType == .checkboxUnchecked || targetType == .checkboxChecked {
+            let checked = targetType == .checkboxChecked
+            result = NSMutableAttributedString()
+            result.append(
+              MarkdownStyler.checkboxAttributedString(
+                checked: checked,
+                appearance: appearanceSettings
+              ))
+            result.append(
+              NSAttributedString(
+                string: " \(cleanText)",
+                attributes: [
+                  .font: appearanceSettings.bodyFont,
+                  .foregroundColor: NSColor.labelColor,
+                  .paragraphStyle: MarkdownStyler.bodyParagraphStyle(for: appearanceSettings),
+                ]))
+            let fullRange = NSRange(location: 0, length: result.length)
+            result.addAttributes(
+              [
+                .markdownListType: targetType.rawValue,
+                .paragraphStyle: listStyle,
+                .markdownIndentLevel: indentLevel,
+              ],
+              range: fullRange
+            )
+          } else {
+            let marker: String
+            switch targetType {
+            case .bullet: marker = "\(MarkdownStyler.bulletMarker) "
+            case .numbered: marker = "\(index + 1). "
+            default: marker = ""
+            }
+
+            let newText = marker + cleanText
+            result = NSMutableAttributedString(
+              string: newText,
               attributes: [
                 .font: appearanceSettings.bodyFont,
                 .foregroundColor: NSColor.labelColor,
-                .paragraphStyle: MarkdownStyler.bodyParagraphStyle(for: appearanceSettings),
-              ]))
-          let fullRange = NSRange(location: 0, length: result.length)
-          result.addAttributes(
-            [
-              .markdownListType: targetType.rawValue,
-              .paragraphStyle: listStyle,
-            ],
-            range: fullRange
-          )
-        } else {
-          let marker: String
-          switch targetType {
-          case .bullet: marker = "\(MarkdownStyler.bulletMarker) "
-          case .numbered: marker = "1. "
-          default: marker = ""
+                .markdownListType: targetType.rawValue,
+                .paragraphStyle: listStyle,
+                .markdownIndentLevel: indentLevel,
+              ])
+
+            styleListMarker(in: result, listType: targetType)
           }
 
-          let newText = marker + cleanText
-          result = NSMutableAttributedString(
-            string: newText,
-            attributes: [
-              .font: appearanceSettings.bodyFont,
-              .foregroundColor: NSColor.labelColor,
-              .markdownListType: targetType.rawValue,
-              .paragraphStyle: listStyle,
-            ])
-
-          styleListMarker(in: result, listType: targetType)
+          textStorage.replaceCharacters(in: line.range, with: result)
         }
-
-        textStorage.replaceCharacters(in: lineRange, with: result)
       }
       return nil
     }
@@ -811,7 +843,7 @@ class FormattingToolbar: NSView {
 
 // MARK: - Link Popover View Controller
 
-/// Compact form for creating or editing a markdown link (text + URL).
+// Compact form for creating or editing a markdown link (text + URL).
 private class LinkPopoverViewController: NSViewController {
 
   private let initialText: String

@@ -9,7 +9,7 @@ import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct NoteMonthSection: Identifiable, Equatable {
+struct NoteMonthSection: Identifiable, Equatable, Sendable {
   let monthStartDate: Date
   let notes: [DayNote]
 
@@ -28,6 +28,11 @@ struct NoteMonthSection: Identifiable, Equatable {
   }
 }
 
+enum UserMessageKind {
+  case error
+  case info
+}
+
 @MainActor
 final class NoteStore: ObservableObject {
   @Published private(set) var notes: [DayNote]
@@ -35,12 +40,13 @@ final class NoteStore: ObservableObject {
   @Published private(set) var newNoteDefault: NewNoteDefault
   @Published var selectedNoteID: DayNote.ID?
   @Published private(set) var isLoading = false
-  @Published var errorMessage: String?
+  @Published var userMessage: (text: String, kind: UserMessageKind)?
 
   private let fileManager: FileManager
   private let calendar: Calendar
   private let userDefaults: UserDefaults
   private var hasLoaded = false
+  private var noteIndex: [DayNote.ID: Int] = [:]
   private var pendingSaveTasks: [DayNote.ID: Task<Void, Never>] = [:]
 
   private static let appearanceSettingsDefaultsKey = "sceal.noteAppearanceSettings"
@@ -55,10 +61,12 @@ final class NoteStore: ObservableObject {
     self.fileManager = fileManager
     self.calendar = calendar
     self.userDefaults = userDefaults
-    self.notes = previewNotes.sorted(by: { $0.date > $1.date })
+    let sortedNotes = previewNotes.sorted(by: { $0.date > $1.date })
+    self.notes = sortedNotes
+    self.noteIndex = Dictionary(uniqueKeysWithValues: sortedNotes.enumerated().map { ($1.id, $0) })
     self.appearanceSettings = Self.loadAppearanceSettings(from: userDefaults)
     self.newNoteDefault = Self.loadNewNoteDefault(from: userDefaults)
-    self.selectedNoteID = previewNotes.sorted(by: { $0.date > $1.date }).first?.id
+    self.selectedNoteID = sortedNotes.first?.id
     self.hasLoaded = !previewNotes.isEmpty
   }
 
@@ -100,10 +108,11 @@ final class NoteStore: ObservableObject {
 
     do {
       try loadNotes()
-      errorMessage = nil
+      userMessage = nil
     } catch {
       report(error, context: "Loading notes failed")
       notes = [DayNote.empty(for: .now, calendar: calendar)]
+      rebuildNoteIndex()
       selectedNoteID = notes.first?.id
 
       do {
@@ -126,8 +135,8 @@ final class NoteStore: ObservableObject {
     }
   }
 
-  func dismissError() {
-    errorMessage = nil
+  func dismissMessage() {
+    userMessage = nil
   }
 
   func flushPendingSaves() {
@@ -139,7 +148,10 @@ final class NoteStore: ObservableObject {
   }
 
   func note(withID noteID: DayNote.ID) -> DayNote? {
-    notes.first(where: { $0.id == noteID })
+    if let index = noteIndex[noteID], notes.indices.contains(index), notes[index].id == noteID {
+      return notes[index]
+    }
+    return notes.first(where: { $0.id == noteID })
   }
 
   func select(noteID: DayNote.ID) {
@@ -245,15 +257,16 @@ final class NoteStore: ObservableObject {
       }
 
       notes = (notes + result.imported).sorted(by: { $0.date > $1.date })
+      rebuildNoteIndex()
 
       if result.imported.isEmpty && result.skipped > 0 {
-        errorMessage = "No new notes imported. \(result.skipped) dates already exist in Scéal."
+        userMessage = (text: "No new notes imported. \(result.skipped) dates already exist in Scéal.", kind: .info)
       } else if result.imported.isEmpty {
-        errorMessage = "No Diarly notes found in the selected folder."
+        userMessage = (text: "No Diarly notes found in the selected folder.", kind: .info)
       } else {
         let skippedSuffix =
           result.skipped > 0 ? " (\(result.skipped) skipped — dates already exist)" : ""
-        errorMessage = "Imported \(result.imported.count) notes.\(skippedSuffix)"
+        userMessage = (text: "Imported \(result.imported.count) notes.\(skippedSuffix)", kind: .info)
         selectedNoteID = result.imported.first?.id
       }
     } catch {
@@ -272,7 +285,7 @@ final class NoteStore: ObservableObject {
     }
 
     guard !filtered.isEmpty else {
-      errorMessage = "No notes found in the selected date range."
+      userMessage = (text: "No notes found in the selected date range.", kind: .info)
       return
     }
 
@@ -292,7 +305,7 @@ final class NoteStore: ObservableObject {
       try fileManager.moveItem(at: zipURL, to: saveURL)
 
       ScealExporter.cleanUp(zipURL: zipURL)
-      errorMessage = "Exported \(filtered.count) notes."
+      userMessage = (text: "Exported \(filtered.count) notes.", kind: .info)
     } catch {
       report(error, context: "Exporting notes failed")
     }
@@ -320,17 +333,18 @@ final class NoteStore: ObservableObject {
       }
 
       notes = (notes + result.imported).sorted(by: { $0.date > $1.date })
+      rebuildNoteIndex()
 
       if result.imported.isEmpty && result.skipped > 0 {
-        errorMessage = "No new notes imported. \(result.skipped) dates already exist in Scéal."
+        userMessage = (text: "No new notes imported. \(result.skipped) dates already exist in Scéal.", kind: .info)
       } else if result.imported.isEmpty {
-        errorMessage = "No Scéal notes found in the selected folder."
+        userMessage = (text: "No Scéal notes found in the selected folder.", kind: .info)
       } else {
         var details: [String] = []
         if result.skipped > 0 { details.append("\(result.skipped) skipped") }
         if result.failed > 0 { details.append("\(result.failed) failed to parse") }
         let suffix = details.isEmpty ? "" : " (\(details.joined(separator: ", ")))"
-        errorMessage = "Imported \(result.imported.count) notes.\(suffix)"
+        userMessage = (text: "Imported \(result.imported.count) notes.\(suffix)", kind: .info)
         selectedNoteID = result.imported.first?.id
       }
     } catch {
@@ -355,12 +369,13 @@ final class NoteStore: ObservableObject {
     }
 
     notes.removeAll(where: { $0.id == noteID })
+    rebuildNoteIndex()
 
     if notes.isEmpty {
       do {
         try seedStarterNotes()
         selectedNoteID = notes.first?.id
-        errorMessage = nil
+        userMessage = nil
       } catch {
         report(error, context: "Loading sample notes after delete failed")
         selectedNoteID = nil
@@ -422,6 +437,7 @@ final class NoteStore: ObservableObject {
       try seedStarterNotes()
     } else {
       notes = loadedNotes
+      rebuildNoteIndex()
     }
 
     selectedNoteID = notes.first?.id
@@ -436,6 +452,7 @@ final class NoteStore: ObservableObject {
     }
 
     notes = sampleNotes
+    rebuildNoteIndex()
   }
 
   private func ensureTodayNoteExists() throws {
@@ -452,6 +469,7 @@ final class NoteStore: ObservableObject {
     }
 
     notes = ([todayNote] + notes).sorted(by: { $0.date > $1.date })
+    rebuildNoteIndex()
     try save(todayNote)
   }
 
@@ -493,6 +511,7 @@ final class NoteStore: ObservableObject {
     var updatedNotes = notes
     mutate(&updatedNotes[index])
     notes = updatedNotes
+    rebuildNoteIndex()
     scheduleSave(for: noteID)
   }
 
@@ -633,9 +652,13 @@ final class NoteStore: ObservableObject {
     return normalizedTags
   }
 
+  private func rebuildNoteIndex() {
+    noteIndex = Dictionary(uniqueKeysWithValues: notes.enumerated().map { ($1.id, $0) })
+  }
+
   private func report(_ error: Error, context: String) {
     let message =
       error.localizedDescription.isEmpty ? String(describing: error) : error.localizedDescription
-    errorMessage = "\(context). \(message)"
+    userMessage = (text: "\(context). \(message)", kind: .error)
   }
 }

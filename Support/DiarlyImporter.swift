@@ -13,7 +13,7 @@ enum DiarlyImporter {
     let skipped: Int
   }
 
-  /// Walks a Diarly export folder and returns parsed notes, skipping dates that already exist.
+  // Walks a Diarly export folder and returns parsed notes, skipping dates that already exist.
   static func importNotes(
     from folderURL: URL,
     existingNoteIDs: Set<DayNote.ID>,
@@ -81,7 +81,7 @@ enum DiarlyImporter {
 
   // MARK: - Parsing Helpers
 
-  /// Derives a date from a Diarly note path like `.../2026/03-27.md`.
+  // Derives a date from a Diarly note path like `.../2026/03-27.md`.
   private static func parseDate(from fileURL: URL, year: Int, calendar: Calendar) -> Date? {
     let filename = fileURL.deletingPathExtension().lastPathComponent
     let parts = filename.split(separator: "-")
@@ -103,7 +103,7 @@ enum DiarlyImporter {
     return calendar.startOfDay(for: date)
   }
 
-  /// Splits file contents into title (first line) and body (remaining content).
+  // Splits file contents into title (first line) and body (remaining content).
   private static func extractTitleAndBody(from contents: String) -> (title: String, body: String) {
     let lines = contents.split(separator: "\n", omittingEmptySubsequences: false)
 

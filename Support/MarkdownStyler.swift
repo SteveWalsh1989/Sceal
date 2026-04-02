@@ -21,6 +21,7 @@ extension NSAttributedString.Key {
   static let markdownInlineCode = NSAttributedString.Key("sceal.inlineCode")
   static let markdownHeadingColor = NSAttributedString.Key("sceal.headingColor")
   static let markdownBlockquote = NSAttributedString.Key("sceal.blockquote")
+  static let markdownIndentLevel = NSAttributedString.Key("sceal.indentLevel")
 }
 
 enum MarkdownListType: String {
@@ -32,7 +33,7 @@ enum MarkdownListType: String {
 
 // MARK: - Shared Color Palette
 
-/// Muted flat palette shared across headings, bullets, checkboxes, and future appearance settings.
+// Muted flat palette shared across headings, bullets, checkboxes, and future appearance settings.
 enum ScealPalette {
 
   struct Entry {
@@ -74,6 +75,16 @@ enum MarkdownStyler {
   static let checkedMarker = "\u{FFFC}"
   static let attachmentChar = "\u{FFFC}"
 
+  // Cached regex patterns to avoid recreation per format pass.
+  private static let hcolorRegex = try! NSRegularExpression(pattern: #"^<!-- hcolor:(\w+) -->$"#)
+  private static let boldRegex = try! NSRegularExpression(pattern: #"\*\*(.+?)\*\*"#)
+  private static let italicRegex = try! NSRegularExpression(
+    pattern: #"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)"#)
+  private static let strikethroughRegex = try! NSRegularExpression(pattern: #"~~(.+?)~~"#)
+  private static let inlineCodeRegex = try! NSRegularExpression(pattern: #"`([^`]+)`"#)
+  private static let linkRegex = try! NSRegularExpression(
+    pattern: #"\[([^\]]+)\]\(([^\)]+)\)"#)
+
   // MARK: - Heading Color Presets (backed by the shared palette)
 
   static let headingColorPresets: [(name: String, color: NSColor)] =
@@ -110,11 +121,13 @@ enum MarkdownStyler {
     return style
   }
 
-  static func listParagraphStyle(for appearance: NoteAppearanceSettings) -> NSMutableParagraphStyle
+  static func listParagraphStyle(for appearance: NoteAppearanceSettings, indentLevel: Int = 0)
+    -> NSMutableParagraphStyle
   {
     let style = NSMutableParagraphStyle()
-    style.firstLineHeadIndent = 8
-    style.headIndent = 28
+    let indent = CGFloat(indentLevel) * 20
+    style.firstLineHeadIndent = 8 + indent
+    style.headIndent = 28 + indent
     style.paragraphSpacing = appearance.listItemSpacing
     style.lineHeightMultiple = appearance.lineHeight
     return style
@@ -176,7 +189,7 @@ enum MarkdownStyler {
     var insideCodeBlock = false
     var pendingHeadingColor: NSColor? = nil
     var pendingHeadingColorName: String? = nil
-    let hcolorRegex = try! NSRegularExpression(pattern: #"^<!-- hcolor:(\w+) -->$"#)
+    let hcolorRegex = Self.hcolorRegex
     // Newlines must carry real attributes so NSTextView never inherits bare system defaults.
     let newlineAttrs = baseTypingAttributes(for: appearance)
 
@@ -356,6 +369,11 @@ enum MarkdownStyler {
   private static func buildDisplayLine(_ rawLine: String, appearance: NoteAppearanceSettings)
     -> NSAttributedString
   {
+    // Detect and strip leading whitespace for list indentation (2 spaces = 1 indent level)
+    let leadingSpaces = rawLine.prefix(while: { $0 == " " }).count
+    let indentLevel = min(leadingSpaces / 2, 3)
+    let trimmedLine = indentLevel > 0 ? String(rawLine.dropFirst(indentLevel * 2)) : rawLine
+
     let baseAttrs: [NSAttributedString.Key: Any] = [
       .font: appearance.bodyFont,
       .foregroundColor: NSColor.labelColor,
@@ -363,19 +381,19 @@ enum MarkdownStyler {
     ]
 
     // Section divider — Sceal card-gap marker
-    if rawLine == "<!-- section -->" {
+    if trimmedLine == "<!-- section -->" {
       return styledSectionDivider()
     }
 
     // Horizontal rule — standard markdown visible line
-    if rawLine.range(of: #"^-{3,}$"#, options: .regularExpression) != nil {
+    if trimmedLine.range(of: #"^-{3,}$"#, options: .regularExpression) != nil {
       return styledHorizontalRule()
     }
 
     // Heading
-    if let match = rawLine.range(of: #"^(#{1,3})\s+"#, options: .regularExpression) {
-      let level = rawLine[match].filter { $0 == "#" }.count
-      let content = String(rawLine[match.upperBound...])
+    if let match = trimmedLine.range(of: #"^(#{1,3})\s+"#, options: .regularExpression) {
+      let level = trimmedLine[match].filter { $0 == "#" }.count
+      let content = String(trimmedLine[match.upperBound...])
       let fontSize = headingFontSize(for: level)
       let result = NSMutableAttributedString(
         string: content,
@@ -394,8 +412,8 @@ enum MarkdownStyler {
     }
 
     // Checkbox checked
-    if rawLine.hasPrefix("- [x] ") {
-      let content = String(rawLine.dropFirst(6))
+    if trimmedLine.hasPrefix("- [x] ") {
+      let content = String(trimmedLine.dropFirst(6))
       let checkAttr = checkboxAttributedString(checked: true, appearance: appearance)
       let contentAttr = NSMutableAttributedString(string: " \(content)", attributes: baseAttrs)
       stripInlineBold(
@@ -414,7 +432,8 @@ enum MarkdownStyler {
         [
           .markdownListType: MarkdownListType.checkboxChecked.rawValue,
           .strikethroughStyle: NSUnderlineStyle.single.rawValue,
-          .paragraphStyle: listParagraphStyle(for: appearance),
+          .paragraphStyle: listParagraphStyle(for: appearance, indentLevel: indentLevel),
+          .markdownIndentLevel: indentLevel,
         ], range: fullRange)
       // Remove strikethrough from the checkbox character itself
       result.removeAttribute(.strikethroughStyle, range: NSRange(location: 0, length: 1))
@@ -422,8 +441,8 @@ enum MarkdownStyler {
     }
 
     // Checkbox unchecked
-    if rawLine.hasPrefix("- [ ] ") {
-      let content = String(rawLine.dropFirst(6))
+    if trimmedLine.hasPrefix("- [ ] ") {
+      let content = String(trimmedLine.dropFirst(6))
       let checkAttr = checkboxAttributedString(checked: false, appearance: appearance)
       let contentAttr = NSMutableAttributedString(string: " \(content)", attributes: baseAttrs)
       stripInlineBold(
@@ -441,22 +460,24 @@ enum MarkdownStyler {
       result.addAttributes(
         [
           .markdownListType: MarkdownListType.checkboxUnchecked.rawValue,
-          .paragraphStyle: listParagraphStyle(for: appearance),
+          .paragraphStyle: listParagraphStyle(for: appearance, indentLevel: indentLevel),
+          .markdownIndentLevel: indentLevel,
         ], range: fullRange)
       return result
     }
 
     // Bullet list
-    if rawLine.range(of: #"^(?:-|•)\s+"#, options: .regularExpression) != nil {
-      let prefixMatch = rawLine.range(of: #"^(?:-|•)\s+"#, options: .regularExpression)!
-      let content = String(rawLine[prefixMatch.upperBound...])
+    if trimmedLine.range(of: #"^(?:-|•)\s+"#, options: .regularExpression) != nil {
+      let prefixMatch = trimmedLine.range(of: #"^(?:-|•)\s+"#, options: .regularExpression)!
+      let content = String(trimmedLine[prefixMatch.upperBound...])
       let displayText = "\(bulletMarker) \(content)"
       let result = NSMutableAttributedString(string: displayText, attributes: baseAttrs)
       let fullRange = NSRange(location: 0, length: result.length)
       result.addAttributes(
         [
           .markdownListType: MarkdownListType.bullet.rawValue,
-          .paragraphStyle: listParagraphStyle(for: appearance),
+          .paragraphStyle: listParagraphStyle(for: appearance, indentLevel: indentLevel),
+          .markdownIndentLevel: indentLevel,
         ], range: fullRange)
       result.addAttributes(
         [
@@ -474,16 +495,17 @@ enum MarkdownStyler {
     }
 
     // Numbered list
-    if rawLine.range(of: #"^\d+\.\s+"#, options: .regularExpression) != nil {
-      let result = NSMutableAttributedString(string: rawLine, attributes: baseAttrs)
+    if trimmedLine.range(of: #"^\d+\.\s+"#, options: .regularExpression) != nil {
+      let result = NSMutableAttributedString(string: trimmedLine, attributes: baseAttrs)
       let fullRange = NSRange(location: 0, length: result.length)
       result.addAttributes(
         [
           .markdownListType: MarkdownListType.numbered.rawValue,
-          .paragraphStyle: listParagraphStyle(for: appearance),
+          .paragraphStyle: listParagraphStyle(for: appearance, indentLevel: indentLevel),
+          .markdownIndentLevel: indentLevel,
         ], range: fullRange)
-      if let numMatch = rawLine.range(of: #"^\d+\."#, options: .regularExpression) {
-        let numLength = rawLine.distance(from: numMatch.lowerBound, to: numMatch.upperBound)
+      if let numMatch = trimmedLine.range(of: #"^\d+\."#, options: .regularExpression) {
+        let numLength = trimmedLine.distance(from: numMatch.lowerBound, to: numMatch.upperBound)
         result.addAttribute(
           .foregroundColor, value: NSColor.secondaryLabelColor,
           range: NSRange(location: 0, length: numLength))
@@ -499,8 +521,8 @@ enum MarkdownStyler {
     }
 
     // Blockquote (single-level only)
-    if rawLine.hasPrefix("> ") {
-      let content = String(rawLine.dropFirst(2))
+    if trimmedLine.hasPrefix("> ") {
+      let content = String(trimmedLine.dropFirst(2))
       let quoteStyle = blockquoteParagraphStyle(for: appearance)
       let result = NSMutableAttributedString(
         string: content,
@@ -536,7 +558,7 @@ enum MarkdownStyler {
   private static func stripInlineBold(
     in attrStr: NSMutableAttributedString, defaultBoldFont: NSFont
   ) {
-    let regex = try! NSRegularExpression(pattern: #"\*\*(.+?)\*\*"#)
+    let regex = boldRegex
 
     // Iterate until no more matches (since positions shift after each replacement)
     while true {
@@ -568,7 +590,7 @@ enum MarkdownStyler {
   private static func stripInlineItalic(
     in attrStr: NSMutableAttributedString, defaultItalicFont: NSFont
   ) {
-    let regex = try! NSRegularExpression(pattern: #"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)"#)
+    let regex = italicRegex
 
     while true {
       let string = attrStr.string
@@ -597,7 +619,7 @@ enum MarkdownStyler {
 
   // Strips ~~text~~ strikethrough delimiters and applies visual strikethrough style
   private static func stripInlineStrikethrough(in attrStr: NSMutableAttributedString) {
-    let regex = try! NSRegularExpression(pattern: #"~~(.+?)~~"#)
+    let regex = strikethroughRegex
 
     while true {
       let string = attrStr.string
@@ -621,7 +643,7 @@ enum MarkdownStyler {
   }
 
   private static func stripInlineCode(in attrStr: NSMutableAttributedString) {
-    let regex = try! NSRegularExpression(pattern: #"`([^`]+)`"#)
+    let regex = inlineCodeRegex
 
     while true {
       let string = attrStr.string
@@ -645,7 +667,7 @@ enum MarkdownStyler {
   }
 
   private static func stripInlineLinks(in attrStr: NSMutableAttributedString) {
-    let regex = try! NSRegularExpression(pattern: #"\[([^\]]+)\]\(([^\)]+)\)"#)
+    let regex = linkRegex
 
     while true {
       let string = attrStr.string
@@ -664,7 +686,6 @@ enum MarkdownStyler {
 
       var attrs: [NSAttributedString.Key: Any] = [
         .foregroundColor: NSColor.linkColor,
-        .underlineStyle: NSUnderlineStyle.single.rawValue,
         .markdownLinkURL: urlString,
       ]
       if let url = URL(string: urlString) { attrs[.link] = url }
@@ -678,7 +699,7 @@ enum MarkdownStyler {
     in textStorage: NSTextStorage, lineRange: NSRange, defaultFont: NSFont
   ) {
     // Bold
-    let boldRegex = try! NSRegularExpression(pattern: #"\*\*(.+?)\*\*"#)
+    let boldRegex = Self.boldRegex
     while true {
       let nsString = textStorage.string as NSString
       let currentLineEnd = min(lineRange.location + lineRange.length, nsString.length)
@@ -709,7 +730,7 @@ enum MarkdownStyler {
     }
 
     // Italic (single asterisks, avoiding double-asterisk bold)
-    let italicRegex = try! NSRegularExpression(pattern: #"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)"#)
+    let italicRegex = Self.italicRegex
     while true {
       let nsStringI = textStorage.string as NSString
       let currentEndI = min(lineRange.location + lineRange.length, nsStringI.length)
@@ -740,7 +761,7 @@ enum MarkdownStyler {
     }
 
     // Strikethrough
-    let strikeRegex = try! NSRegularExpression(pattern: #"~~(.+?)~~"#)
+    let strikeRegex = Self.strikethroughRegex
     while true {
       let nsStringS = textStorage.string as NSString
       let currentEndS = min(lineRange.location + lineRange.length, nsStringS.length)
@@ -770,7 +791,7 @@ enum MarkdownStyler {
     }
 
     // Inline code
-    let codeRegex = try! NSRegularExpression(pattern: #"`([^`]+)`"#)
+    let codeRegex = Self.inlineCodeRegex
     while true {
       let nsString2 = textStorage.string as NSString
       let currentEnd2 = min(lineRange.location + lineRange.length, nsString2.length)
@@ -801,7 +822,7 @@ enum MarkdownStyler {
     }
 
     // Links
-    let linkRegex = try! NSRegularExpression(pattern: #"\[([^\]]+)\]\(([^\)]+)\)"#)
+    let linkRegex = Self.linkRegex
     while true {
       let nsString = textStorage.string as NSString
       let currentLineEnd = min(lineRange.location + lineRange.length, nsString.length)
@@ -826,7 +847,6 @@ enum MarkdownStyler {
       let newRange = NSRange(location: absoluteRange.location, length: linkText.utf16.count)
       var attrs: [NSAttributedString.Key: Any] = [
         .foregroundColor: NSColor.linkColor,
-        .underlineStyle: NSUnderlineStyle.single.rawValue,
         .markdownLinkURL: urlString,
       ]
       if let url = URL(string: urlString) { attrs[.link] = url }
@@ -889,22 +909,25 @@ enum MarkdownStyler {
     } else if let rawType = attrs[.markdownListType] as? String,
       let listType = MarkdownListType(rawValue: rawType)
     {
+      let indentLevel = attrs[.markdownIndentLevel] as? Int ?? 0
+      let indentPrefix = indentLevel > 0 ? String(repeating: " ", count: indentLevel * 2) : ""
       switch listType {
       case .bullet:
-        prefix = "- "
+        prefix = indentPrefix + "- "
         contentStart = lineText.hasPrefix("\(bulletMarker) ") ? 2 : 0
       case .checkboxUnchecked:
-        prefix = "- [ ] "
+        prefix = indentPrefix + "- [ ] "
         contentStart = lineText.hasPrefix("\(uncheckedMarker) ") ? 2 : 0
       case .checkboxChecked:
-        prefix = "- [x] "
+        prefix = indentPrefix + "- [x] "
         contentStart = lineText.hasPrefix("\(checkedMarker) ") ? 2 : 0
       case .numbered:
         // Number text is already in the display, pass through
-        return reconstructInlineMarkdown(
+        let inlineMarkdown = reconstructInlineMarkdown(
           from: attributedString,
           range: textRange
         )
+        return indentPrefix + inlineMarkdown
       }
     }
 
@@ -1034,7 +1057,7 @@ enum MarkdownStyler {
 
   // MARK: - Helpers
 
-  private static func headingFontSize(for level: Int) -> CGFloat {
+  static func headingFontSize(for level: Int) -> CGFloat {
     switch level {
     case 1:
       return 22

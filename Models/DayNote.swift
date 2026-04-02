@@ -5,16 +5,29 @@
 
 import Foundation
 
-struct DayNote: Identifiable, Equatable {
+struct DayNote: Identifiable, Equatable, Sendable {
   typealias ID = String
 
   let date: Date
+  let id: ID
   var title: String
   var tags: [String]
   var body: String
 
-  var id: ID {
-    ScealDateFormatters.storageDate.string(from: date)
+  init(date: Date, title: String, tags: [String], body: String) {
+    self.date = date
+    self.id = ScealDateFormatters.storageDate.string(from: date)
+    self.title = title
+    self.tags = tags
+    self.body = body
+  }
+
+  init(date: Date, id: ID, title: String, tags: [String], body: String) {
+    self.date = date
+    self.id = id
+    self.title = title
+    self.tags = tags
+    self.body = body
   }
 
   var fileName: String {

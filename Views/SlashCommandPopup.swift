@@ -5,8 +5,8 @@
 
 import AppKit
 
-/// Floating popup that shows available slash commands as the user types `/`.
-class SlashCommandPopup: NSView {
+// Floating popup that shows available slash commands as the user types `/`.
+@MainActor class SlashCommandPopup: NSView {
   var onSelect: ((SlashCommandEntry) -> Void)?
 
   private let stackView = NSStackView()

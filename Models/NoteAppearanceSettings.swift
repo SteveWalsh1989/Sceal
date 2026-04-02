@@ -4,7 +4,7 @@
 
 import AppKit
 
-struct NoteAppearanceSettings: Codable, Equatable {
+struct NoteAppearanceSettings: Codable, Equatable, Sendable {
   static let systemFontToken = "__system__"
   static let minimumBodyFontSize: CGFloat = 11
   static let maximumBodyFontSize: CGFloat = 24
