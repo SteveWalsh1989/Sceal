@@ -55,8 +55,10 @@ struct MarkdownTextView: NSViewRepresentable {
     // Load initial content
     let displayString = MarkdownStyler.formatForDisplay(text, appearance: appearanceSettings)
     textView.textStorage?.setAttributedString(displayString)
+    textView.refreshSectionLayout()
     context.coordinator.lastPushedMarkdown = text
     context.coordinator.lastAppliedAppearance = appearanceSettings
+    context.coordinator.lastDividerCount = textView.sectionDividerCount
     context.coordinator.lastNoteID = noteID
 
     // Ensure text view fills at least the scroll view height
@@ -96,6 +98,11 @@ struct MarkdownTextView: NSViewRepresentable {
     context.coordinator.lastAppliedAppearance = appearanceSettings
     context.coordinator.lastNoteID = noteID
     textView.setSelectedRange(clampedRange(selectedRange, maxLength: textView.string.utf16.count))
+    if let dayraTextView = textView as? DayraTextView {
+      _ = dayraTextView.normalizeSelectionIfNeeded()
+      dayraTextView.refreshSectionLayout()
+      context.coordinator.lastDividerCount = dayraTextView.sectionDividerCount
+    }
     scrollView.contentView.scroll(to: visibleOrigin)
     scrollView.reflectScrolledClipView(scrollView.contentView)
     context.coordinator.isUpdating = false
@@ -119,11 +126,13 @@ struct MarkdownTextView: NSViewRepresentable {
     var isUpdating = false
     var lastPushedMarkdown = ""
     var lastAppliedAppearance = NoteAppearanceSettings.default
+    var lastDividerCount = 0
     var lastNoteID: DayNote.ID?
     let toolbar = FormattingToolbar()
     let slashPopup = SlashCommandPopup()
     private var slashTriggerLocation: Int?
     private var pendingEditContext: PendingEditContext?
+    private var isApplyingSlashCommand = false
 
     init(parent: MarkdownTextView) {
       self.parent = parent
@@ -144,6 +153,12 @@ struct MarkdownTextView: NSViewRepresentable {
 
     func textViewDidChangeSelection(_ notification: Notification) {
       guard let textView = notification.object as? NSTextView else { return }
+      if let dayraTextView = textView as? DayraTextView,
+        dayraTextView.normalizeSelectionIfNeeded()
+      {
+        return
+      }
+
       let range = textView.selectedRange()
 
       // Dismiss slash popup if cursor moved away from the trigger line
@@ -179,16 +194,34 @@ struct MarkdownTextView: NSViewRepresentable {
       else { return }
 
       isUpdating = true
-      autoformatEditedLinesIfNeeded(in: textView, textStorage: textStorage)
+      // Skip auto-formatting during slash command application to prevent cascading
+      // text mutations that invalidate ranges between the two performEditorEdit calls.
+      if !isApplyingSlashCommand {
+        autoformatEditedLinesIfNeeded(in: textView, textStorage: textStorage)
+      }
       let markdown = MarkdownStyler.convertToMarkdown(from: textStorage)
       lastPushedMarkdown = markdown
       parent.text = markdown
       isUpdating = false
 
       // Force full background redraw for section card updates (e.g., backspace deleting a divider)
-      textView.setNeedsDisplay(textView.bounds)
+      if let dayraTextView = textView as? DayraTextView {
+        let dividerCount = dayraTextView.sectionDividerCount
+        if dividerCount != lastDividerCount {
+          dayraTextView.refreshSectionLayout()
+        } else {
+          textView.setNeedsDisplay(textView.bounds)
+        }
+        lastDividerCount = dividerCount
+      } else {
+        textView.setNeedsDisplay(textView.bounds)
+      }
 
-      checkSlashCommandTrigger(in: textView)
+      if isApplyingSlashCommand {
+        dismissSlashPopup()
+      } else {
+        checkSlashCommandTrigger(in: textView)
+      }
     }
 
     func textView(
@@ -243,7 +276,7 @@ struct MarkdownTextView: NSViewRepresentable {
           actionName: "Remove List Marker"
         ) { textStorage in
           removeListMarker(in: textStorage, lineRange: lineRange)
-          textView.setSelectedRange(NSRange(location: lineRange.location, length: 0))
+          return NSRange(location: lineRange.location, length: 0)
         }
       }
 
@@ -255,7 +288,7 @@ struct MarkdownTextView: NSViewRepresentable {
           actionName: "Remove Blockquote"
         ) { textStorage in
           textStorage.replaceCharacters(in: lineRange, with: "")
-          textView.setSelectedRange(NSRange(location: lineRange.location, length: 0))
+          return NSRange(location: lineRange.location, length: 0)
         }
       }
 
@@ -263,17 +296,46 @@ struct MarkdownTextView: NSViewRepresentable {
       if let slashCommand {
         switch slashCommand.action {
         case .sectionDivider:
-          break
+          let replacementRange = fullLineRange.length > lineRange.length ? fullLineRange : lineRange
+          let dividerLine = NSMutableAttributedString(
+            attributedString: MarkdownStyler.sectionDividerDisplayString())
+          dividerLine.append(NSAttributedString(string: "\n"))
+
+          let handled = textView.performEditorEdit(
+            affectedRange: replacementRange,
+            replacementString: dividerLine.string,
+            actionName: "Insert Section Divider"
+          ) { textStorage in
+            textStorage.replaceCharacters(in: replacementRange, with: dividerLine)
+            return NSRange(location: replacementRange.location + dividerLine.length, length: 0)
+          }
+
+          guard handled else { return false }
+
+          if let dayraTextView = textView as? DayraTextView {
+            _ = dayraTextView.normalizeSelectionIfNeeded(prefer: .next)
+            dayraTextView.refreshSectionLayout()
+          } else {
+            textView.layoutManager?.ensureLayout(
+              forCharacterRange: NSRange(location: 0, length: textStorage.length))
+            textView.setNeedsDisplay(textView.bounds)
+          }
+
+          textView.typingAttributes = headingTypingAttributes(level: 1)
+          return true
         case .heading(let level):
-          return textView.performEditorEdit(
+          let handled = textView.performEditorEdit(
             affectedRange: lineRange,
             replacementString: "",
             actionName: "Insert Heading"
           ) { textStorage in
             replaceCurrentLine(in: textStorage, lineRange: lineRange, with: NSAttributedString())
-            textView.setSelectedRange(NSRange(location: lineRange.location, length: 0))
+            return NSRange(location: lineRange.location, length: 0)
+          }
+          if handled {
             textView.typingAttributes = headingTypingAttributes(level: level)
           }
+          return handled
         case .codeBlock:
           let snippet = "```\n\n\n```"
           let displaySnippet = MarkdownStyler.formatForDisplay(
@@ -284,20 +346,15 @@ struct MarkdownTextView: NSViewRepresentable {
             actionName: "Insert Code Block"
           ) { textStorage in
             replaceCurrentLine(in: textStorage, lineRange: lineRange, with: displaySnippet)
-            let insertionPoint = lineRange.location + 4
-            textView.setSelectedRange(NSRange(location: insertionPoint, length: 0))
-            textView.typingAttributes = codeBlockTypingAttributes()
+            return NSRange(location: lineRange.location + 4, length: 0)
           }
           if handled {
-            textView.layoutManager?.ensureLayout(
-              forCharacterRange: NSRange(location: 0, length: textStorage.length))
+            textView.typingAttributes = codeBlockTypingAttributes()
             textView.setNeedsDisplay(textView.bounds)
           }
           return handled
         }
       }
-
-      let slashReplaced = slashCommand?.action == .sectionDivider
       var continuedListType: MarkdownListType?
       var continuedBlockquote = false
 
@@ -306,35 +363,9 @@ struct MarkdownTextView: NSViewRepresentable {
         replacementString: "\n",
         actionName: "Insert Newline"
       ) { textStorage in
-        // Slash commands FIRST so /section → divider is formatted in the same pass.
-        if slashReplaced {
-          textStorage.replaceCharacters(in: lineRange, with: "<!-- section -->")
-        }
-
-        // Recalculate line range if slash command changed the text.
-        let formatLineRange: NSRange
-        if slashReplaced {
-          let updatedNS = textStorage.string as NSString
-          let updatedFull = updatedNS.lineRange(
-            for: NSRange(
-              location: min(lineRange.location, updatedNS.length - 1),
-              length: 0
-            ))
-          var trimmed = updatedFull
-          if trimmed.length > 0
-            && updatedNS.character(at: trimmed.location + trimmed.length - 1) == 0x0A
-          {
-            trimmed.length -= 1
-          }
-          formatLineRange = trimmed
-        } else {
-          formatLineRange = lineRange
-        }
-
-        // Format the line (original text or replaced slash command).
         continuedListType = MarkdownStyler.formatCurrentLine(
           in: textStorage,
-          lineRange: formatLineRange,
+          lineRange: lineRange,
           appearance: parent.appearanceSettings
         )
 
@@ -373,10 +404,14 @@ struct MarkdownTextView: NSViewRepresentable {
           }
         }
 
-        textView.setSelectedRange(NSRange(location: nextInsertionLocation, length: 0))
+        return NSRange(location: nextInsertionLocation, length: 0)
       }
 
       guard handled else { return false }
+
+      if let dayraTextView = textView as? DayraTextView {
+        _ = dayraTextView.normalizeSelectionIfNeeded(prefer: .previous)
+      }
 
       // Blockquote continuation — set typing attributes so the next line inherits blockquote style
       if continuedBlockquote, continuedListType == nil {
@@ -386,20 +421,17 @@ struct MarkdownTextView: NSViewRepresentable {
           .paragraphStyle: MarkdownStyler.blockquoteParagraphStyle(for: parent.appearanceSettings),
           .markdownBlockquote: true,
         ]
-      } else if slashReplaced {
-        // After a section divider, auto-start a heading 1
-        textView.typingAttributes = headingTypingAttributes(level: 1)
       } else if continuedListType == nil {
         textView.typingAttributes = MarkdownStyler.baseTypingAttributes(
           for: parent.appearanceSettings)
       }
 
       // Force immediate redraw so section card backgrounds update on this frame
-      textView.layoutManager?.ensureLayout(
-        forCharacterRange: NSRange(location: 0, length: textStorage.length))
-      // Dispatch to next cycle so layout is fully committed before drawing
-      DispatchQueue.main.async { [weak textView] in
-        guard let textView else { return }
+      if let dayraTextView = textView as? DayraTextView {
+        dayraTextView.refreshSectionLayout()
+      } else {
+        textView.layoutManager?.ensureLayout(
+          forCharacterRange: NSRange(location: 0, length: textStorage.length))
         textView.setNeedsDisplay(textView.bounds)
       }
 
@@ -553,21 +585,12 @@ struct MarkdownTextView: NSViewRepresentable {
 
       slashPopup.updateFilter(trimmed)
 
-      // Position popup near the cursor
-      guard let layoutManager = textView.layoutManager,
-        let scrollView = textView.enclosingScrollView
+      guard
+        let scrollView = textView.enclosingScrollView,
+        let lineRect = currentSlashCommandLineRect(in: textView, cursorLocation: cursorLocation)
       else { return }
 
-      let glyphIndex = layoutManager.glyphIndexForCharacter(at: cursorLocation)
-      let lineFragment = layoutManager.lineFragmentRect(
-        forGlyphAt: glyphIndex, effectiveRange: nil)
-      let cursorRect = NSRect(
-        x: lineFragment.minX + textView.textContainerOrigin.x,
-        y: lineFragment.maxY + textView.textContainerOrigin.y,
-        width: 1,
-        height: lineFragment.height
-      )
-      let rectInScrollView = textView.convert(cursorRect, to: scrollView)
+      let rectInScrollView = textView.convert(lineRect, to: scrollView)
       slashPopup.show(relativeTo: rectInScrollView, in: scrollView)
 
       // Wire up selection callback (idempotent — closure captures current textView)
@@ -580,6 +603,28 @@ struct MarkdownTextView: NSViewRepresentable {
     private func dismissSlashPopup() {
       slashPopup.hide()
       slashTriggerLocation = nil
+    }
+
+    private func currentSlashCommandLineRect(in textView: NSTextView, cursorLocation: Int)
+      -> NSRect?
+    {
+      guard
+        let layoutManager = textView.layoutManager,
+        let textContainer = textView.textContainer
+      else { return nil }
+
+      layoutManager.ensureLayout(for: textContainer)
+      let glyphCharacterLocation = max(cursorLocation - 1, 0)
+      let glyphIndex = layoutManager.glyphIndexForCharacter(at: glyphCharacterLocation)
+      var lineRect = layoutManager.lineFragmentUsedRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+      lineRect.origin.x += textView.textContainerOrigin.x
+      lineRect.origin.y += textView.textContainerOrigin.y
+
+      if lineRect.width < 1 {
+        lineRect.size.width = 1
+      }
+
+      return lineRect
     }
 
     private func replaceCurrentLine(
@@ -630,24 +675,29 @@ struct MarkdownTextView: NSViewRepresentable {
       let replaceRange = NSRange(location: triggerLoc, length: cursorLoc - triggerLoc)
       let undoManager = textView.undoManager
       undoManager?.beginUndoGrouping()
+      isApplyingSlashCommand = true
+      dismissSlashPopup()
 
       let replaced = textView.performEditorEdit(
         affectedRange: replaceRange,
         replacementString: entry.command
       ) { textStorage in
-        textStorage.replaceCharacters(in: replaceRange, with: entry.command)
-        let newCursorLoc = triggerLoc + entry.command.utf16.count
-        textView.setSelectedRange(NSRange(location: newCursorLoc, length: 0))
+        // Clamp range against current text storage to avoid out-of-bounds crash
+        let safeLoc = min(replaceRange.location, textStorage.length)
+        let safeLen = min(replaceRange.length, max(textStorage.length - safeLoc, 0))
+        let safeRange = NSRange(location: safeLoc, length: safeLen)
+        textStorage.replaceCharacters(in: safeRange, with: entry.command)
+        return NSRange(location: safeLoc + entry.command.utf16.count, length: 0)
       }
-
-      dismissSlashPopup()
+      defer {
+        isApplyingSlashCommand = false
+        undoManager?.endUndoGrouping()
+        undoManager?.setActionName("Insert Slash Command")
+      }
 
       if replaced {
         _ = self.textView(textView, doCommandBy: #selector(NSResponder.insertNewline(_:)))
       }
-
-      undoManager?.endUndoGrouping()
-      undoManager?.setActionName("Insert Slash Command")
     }
 
     // Formats pasted or newly prefixed list syntax so existing lines behave like Diarly.
@@ -693,6 +743,9 @@ struct MarkdownTextView: NSViewRepresentable {
       textView.setSelectedRange(
         clampedRange(updatedSelection, maxLength: textStorage.string.utf16.count)
       )
+      if let dayraTextView = textView as? DayraTextView {
+        _ = dayraTextView.normalizeSelectionIfNeeded()
+      }
       syncTypingAttributesToInsertionPoint(in: textView, textStorage: textStorage)
     }
 
@@ -811,17 +864,30 @@ struct MarkdownTextView: NSViewRepresentable {
         return
       }
 
-      let insertionLocation = max(
-        min(textView.selectedRange().location - 1, textStorage.length - 1), 0)
-      textView.typingAttributes = textStorage.attributes(
-        at: insertionLocation,
-        effectiveRange: nil
-      )
+      if let dayraTextView = textView as? DayraTextView,
+        let sourceLocation = dayraTextView.typingAttributeSourceLocation(
+          forInsertionLocation: textView.selectedRange().location)
+      {
+        textView.typingAttributes = textStorage.attributes(
+          at: sourceLocation,
+          effectiveRange: nil
+        )
+        return
+      }
+
+      textView.typingAttributes = MarkdownStyler.baseTypingAttributes(
+        for: parent.appearanceSettings)
     }
   }
 }
 
 // MARK: - Custom NSTextView subclass
+
+private enum DividerResolutionPreference {
+  case previous
+  case next
+  case nearest
+}
 
 private class DayraTextView: NSTextView {
 
@@ -830,6 +896,72 @@ private class DayraTextView: NSTextView {
   private let cardRadius: CGFloat = 24
   private let cardHInset: CGFloat = 0
   private let cardVPad: CGFloat = 10
+
+  var sectionDividerCount: Int {
+    guard let textStorage else { return 0 }
+
+    var dividerCount = 0
+    textStorage.enumerateAttribute(
+      .markdownSectionDivider,
+      in: NSRange(location: 0, length: textStorage.length),
+      options: []
+    ) { value, _, _ in
+      if value as? Bool == true {
+        dividerCount += 1
+      }
+    }
+    return dividerCount
+  }
+
+  func refreshSectionLayout() {
+    let fullRange = NSRange(location: 0, length: textStorage?.length ?? 0)
+    if fullRange.length > 0 {
+      layoutManager?.ensureLayout(forCharacterRange: fullRange)
+    }
+    setNeedsDisplay(bounds)
+    enclosingScrollView?.contentView.needsDisplay = true
+  }
+
+  @discardableResult
+  func normalizeSelectionIfNeeded(prefer preference: DividerResolutionPreference = .nearest) -> Bool
+  {
+    let currentSelection = selectedRange()
+    guard currentSelection.length == 0 else { return false }
+
+    let resolvedLocation = resolvedInsertionLocation(
+      for: currentSelection.location,
+      prefer: preference
+    )
+    guard resolvedLocation != currentSelection.location else { return false }
+
+    super.setSelectedRange(NSRange(location: resolvedLocation, length: 0))
+    return true
+  }
+
+  func typingAttributeSourceLocation(forInsertionLocation location: Int) -> Int? {
+    guard let textStorage, textStorage.length > 0 else { return nil }
+
+    let clampedLocation = min(max(location, 0), textStorage.length)
+
+    if clampedLocation > 0 {
+      let backwardRange = stride(
+        from: min(clampedLocation - 1, textStorage.length - 1),
+        through: 0,
+        by: -1
+      )
+      for candidate in backwardRange where canUseTypingAttributes(at: candidate) {
+        return candidate
+      }
+    }
+
+    guard clampedLocation < textStorage.length else { return nil }
+    for candidate in clampedLocation..<textStorage.length
+    where canUseTypingAttributes(at: candidate) {
+      return candidate
+    }
+
+    return nil
+  }
 
   // MARK: - Section Card Backgrounds
 
@@ -982,6 +1114,21 @@ private class DayraTextView: NSTextView {
 
   // MARK: - Paste
 
+  override func moveUp(_ sender: Any?) {
+    super.moveUp(sender)
+    skipSectionDividers(direction: .previous, sender: sender)
+  }
+
+  override func moveDown(_ sender: Any?) {
+    super.moveDown(sender)
+    skipSectionDividers(direction: .next, sender: sender)
+  }
+
+  override func insertText(_ insertString: Any, replacementRange: NSRange) {
+    let targetRange = sanitizedReplacementRange(replacementRange)
+    super.insertText(insertString, replacementRange: targetRange)
+  }
+
   override func paste(_ sender: Any?) {
     guard let plainText = NSPasteboard.general.string(forType: .string) else { return }
     insertText(plainText, replacementRange: selectedRange())
@@ -1004,6 +1151,17 @@ private class DayraTextView: NSTextView {
     let charIndex = layoutManager.characterIndex(
       for: textPoint, in: textContainer,
       fractionOfDistanceBetweenInsertionPoints: nil)
+
+    if let dividerSelectionLocation = dividerSelectionLocation(
+      for: charIndex,
+      at: textPoint,
+      layoutManager: layoutManager,
+      textContainer: textContainer
+    ) {
+      super.setSelectedRange(NSRange(location: dividerSelectionLocation, length: 0))
+      scrollRangeToVisible(NSRange(location: dividerSelectionLocation, length: 0))
+      return
+    }
 
     guard charIndex < textStorage.length else {
       super.mouseDown(with: event)
@@ -1095,6 +1253,186 @@ private class DayraTextView: NSTextView {
           )
         }
       }
+      return nil
     }
+  }
+
+  private func skipSectionDividers(direction: DividerResolutionPreference, sender: Any?) {
+    guard selectedRange().length == 0 else { return }
+
+    var previousLocation = selectedRange().location
+    var safetyCounter = 0
+
+    while sectionDividerLineRange(containingInsertionLocation: selectedRange().location) != nil,
+      safetyCounter < 8
+    {
+      if direction == .previous {
+        super.moveUp(sender)
+      } else {
+        super.moveDown(sender)
+      }
+
+      let currentLocation = selectedRange().location
+      if currentLocation == previousLocation { break }
+      previousLocation = currentLocation
+      safetyCounter += 1
+    }
+
+    _ = normalizeSelectionIfNeeded(prefer: direction)
+  }
+
+  private func sanitizedReplacementRange(_ replacementRange: NSRange) -> NSRange {
+    let baseRange = replacementRange.location == NSNotFound ? selectedRange() : replacementRange
+    guard baseRange.length == 0 else { return baseRange }
+
+    let resolvedLocation = resolvedInsertionLocation(for: baseRange.location, prefer: .nearest)
+    if resolvedLocation != baseRange.location {
+      super.setSelectedRange(NSRange(location: resolvedLocation, length: 0))
+    }
+    return NSRange(location: resolvedLocation, length: 0)
+  }
+
+  private func dividerSelectionLocation(
+    for charIndex: Int,
+    at textPoint: NSPoint,
+    layoutManager: NSLayoutManager,
+    textContainer: NSTextContainer
+  ) -> Int? {
+    guard let textStorage, textStorage.length > 0 else { return nil }
+
+    let clampedIndex = min(max(charIndex, 0), textStorage.length - 1)
+    let candidateIndexes = [clampedIndex, max(clampedIndex - 1, 0)]
+
+    for candidateIndex in candidateIndexes {
+      let lineRange = (string as NSString).lineRange(
+        for: NSRange(location: candidateIndex, length: 0))
+      guard lineHasSectionDivider(lineRange) else { continue }
+
+      let glyphRange = layoutManager.glyphRange(
+        forCharacterRange: lineRange,
+        actualCharacterRange: nil
+      )
+      let dividerRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+      guard dividerRect.insetBy(dx: -textContainerInset.width, dy: -6).contains(textPoint) else {
+        continue
+      }
+
+      let upperHalf = isFlipped ? textPoint.y < dividerRect.midY : textPoint.y > dividerRect.midY
+      let preference: DividerResolutionPreference = upperHalf ? .previous : .next
+      return resolvedInsertionLocation(for: candidateIndex, prefer: preference)
+    }
+
+    return nil
+  }
+
+  private func resolvedInsertionLocation(
+    for proposedLocation: Int,
+    prefer preference: DividerResolutionPreference
+  ) -> Int {
+    guard
+      let dividerLineRange = sectionDividerLineRange(containingInsertionLocation: proposedLocation)
+    else {
+      return min(max(proposedLocation, 0), textStorage?.length ?? 0)
+    }
+
+    let previousLocation = previousEditableInsertionLocation(before: dividerLineRange)
+    let nextLocation = nextEditableInsertionLocation(after: dividerLineRange)
+
+    switch preference {
+    case .previous:
+      return previousLocation ?? nextLocation ?? dividerLineRange.location
+    case .next:
+      return nextLocation ?? previousLocation ?? dividerLineRange.location
+    case .nearest:
+      let clampedLocation = min(max(proposedLocation, 0), textStorage?.length ?? 0)
+      switch (previousLocation, nextLocation) {
+      case (let previous?, let next?):
+        return abs(clampedLocation - previous) <= abs(next - clampedLocation) ? previous : next
+      case (let previous?, nil):
+        return previous
+      case (nil, let next?):
+        return next
+      default:
+        return dividerLineRange.location
+      }
+    }
+  }
+
+  private func previousEditableInsertionLocation(before dividerLineRange: NSRange) -> Int? {
+    guard dividerLineRange.location > 0 else { return nil }
+
+    let nsString = string as NSString
+    var searchLocation = dividerLineRange.location - 1
+
+    while searchLocation >= 0 {
+      let lineRange = nsString.lineRange(for: NSRange(location: searchLocation, length: 0))
+      if lineHasSectionDivider(lineRange) {
+        guard lineRange.location > 0 else { return nil }
+        searchLocation = lineRange.location - 1
+        continue
+      }
+
+      return NSMaxRange(trimmedLineRange(from: lineRange, in: nsString))
+    }
+
+    return nil
+  }
+
+  private func nextEditableInsertionLocation(after dividerLineRange: NSRange) -> Int? {
+    let nsString = string as NSString
+    var searchLocation = NSMaxRange(dividerLineRange)
+
+    while searchLocation < nsString.length {
+      let lineRange = nsString.lineRange(for: NSRange(location: searchLocation, length: 0))
+      if !lineHasSectionDivider(lineRange) {
+        return lineRange.location
+      }
+      searchLocation = NSMaxRange(lineRange)
+    }
+
+    return nsString.length
+  }
+
+  private func sectionDividerLineRange(containingInsertionLocation location: Int) -> NSRange? {
+    guard let textStorage, textStorage.length > 0 else { return nil }
+
+    let nsString = string as NSString
+    let clampedLocation = min(max(location, 0), textStorage.length)
+    // Allow the caret to sit after a divider's trailing newline when the divider is the last line.
+    if clampedLocation == textStorage.length { return nil }
+    let lineRange = nsString.lineRange(for: NSRange(location: clampedLocation, length: 0))
+    return lineHasSectionDivider(lineRange) ? lineRange : nil
+  }
+
+  private func lineHasSectionDivider(_ lineRange: NSRange) -> Bool {
+    lineHasAttribute(.markdownSectionDivider, in: lineRange)
+  }
+
+  private func canUseTypingAttributes(at location: Int) -> Bool {
+    guard let textStorage, location >= 0, location < textStorage.length else { return false }
+
+    let attributes = textStorage.attributes(at: location, effectiveRange: nil)
+    return attributes[.markdownSectionDivider] as? Bool != true
+      && attributes[.markdownHorizontalRule] as? Bool != true
+  }
+
+  private func lineHasAttribute(_ key: NSAttributedString.Key, in lineRange: NSRange) -> Bool {
+    guard let textStorage else { return false }
+
+    let trimmedRange = trimmedLineRange(from: lineRange, in: string as NSString)
+    guard trimmedRange.length > 0, trimmedRange.location < textStorage.length else { return false }
+
+    return textStorage.attribute(key, at: trimmedRange.location, effectiveRange: nil) as? Bool
+      == true
+  }
+
+  private func trimmedLineRange(from lineRange: NSRange, in nsString: NSString) -> NSRange {
+    var trimmedRange = lineRange
+    if trimmedRange.length > 0,
+      nsString.character(at: trimmedRange.location + trimmedRange.length - 1) == 0x0A
+    {
+      trimmedRange.length -= 1
+    }
+    return trimmedRange
   }
 }

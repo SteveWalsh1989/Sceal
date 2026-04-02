@@ -1008,6 +1008,10 @@ enum MarkdownStyler {
       ])
   }
 
+  static func sectionDividerDisplayString() -> NSAttributedString {
+    styledSectionDivider()
+  }
+
   // Visible thin line for standard markdown horizontal rules (e.g. imported `---`).
   // The actual line is drawn by DayraTextView; this marker reserves the vertical space.
   private static func styledHorizontalRule() -> NSAttributedString {

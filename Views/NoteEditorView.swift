@@ -8,6 +8,7 @@ import AppKit
 import SwiftUI
 
 struct NoteEditorView: View {
+  @Environment(\.openSettings) private var openSettings
   @ObservedObject var store: NoteStore
   let noteID: DayNote.ID
   let requestDelete: (DayNote.ID) -> Void
@@ -63,7 +64,7 @@ struct NoteEditorView: View {
           .controlSize(.small)
 
           HeaderIconButton(
-            systemImage: "gearshape",
+            systemImage: "slider.vertical.3",
             accessibilityLabel: "Open note appearance settings"
           ) {
             isShowingAppearancePopover.toggle()
@@ -71,6 +72,10 @@ struct NoteEditorView: View {
           .popover(isPresented: $isShowingAppearancePopover, arrowEdge: .top) {
             QuickAppearancePopover(
               store: store,
+              openSettings: {
+                isShowingAppearancePopover = false
+                openSettings()
+              },
               openFontPanel: openFontPanel,
               confirmDelete: {
                 isShowingAppearancePopover = false
@@ -162,13 +167,29 @@ private struct HeaderIconButton: View {
 
 private struct QuickAppearancePopover: View {
   @ObservedObject var store: NoteStore
+  let openSettings: () -> Void
   let openFontPanel: () -> Void
   let confirmDelete: () -> Void
 
   var body: some View {
     VStack(alignment: .leading, spacing: 18) {
-      Text("Appearance")
-        .font(.system(size: 14, weight: .semibold))
+      HStack(spacing: 12) {
+        Text("Appearance")
+          .font(.system(size: 14, weight: .semibold))
+
+        Spacer()
+
+        Button(action: openSettings) {
+          Image(systemName: "gearshape")
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .frame(width: 28, height: 28)
+            .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("App settings")
+        .help("App settings")
+      }
 
       QuickAppearanceFontRow(
         fontName: store.appearanceSettings.bodyFontDisplayName,

@@ -73,18 +73,19 @@ class SlashCommandPopup: NSView {
     let popupHeight = CGFloat(filteredCommands.count) * rowHeight + verticalPadding
     let gap: CGFloat = 4
 
-    // Position below the cursor line
+    // In flipped coordinates: minY is top, maxY is bottom.
+    // Prefer the space above the active line, matching the formatting toolbar.
     var origin = NSPoint(
       x: cursorRect.minX,
-      y: cursorRect.maxY + gap
+      y: cursorRect.minY - popupHeight - gap
     )
 
     // Keep within parent bounds
     let parentBounds = parentView.bounds
     origin.x = max(4, min(origin.x, parentBounds.maxX - popupWidth - 4))
-    // If popup would go below the visible area, flip to above
-    if origin.y + popupHeight > parentBounds.maxY - 4 {
-      origin.y = cursorRect.minY - popupHeight - gap
+    // If popup would go above the visible area, flip to below.
+    if origin.y < 4 {
+      origin.y = cursorRect.maxY + gap
     }
 
     frame = NSRect(x: origin.x, y: origin.y, width: popupWidth, height: popupHeight)

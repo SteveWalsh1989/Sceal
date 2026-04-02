@@ -150,9 +150,20 @@ private struct DayNoteCardView: View {
           .lineLimit(2)
           .foregroundStyle(.primary)
 
-        Text(note.id)
-          .font(.system(size: metadataFontSize, weight: .medium))
-          .foregroundStyle(.secondary)
+        HStack(spacing: 8) {
+          Text(note.sidebarDateText(using: appearanceSettings.sidebarDateFormat))
+            .lineLimit(1)
+
+          if appearanceSettings.sidebarShowsTags, !note.sidebarTagsText.isEmpty {
+            Spacer(minLength: 6)
+
+            Text(note.sidebarTagsText)
+              .lineLimit(1)
+              .truncationMode(.tail)
+          }
+        }
+        .font(.system(size: metadataFontSize, weight: .medium))
+        .foregroundStyle(.secondary)
       }
       .layoutPriority(1)
 

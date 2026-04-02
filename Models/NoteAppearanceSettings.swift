@@ -32,6 +32,8 @@ struct NoteAppearanceSettings: Codable, Equatable {
   var bulletSize: CGFloat
   var sidebarFontSize: CGFloat
   var accentColorName: String
+  var sidebarShowsTags: Bool
+  var sidebarDateFormat: SidebarDateFormat
 
   init(
     bodyFontName: String = Self.systemFontToken,
@@ -40,7 +42,9 @@ struct NoteAppearanceSettings: Codable, Equatable {
     listItemSpacing: CGFloat = Self.defaultListItemSpacing,
     bulletSize: CGFloat = Self.defaultBulletSize,
     sidebarFontSize: CGFloat = Self.defaultSidebarFontSize,
-    accentColorName: String = Self.defaultAccentColorName
+    accentColorName: String = Self.defaultAccentColorName,
+    sidebarShowsTags: Bool = false,
+    sidebarDateFormat: SidebarDateFormat = .yearMonthDay
   ) {
     self.bodyFontName = bodyFontName
     self.bodyFontSize = bodyFontSize
@@ -49,6 +53,8 @@ struct NoteAppearanceSettings: Codable, Equatable {
     self.bulletSize = bulletSize
     self.sidebarFontSize = sidebarFontSize
     self.accentColorName = accentColorName
+    self.sidebarShowsTags = sidebarShowsTags
+    self.sidebarDateFormat = sidebarDateFormat
   }
 
   var clamped: NoteAppearanceSettings {
@@ -62,7 +68,9 @@ struct NoteAppearanceSettings: Codable, Equatable {
       bulletSize: bulletSize.clamped(to: Self.minimumBulletSize...Self.maximumBulletSize),
       sidebarFontSize: sidebarFontSize.clamped(
         to: Self.minimumSidebarFontSize...Self.maximumSidebarFontSize),
-      accentColorName: normalizedAccentColorName
+      accentColorName: normalizedAccentColorName,
+      sidebarShowsTags: sidebarShowsTags,
+      sidebarDateFormat: sidebarDateFormat
     )
   }
 
@@ -121,6 +129,8 @@ struct NoteAppearanceSettings: Codable, Equatable {
     case bulletSize
     case sidebarFontSize
     case accentColorName
+    case sidebarShowsTags
+    case sidebarDateFormat
   }
 
   init(from decoder: Decoder) throws {
@@ -139,7 +149,13 @@ struct NoteAppearanceSettings: Codable, Equatable {
       sidebarFontSize: try container.decodeIfPresent(CGFloat.self, forKey: .sidebarFontSize)
         ?? Self.defaultSidebarFontSize,
       accentColorName: try container.decodeIfPresent(String.self, forKey: .accentColorName)
-        ?? Self.defaultAccentColorName
+        ?? Self.defaultAccentColorName,
+      sidebarShowsTags: try container.decodeIfPresent(Bool.self, forKey: .sidebarShowsTags)
+        ?? false,
+      sidebarDateFormat: try container.decodeIfPresent(
+        SidebarDateFormat.self,
+        forKey: .sidebarDateFormat
+      ) ?? .yearMonthDay
     )
   }
 
@@ -152,6 +168,8 @@ struct NoteAppearanceSettings: Codable, Equatable {
     try container.encode(bulletSize, forKey: .bulletSize)
     try container.encode(sidebarFontSize, forKey: .sidebarFontSize)
     try container.encode(accentColorName, forKey: .accentColorName)
+    try container.encode(sidebarShowsTags, forKey: .sidebarShowsTags)
+    try container.encode(sidebarDateFormat, forKey: .sidebarDateFormat)
   }
 }
 

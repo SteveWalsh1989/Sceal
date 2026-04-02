@@ -13,7 +13,7 @@ extension NSTextView {
     affectedRange: NSRange? = nil,
     replacementString: String? = nil,
     actionName: String? = nil,
-    edit: (NSTextStorage) -> Void
+    edit: (NSTextStorage) -> NSRange?
   ) -> Bool {
     guard let textStorage else { return false }
     let targetRange = clampedEditorRange(
@@ -22,10 +22,17 @@ extension NSTextView {
       return false
     }
 
+    let initialSelection = clampedEditorRange(selectedRange(), maxLength: textStorage.length)
     textStorage.beginEditing()
-    edit(textStorage)
+    let desiredSelection = edit(textStorage) ?? initialSelection
     textStorage.endEditing()
     didChangeText()
+
+    if let layoutManager, textStorage.length > 0 {
+      layoutManager.ensureLayout(
+        forCharacterRange: NSRange(location: 0, length: textStorage.length))
+    }
+    setSelectedRange(clampedEditorRange(desiredSelection, maxLength: textStorage.length))
 
     if let actionName {
       undoManager?.setActionName(actionName)
@@ -324,6 +331,7 @@ class FormattingToolbar: NSView {
         textStorage.addAttribute(.font, value: boldFont, range: range)
         textStorage.addAttribute(.markdownBold, value: true, range: range)
       }
+      return nil
     }
   }
 
@@ -361,6 +369,7 @@ class FormattingToolbar: NSView {
         textStorage.addAttribute(.font, value: italicFont, range: range)
         textStorage.addAttribute(.markdownItalic, value: true, range: range)
       }
+      return nil
     }
   }
 
@@ -395,6 +404,7 @@ class FormattingToolbar: NSView {
           range: range
         )
       }
+      return nil
     }
   }
 
@@ -430,6 +440,7 @@ class FormattingToolbar: NSView {
           range: range
         )
       }
+      return nil
     }
   }
 
@@ -451,6 +462,7 @@ class FormattingToolbar: NSView {
       textStorage in
       textStorage.addAttribute(.foregroundColor, value: preset.color, range: lineRange)
       textStorage.addAttribute(.markdownHeadingColor, value: preset.name, range: lineRange)
+      return nil
     }
     refreshToolbarPresentation()
   }
@@ -465,6 +477,7 @@ class FormattingToolbar: NSView {
     _ = textView.performEditorEdit(affectedRange: lineRange, actionName: "Paragraph") {
       textStorage in
       applyParagraphAttributes(in: textStorage, range: lineRange)
+      return nil
     }
     refreshToolbarPresentation()
   }
@@ -499,6 +512,7 @@ class FormattingToolbar: NSView {
           .paragraphStyle, value: MarkdownStyler.bodyParagraphStyle(for: appearanceSettings),
           range: lineRange)
       }
+      return nil
     }
     refreshToolbarPresentation()
   }
@@ -566,10 +580,9 @@ class FormattingToolbar: NSView {
         ]
         if let url = URL(string: newURL) { attrs[.link] = url }
         textStorage.addAttributes(attrs, range: newRange)
-
-        textView.setSelectedRange(
-          NSRange(location: newRange.location + newRange.length, length: 0))
+        return NSRange(location: newRange.location + newRange.length, length: 0)
       }
+      return nil
     }
   }
 
@@ -622,6 +635,7 @@ class FormattingToolbar: NSView {
           ])
         textStorage.replaceCharacters(in: lineRange, with: result)
       }
+      return nil
     }
   }
 
@@ -703,6 +717,7 @@ class FormattingToolbar: NSView {
 
         textStorage.replaceCharacters(in: lineRange, with: result)
       }
+      return nil
     }
   }
 

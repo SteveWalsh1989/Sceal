@@ -206,6 +206,18 @@ final class NoteStore: ObservableObject {
     }
   }
 
+  func updateSidebarShowsTags(_ sidebarShowsTags: Bool) {
+    updateAppearanceSettings { settings in
+      settings.sidebarShowsTags = sidebarShowsTags
+    }
+  }
+
+  func updateSidebarDateFormat(_ sidebarDateFormat: SidebarDateFormat) {
+    updateAppearanceSettings { settings in
+      settings.sidebarDateFormat = sidebarDateFormat
+    }
+  }
+
   func updateNewNoteDefault(_ value: NewNoteDefault) {
     newNoteDefault = value
     userDefaults.set(value.rawValue, forKey: Self.newNoteDefaultKey)

@@ -39,6 +39,14 @@ struct DayNote: Identifiable, Equatable {
     DayraDateFormatters.editorDate.string(from: date)
   }
 
+  func sidebarDateText(using format: SidebarDateFormat) -> String {
+    format.string(from: date)
+  }
+
+  var sidebarTagsText: String {
+    tags.joined(separator: ", ")
+  }
+
   static func empty(for date: Date, calendar: Calendar = .current) -> DayNote {
     DayNote(
       date: calendar.startOfDay(for: date),

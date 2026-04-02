@@ -99,6 +99,29 @@ struct AppearanceSettingsView: View {
         )
       }
 
+      Section("Sidebar") {
+        Toggle(
+          "Show tags on sidebar cards",
+          isOn: Binding(
+            get: { store.appearanceSettings.sidebarShowsTags },
+            set: { store.updateSidebarShowsTags($0) }
+          )
+        )
+
+        Picker(
+          "Sidebar date format",
+          selection: Binding(
+            get: { store.appearanceSettings.sidebarDateFormat },
+            set: { store.updateSidebarDateFormat($0) }
+          )
+        ) {
+          ForEach(SidebarDateFormat.allCases, id: \.self) { option in
+            Text(option.displayName).tag(option)
+          }
+        }
+        .pickerStyle(.menu)
+      }
+
       Section("Behavior") {
         Picker(
           "New note default",

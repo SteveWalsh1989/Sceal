@@ -21,7 +21,7 @@ struct SettingsView: View {
       detailView
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
-    .frame(width: 620, height: 460)
+    .frame(width: 860, height: 730)
   }
 
   @ViewBuilder
