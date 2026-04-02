@@ -13,17 +13,27 @@ enum DiarlyImporter {
   struct ImportResult {
     let imported: [DayNote]
     let skipped: Int
+    let merged: Int
+  }
+
+  // Parsed entry before merging — multiple entries can share the same date.
+  private struct RawEntry {
+    let date: Date
+    let noteID: DayNote.ID
+    let title: String
+    let body: String
   }
 
   // Walks a Diarly export folder and returns parsed notes, skipping dates that already exist.
+  // Same-day entries are merged into a single note separated by a horizontal rule.
   static func importNotes(
     from folderURL: URL,
     existingNoteIDs: Set<DayNote.ID>,
     calendar: Calendar = .current
   ) throws -> ImportResult {
     let fileManager = FileManager.default
-    var imported: [DayNote] = []
-    var skipped = 0
+    var entries: [RawEntry] = []
+    var skippedIDs = Set<DayNote.ID>()
 
     // Scan for workspace directories (e.g. "work")
     let workspaceURLs = try fileManager.contentsOfDirectory(
@@ -56,29 +66,42 @@ enum DiarlyImporter {
 
           let noteID = ScealDateFormatters.storageDate.string(from: date)
           if existingNoteIDs.contains(noteID) {
-            skipped += 1
+            skippedIDs.insert(noteID)
             continue
           }
 
           let contents = try String(contentsOf: noteFileURL, encoding: .utf8)
           let (title, body) = extractTitleAndBody(from: contents)
-
-          let note = DayNote(
-            date: date,
-            title: title,
-            tags: [],
-            body: body
-          )
-
-          imported.append(note)
+          entries.append(RawEntry(date: date, noteID: noteID, title: title, body: body))
         }
       }
     }
 
-    logger.info("Diarly import: \(imported.count) imported, \(skipped) skipped")
+    // Group by date and merge same-day entries into a single note.
+    let grouped = Dictionary(grouping: entries, by: \.noteID)
+    var imported: [DayNote] = []
+    var mergedCount = 0
+
+    for (_, dayEntries) in grouped {
+      guard let first = dayEntries.first else { continue }
+
+      if dayEntries.count == 1 {
+        imported.append(DayNote(date: first.date, title: first.title, tags: [], body: first.body))
+      } else {
+        // Use the longest title; combine bodies with a horizontal rule separator.
+        let title = dayEntries.max(by: { $0.title.count < $1.title.count })?.title ?? first.title
+        let combinedBody = dayEntries.map(\.body).filter { !$0.isEmpty }.joined(separator: "\n\n---\n\n")
+        imported.append(DayNote(date: first.date, title: title, tags: [], body: combinedBody))
+        mergedCount += dayEntries.count - 1
+      }
+    }
+
+    logger.info(
+      "Diarly import: \(imported.count) imported, \(skippedIDs.count) skipped, \(mergedCount) merged")
     return ImportResult(
       imported: imported.sorted(by: { $0.date > $1.date }),
-      skipped: skipped
+      skipped: skippedIDs.count,
+      merged: mergedCount
     )
   }
 

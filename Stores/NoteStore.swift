@@ -280,9 +280,11 @@ final class NoteStore: ObservableObject {
       } else if result.imported.isEmpty {
         userMessage = (text: "No Diarly notes found in the selected folder.", kind: .info)
       } else {
-        let skippedSuffix =
-          result.skipped > 0 ? " (\(result.skipped) skipped — dates already exist)" : ""
-        userMessage = (text: "Imported \(result.imported.count) notes.\(skippedSuffix)", kind: .info)
+        var details: [String] = []
+        if result.skipped > 0 { details.append("\(result.skipped) skipped") }
+        if result.merged > 0 { details.append("\(result.merged) same-day entries merged") }
+        let suffix = details.isEmpty ? "" : " (\(details.joined(separator: ", ")))"
+        userMessage = (text: "Imported \(result.imported.count) notes.\(suffix)", kind: .info)
         selectedNoteID = result.imported.first?.id
       }
     } catch {
