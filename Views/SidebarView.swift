@@ -6,6 +6,7 @@
 import SwiftUI
 
 struct SidebarView: View {
+  @Environment(\.colorScheme) private var colorScheme
   @ObservedObject var store: NoteStore
   let requestDelete: (DayNote.ID) -> Void
 
@@ -54,7 +55,7 @@ struct SidebarView: View {
     }
     .padding(.horizontal, 16)
     .padding(.vertical, 14)
-    .background(Color.primary.opacity(0.03))
+    .background(sidebarBackgroundColor)
     .background {
       // Captures arrow keys at the AppKit level when the editor isn't first responder.
       SidebarKeyboardHelper(
@@ -62,6 +63,12 @@ struct SidebarView: View {
         onDownArrow: { store.selectPreviousNote() }
       )
     }
+  }
+
+  private var sidebarBackgroundColor: Color {
+    colorScheme == .dark
+      ? Color(red: 0.105, green: 0.105, blue: 0.12)
+      : Color(red: 0.94, green: 0.94, blue: 0.955)
   }
 }
 
@@ -170,12 +177,13 @@ private struct AddTodayButton: View {
 }
 
 private struct MonthDividerView: View {
+  @Environment(\.colorScheme) private var colorScheme
   let title: String
 
   var body: some View {
     HStack(spacing: 10) {
       Rectangle()
-        .fill(Color.primary.opacity(0.12))
+        .fill(dividerColor)
         .frame(height: 1)
 
       Text(title)
@@ -184,14 +192,21 @@ private struct MonthDividerView: View {
         .fixedSize()
 
       Rectangle()
-        .fill(Color.primary.opacity(0.12))
+        .fill(dividerColor)
         .frame(height: 1)
     }
     .padding(.top, 4)
   }
+
+  private var dividerColor: Color {
+    colorScheme == .dark
+      ? Color.white.opacity(0.16)
+      : Color.black.opacity(0.12)
+  }
 }
 
 private struct DayNoteCardView: View {
+  @Environment(\.colorScheme) private var colorScheme
   let note: DayNote
   let appearanceSettings: NoteAppearanceSettings
   let isSelected: Bool
@@ -266,6 +281,12 @@ private struct DayNoteCardView: View {
   }
 
   private var cardBackground: Color {
-    isSelected ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.04)
+    if isSelected {
+      return Color.accentColor.opacity(0.14)
+    }
+
+    return colorScheme == .dark
+      ? Color(red: 0.13, green: 0.13, blue: 0.15)
+      : Color.black.opacity(0.04)
   }
 }

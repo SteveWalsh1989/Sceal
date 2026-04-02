@@ -1174,7 +1174,11 @@ private enum DividerResolutionPreference {
   private var sectionCardGapOffset: CGFloat {
     sectionCardBaseGapOffset * appearanceSettings.sectionDividerGapScale
   }
-  private let cardColor = NSColor.labelColor.withAlphaComponent(0.04)
+  private var cardColor: NSColor {
+    isDarkAppearance
+      ? NSColor(red: 0.13, green: 0.13, blue: 0.15, alpha: 1)
+      : NSColor(red: 0.985, green: 0.985, blue: 0.992, alpha: 1)
+  }
   private let cardRadius: CGFloat = 24
   private let cardHInset: CGFloat = 0
   private let cardVPad: CGFloat = 10
@@ -1206,6 +1210,10 @@ private enum DividerResolutionPreference {
       stop.pointee = true
     }
     return result
+  }
+
+  private var isDarkAppearance: Bool {
+    effectiveAppearance.bestMatch(from: [.darkAqua, .vibrantDark]) != nil
   }
 
   var sectionDividerCount: Int {

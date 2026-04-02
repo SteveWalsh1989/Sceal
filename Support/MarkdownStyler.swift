@@ -185,8 +185,17 @@ enum MarkdownStyler {
     var currentSectionUseSectionColor = false
     // Newlines must carry real attributes so NSTextView never inherits bare system defaults.
     let newlineAttrs = baseTypingAttributes(for: appearance)
+    // Track when we just emitted a section divider so we can collapse trailing blank lines.
+    var justEmittedDivider = false
 
     for (index, line) in lines.enumerated() {
+      // Skip blank lines immediately after a section divider — the divider's own
+      // paragraph spacing provides the visual gap, so extra blanks just accumulate.
+      if justEmittedDivider && line.trimmingCharacters(in: .whitespaces).isEmpty {
+        continue
+      }
+      justEmittedDivider = false
+
       if index > 0 {
         result.append(NSAttributedString(string: "\n", attributes: newlineAttrs))
       }
@@ -254,6 +263,7 @@ enum MarkdownStyler {
             bulletColorName: bulletName,
             useSectionColor: useSC ? true : nil
           ))
+        justEmittedDivider = true
         continue
       }
 
@@ -339,7 +349,26 @@ enum MarkdownStyler {
       lineStart = NSMaxRange(lineRange)
     }
 
-    return markdownLines.joined(separator: "\n")
+    // Collapse blank lines immediately after section dividers so they don't accumulate on reload.
+    let sectionPrefix = "<!-- section"
+    var normalized: [String] = []
+    var skipBlanks = false
+    for mdLine in markdownLines {
+      if mdLine.hasPrefix(sectionPrefix) {
+        normalized.append(mdLine)
+        skipBlanks = true
+        continue
+      }
+      if skipBlanks {
+        if mdLine.trimmingCharacters(in: .whitespaces).isEmpty {
+          continue
+        }
+        skipBlanks = false
+      }
+      normalized.append(mdLine)
+    }
+
+    return normalized.joined(separator: "\n")
   }
 
   // MARK: - Live Line Formatting (called on Enter)

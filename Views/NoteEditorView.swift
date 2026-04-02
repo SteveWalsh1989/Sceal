@@ -7,6 +7,7 @@ import AppKit
 import SwiftUI
 
 struct NoteEditorView: View {
+  @Environment(\.colorScheme) private var colorScheme
   @Environment(\.openSettings) private var openSettings
   @ObservedObject var store: NoteStore
   let noteID: DayNote.ID
@@ -104,6 +105,14 @@ struct NoteEditorView: View {
             appearanceSettings: store.appearanceSettings
           )
         }
+        .background(
+          RoundedRectangle(cornerRadius: 26, style: .continuous)
+            .fill(noteBodyShellColor)
+        )
+        .overlay(
+          RoundedRectangle(cornerRadius: 26, style: .continuous)
+            .strokeBorder(noteBodyBorderColor, lineWidth: 1)
+        )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
       }
       .padding(.horizontal, 24)
@@ -126,10 +135,23 @@ struct NoteEditorView: View {
       store.updateBodyFontName(selectedFontName)
     }
   }
+
+  private var noteBodyShellColor: Color {
+    colorScheme == .dark
+      ? Color(red: 0.09, green: 0.09, blue: 0.105)
+      : Color(red: 0.955, green: 0.955, blue: 0.97)
+  }
+
+  private var noteBodyBorderColor: Color {
+    colorScheme == .dark
+      ? Color.clear
+      : Color.black.opacity(0.08)
+  }
 }
 
 // Keeps header note-jump actions compact and visually aligned with the date.
 private struct HeaderNavigationButton: View {
+  @Environment(\.colorScheme) private var colorScheme
   let systemImage: String
   let accessibilityLabel: String
   let action: () -> Void
@@ -140,15 +162,22 @@ private struct HeaderNavigationButton: View {
         .font(.system(size: 11, weight: .semibold))
         .foregroundStyle(.secondary)
         .frame(width: 24, height: 24)
-        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+        .background(controlBackgroundColor, in: RoundedRectangle(cornerRadius: 8))
     }
     .buttonStyle(.plain)
     .accessibilityLabel(accessibilityLabel)
+  }
+
+  private var controlBackgroundColor: Color {
+    colorScheme == .dark
+      ? Color.white.opacity(0.08)
+      : Color.black.opacity(0.05)
   }
 }
 
 // Keeps header utility actions visually aligned with the navigation buttons.
 private struct HeaderIconButton: View {
+  @Environment(\.colorScheme) private var colorScheme
   let systemImage: String
   let accessibilityLabel: String
   let action: () -> Void
@@ -159,14 +188,21 @@ private struct HeaderIconButton: View {
         .font(.system(size: 12, weight: .semibold))
         .foregroundStyle(.secondary)
         .frame(width: 28, height: 28)
-        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+        .background(controlBackgroundColor, in: RoundedRectangle(cornerRadius: 8))
     }
     .buttonStyle(.plain)
     .accessibilityLabel(accessibilityLabel)
   }
+
+  private var controlBackgroundColor: Color {
+    colorScheme == .dark
+      ? Color.white.opacity(0.08)
+      : Color.black.opacity(0.05)
+  }
 }
 
 private struct QuickAppearancePopover: View {
+  @Environment(\.colorScheme) private var colorScheme
   @ObservedObject var store: NoteStore
   let openSettings: () -> Void
   let openFontPanel: () -> Void
@@ -185,7 +221,7 @@ private struct QuickAppearancePopover: View {
             .font(.system(size: 12, weight: .semibold))
             .foregroundStyle(.secondary)
             .frame(width: 28, height: 28)
-            .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+            .background(controlBackgroundColor, in: RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
         .accessibilityLabel("App settings")
@@ -289,6 +325,12 @@ private struct QuickAppearancePopover: View {
     }
     .padding(20)
     .frame(width: 332)
+  }
+
+  private var controlBackgroundColor: Color {
+    colorScheme == .dark
+      ? Color.white.opacity(0.08)
+      : Color.black.opacity(0.05)
   }
 }
 
@@ -425,4 +467,3 @@ private struct QuickNewNoteDefaultRow: View {
     }
   }
 }
-
