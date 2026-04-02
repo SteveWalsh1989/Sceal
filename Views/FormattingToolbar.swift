@@ -224,6 +224,9 @@ import AppKit
 
   func show(relativeTo selectionRect: NSRect, in parentView: NSView) {
     updateColorSwatchVisibility()
+    // Force layout after visibility changes so fittingSize reflects the current state
+    // and the autoresizing mask constraint doesn't conflict with the stack view.
+    stackView.layoutSubtreeIfNeeded()
     let size = fittingSize
     let toolbarHeight = max(size.height, 34)
     let toolbarWidth = max(size.width, 100)

@@ -3,9 +3,11 @@
 //
 
 import Foundation
+import OSLog
 
 // Exports notes to a year-organized zip archive using the native markdown format.
 enum ScealExporter {
+  private static let logger = Logger(subsystem: "com.sceal.app", category: "import")
 
   // Writes the given notes into a temp directory and zips it, returning the zip URL.
   static func exportNotes(_ notes: [DayNote]) throws -> URL {
@@ -66,6 +68,7 @@ enum ScealExporter {
     guard process.terminationStatus == 0 else {
       let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
       let errorMessage = String(data: errorData, encoding: .utf8) ?? "Unknown zip error"
+      logger.error("ditto zip failed: \(errorMessage)")
       throw ScealExporterError.zipFailed(errorMessage)
     }
   }

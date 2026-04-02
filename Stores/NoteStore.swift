@@ -6,6 +6,7 @@
 import AppKit
 import Combine
 import Foundation
+import OSLog
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -50,6 +51,7 @@ final class NoteStore: ObservableObject {
   private var pendingSaveTasks: [DayNote.ID: Task<Void, Never>] = [:]
   private var periodicFlushTask: Task<Void, Never>?
 
+  private static let logger = Logger(subsystem: "com.sceal.app", category: "store")
   private static let appearanceSettingsDefaultsKey = "sceal.noteAppearanceSettings"
   private static let newNoteDefaultKey = "sceal.newNoteDefault"
 
@@ -109,6 +111,7 @@ final class NoteStore: ObservableObject {
 
     do {
       try loadNotes()
+      Self.logger.info("Loaded \(self.notes.count) notes")
       userMessage = nil
     } catch {
       report(error, context: "Loading notes failed")
@@ -309,18 +312,27 @@ final class NoteStore: ObservableObject {
 
     guard panel.runModal() == .OK, let saveURL = panel.url else { return }
 
-    do {
-      let zipURL = try ScealExporter.exportNotes(filtered)
+    let fm = fileManager
+    let noteCount = filtered.count
+    // Run the heavy export (file staging + ditto zip) off the main actor.
+    Task.detached { [weak self] in
+      do {
+        let zipURL = try ScealExporter.exportNotes(filtered)
 
-      if fileManager.fileExists(atPath: saveURL.path) {
-        try fileManager.removeItem(at: saveURL)
+        if fm.fileExists(atPath: saveURL.path) {
+          try fm.removeItem(at: saveURL)
+        }
+        try fm.moveItem(at: zipURL, to: saveURL)
+
+        ScealExporter.cleanUp(zipURL: zipURL)
+        await MainActor.run {
+          self?.userMessage = (text: "Exported \(noteCount) notes.", kind: .info)
+        }
+      } catch {
+        await MainActor.run {
+          self?.report(error, context: "Exporting notes failed")
+        }
       }
-      try fileManager.moveItem(at: zipURL, to: saveURL)
-
-      ScealExporter.cleanUp(zipURL: zipURL)
-      userMessage = (text: "Exported \(filtered.count) notes.", kind: .info)
-    } catch {
-      report(error, context: "Exporting notes failed")
     }
   }
 
@@ -672,6 +684,7 @@ final class NoteStore: ObservableObject {
   private func report(_ error: Error, context: String) {
     let message =
       error.localizedDescription.isEmpty ? String(describing: error) : error.localizedDescription
+    Self.logger.error("\(context): \(message)")
     userMessage = (text: "\(context). \(message)", kind: .error)
   }
 }

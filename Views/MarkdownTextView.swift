@@ -87,22 +87,44 @@ struct MarkdownTextView: NSViewRepresentable {
     guard noteChanged || textChanged || appearanceChanged else { return }
 
     context.coordinator.isUpdating = true
-    let selectedRange =
-      noteChanged
-      ? NSRange(location: 0, length: 0)
-      : clampedRange(textView.selectedRange(), maxLength: text.utf16.count)
     let visibleOrigin = scrollView.contentView.bounds.origin
     if let scealTextView = textView as? ScealTextView {
       scealTextView.appearanceSettings = appearanceSettings
     }
     textView.font = appearanceSettings.bodyFont
     textView.typingAttributes = MarkdownStyler.baseTypingAttributes(for: appearanceSettings)
+
+    let contentChanged = noteChanged || textChanged
     let displayString = MarkdownStyler.formatForDisplay(text, appearance: appearanceSettings)
-    textView.textStorage?.setAttributedString(displayString)
-    context.coordinator.lastPushedMarkdown = text
+
+    if contentChanged {
+      // Full replacement — note switched or text changed externally
+      let selectedRange =
+        noteChanged
+        ? NSRange(location: 0, length: 0)
+        : clampedRange(textView.selectedRange(), maxLength: text.utf16.count)
+      textView.textStorage?.setAttributedString(displayString)
+      context.coordinator.lastPushedMarkdown = text
+      textView.setSelectedRange(
+        clampedRange(selectedRange, maxLength: textView.string.utf16.count))
+    } else if appearanceChanged, let textStorage = textView.textStorage {
+      // Appearance-only change — re-apply attributes in place to preserve undo stack.
+      let fullRange = NSRange(location: 0, length: textStorage.length)
+      if textStorage.string == displayString.string {
+        textStorage.beginEditing()
+        displayString.enumerateAttributes(in: fullRange, options: []) { attrs, range, _ in
+          textStorage.setAttributes(attrs, range: range)
+        }
+        textStorage.endEditing()
+      } else {
+        // Display text differs (shouldn't happen) — fall back to full replacement
+        textView.textStorage?.setAttributedString(displayString)
+        context.coordinator.lastPushedMarkdown = text
+      }
+    }
+
     context.coordinator.lastAppliedAppearance = appearanceSettings
     context.coordinator.lastNoteID = noteID
-    textView.setSelectedRange(clampedRange(selectedRange, maxLength: textView.string.utf16.count))
     if let scealTextView = textView as? ScealTextView {
       _ = scealTextView.normalizeSelectionIfNeeded()
       scealTextView.refreshSectionLayout()

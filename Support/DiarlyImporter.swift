@@ -4,9 +4,11 @@
 //
 
 import Foundation
+import OSLog
 
 // Parses an unzipped Diarly export folder into DayNote objects.
 enum DiarlyImporter {
+  private static let logger = Logger(subsystem: "com.sceal.app", category: "import")
 
   struct ImportResult {
     let imported: [DayNote]
@@ -73,6 +75,7 @@ enum DiarlyImporter {
       }
     }
 
+    logger.info("Diarly import: \(imported.count) imported, \(skipped) skipped")
     return ImportResult(
       imported: imported.sorted(by: { $0.date > $1.date }),
       skipped: skipped

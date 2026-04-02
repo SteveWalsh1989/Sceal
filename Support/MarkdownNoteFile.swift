@@ -4,8 +4,10 @@
 //
 
 import Foundation
+import OSLog
 
 enum MarkdownNoteFile {
+  private static let logger = Logger(subsystem: "com.sceal.app", category: "persistence")
   private static let frontMatterMarker = "---"
 
   static func encode(_ note: DayNote) throws -> String {
@@ -26,11 +28,13 @@ enum MarkdownNoteFile {
     let contents = contents.replacingOccurrences(of: "\r\n", with: "\n")
     let prefix = "\(frontMatterMarker)\n"
     guard contents.hasPrefix(prefix) else {
+      logger.error("Missing front matter in \(sourceURL.lastPathComponent)")
       throw MarkdownNoteFileError.missingFrontMatter(sourceURL)
     }
 
     let metadataStart = contents.index(contents.startIndex, offsetBy: prefix.count)
     guard let metadataEnd = contents[metadataStart...].range(of: "\n\(frontMatterMarker)\n") else {
+      logger.error("Invalid front matter in \(sourceURL.lastPathComponent)")
       throw MarkdownNoteFileError.invalidFrontMatter(sourceURL)
     }
 
@@ -42,6 +46,7 @@ enum MarkdownNoteFile {
       let dateValue = metadata["date"],
       let date = ScealDateFormatters.storageDate.date(from: dateValue)
     else {
+      logger.error("Invalid date in \(sourceURL.lastPathComponent)")
       throw MarkdownNoteFileError.invalidDate(sourceURL)
     }
 

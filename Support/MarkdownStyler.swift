@@ -180,6 +180,12 @@ enum MarkdownStyler {
         }
       }
 
+      // Allow blank lines between a heading color comment and its heading
+      if line.trimmingCharacters(in: .whitespaces).isEmpty, pendingHeadingColor != nil {
+        result.append(NSAttributedString(string: "", attributes: newlineAttrs))
+        continue
+      }
+
       if line.hasPrefix("```") {
         // Flush pending color as-is if next line is a code fence
         if let colorName = pendingHeadingColorName {
@@ -305,8 +311,10 @@ enum MarkdownStyler {
 
       if alreadyFormatted {
         // Only process inline formatting on existing formatted lines
-        processInlinePatterns(
-          in: textStorage, lineRange: lineRange, defaultFont: appearance.bodyFont)
+        textStorage.beginEditing()
+        applyInlineFormatting(
+          in: textStorage, range: lineRange, defaultFont: appearance.bodyFont)
+        textStorage.endEditing()
         if let rawType = attrs[.markdownListType] as? String {
           return MarkdownListType(rawValue: rawType)
         }
@@ -371,11 +379,7 @@ enum MarkdownStyler {
           .markdownHeadingLevel: level,
           .paragraphStyle: bodyParagraphStyle(for: appearance),
         ])
-      stripInlineBold(in: result, defaultBoldFont: appearance.boldBodyFont(ofSize: fontSize))
-      stripInlineItalic(in: result, defaultItalicFont: appearance.italicBodyFont(ofSize: fontSize))
-      stripInlineStrikethrough(in: result)
-      stripInlineCode(in: result)
-      stripInlineLinks(in: result)
+      applyInlineFormatting(in: result, defaultFont: appearance.boldBodyFont(ofSize: fontSize))
       return result
     }
 
@@ -384,14 +388,7 @@ enum MarkdownStyler {
       let content = String(trimmedLine.dropFirst(6))
       let checkAttr = checkboxAttributedString(checked: true, appearance: appearance)
       let contentAttr = NSMutableAttributedString(string: " \(content)", attributes: baseAttrs)
-      stripInlineBold(
-        in: contentAttr, defaultBoldFont: appearance.boldBodyFont(ofSize: appearance.bodyFontSize))
-      stripInlineItalic(
-        in: contentAttr,
-        defaultItalicFont: appearance.italicBodyFont(ofSize: appearance.bodyFontSize))
-      stripInlineStrikethrough(in: contentAttr)
-      stripInlineCode(in: contentAttr)
-      stripInlineLinks(in: contentAttr)
+      applyInlineFormatting(in: contentAttr, defaultFont: appearance.bodyFont)
       let result = NSMutableAttributedString()
       result.append(checkAttr)
       result.append(contentAttr)
@@ -413,14 +410,7 @@ enum MarkdownStyler {
       let content = String(trimmedLine.dropFirst(6))
       let checkAttr = checkboxAttributedString(checked: false, appearance: appearance)
       let contentAttr = NSMutableAttributedString(string: " \(content)", attributes: baseAttrs)
-      stripInlineBold(
-        in: contentAttr, defaultBoldFont: appearance.boldBodyFont(ofSize: appearance.bodyFontSize))
-      stripInlineItalic(
-        in: contentAttr,
-        defaultItalicFont: appearance.italicBodyFont(ofSize: appearance.bodyFontSize))
-      stripInlineStrikethrough(in: contentAttr)
-      stripInlineCode(in: contentAttr)
-      stripInlineLinks(in: contentAttr)
+      applyInlineFormatting(in: contentAttr, defaultFont: appearance.bodyFont)
       let result = NSMutableAttributedString()
       result.append(checkAttr)
       result.append(contentAttr)
@@ -435,8 +425,7 @@ enum MarkdownStyler {
     }
 
     // Bullet list
-    if trimmedLine.range(of: #"^(?:-|•)\s+"#, options: .regularExpression) != nil {
-      let prefixMatch = trimmedLine.range(of: #"^(?:-|•)\s+"#, options: .regularExpression)!
+    if let prefixMatch = trimmedLine.range(of: #"^(?:-|•)\s+"#, options: .regularExpression) {
       let content = String(trimmedLine[prefixMatch.upperBound...])
       let displayText = "\(bulletMarker) \(content)"
       let result = NSMutableAttributedString(string: displayText, attributes: baseAttrs)
@@ -452,13 +441,7 @@ enum MarkdownStyler {
           .foregroundColor: bulletColor(for: appearance),
           .font: NSFont.systemFont(ofSize: appearance.bulletSize, weight: .bold),
         ], range: NSRange(location: 0, length: 1))
-      stripInlineBold(
-        in: result, defaultBoldFont: appearance.boldBodyFont(ofSize: appearance.bodyFontSize))
-      stripInlineItalic(
-        in: result, defaultItalicFont: appearance.italicBodyFont(ofSize: appearance.bodyFontSize))
-      stripInlineStrikethrough(in: result)
-      stripInlineCode(in: result)
-      stripInlineLinks(in: result)
+      applyInlineFormatting(in: result, defaultFont: appearance.bodyFont)
       return result
     }
 
@@ -478,13 +461,7 @@ enum MarkdownStyler {
           .foregroundColor, value: NSColor.secondaryLabelColor,
           range: NSRange(location: 0, length: numLength))
       }
-      stripInlineBold(
-        in: result, defaultBoldFont: appearance.boldBodyFont(ofSize: appearance.bodyFontSize))
-      stripInlineItalic(
-        in: result, defaultItalicFont: appearance.italicBodyFont(ofSize: appearance.bodyFontSize))
-      stripInlineStrikethrough(in: result)
-      stripInlineCode(in: result)
-      stripInlineLinks(in: result)
+      applyInlineFormatting(in: result, defaultFont: appearance.bodyFont)
       return result
     }
 
@@ -500,131 +477,123 @@ enum MarkdownStyler {
           .markdownBlockquote: true,
           .paragraphStyle: quoteStyle,
         ])
-      stripInlineBold(
-        in: result, defaultBoldFont: appearance.boldBodyFont(ofSize: appearance.bodyFontSize))
-      stripInlineItalic(
-        in: result, defaultItalicFont: appearance.italicBodyFont(ofSize: appearance.bodyFontSize))
-      stripInlineStrikethrough(in: result)
-      stripInlineCode(in: result)
-      stripInlineLinks(in: result)
+      applyInlineFormatting(in: result, defaultFont: appearance.bodyFont)
       return result
     }
 
     // Plain line — inline formatting only
     let result = NSMutableAttributedString(string: rawLine, attributes: baseAttrs)
-    stripInlineBold(
-      in: result, defaultBoldFont: appearance.boldBodyFont(ofSize: appearance.bodyFontSize))
-    stripInlineItalic(
-      in: result, defaultItalicFont: appearance.italicBodyFont(ofSize: appearance.bodyFontSize))
-    stripInlineStrikethrough(in: result)
-    stripInlineLinks(in: result)
+    applyInlineFormatting(in: result, defaultFont: appearance.bodyFont)
     return result
   }
 
-  // MARK: - Inline Formatting (strips delimiters from attributed string)
+  // MARK: - Inline Formatting
 
-  private static func stripInlineBold(
-    in attrStr: NSMutableAttributedString, defaultBoldFont: NSFont
+  // Strips markdown delimiters and applies display attributes for all inline patterns
+  // (bold, italic, strikethrough, code, links) within the given range. Works on both
+  // standalone NSMutableAttributedString and NSTextStorage (which inherits from it).
+  private static func applyInlineFormatting(
+    in attrStr: NSMutableAttributedString,
+    range inputRange: NSRange,
+    defaultFont: NSFont
   ) {
-    let regex = boldRegex
+    var range = inputRange
 
-    // Iterate until no more matches (since positions shift after each replacement)
+    // Bold (**text**)
     while true {
-      let string = attrStr.string
+      let currentEnd = min(range.location + range.length, attrStr.length)
+      let searchRange = NSRange(location: range.location, length: currentEnd - range.location)
+      let text = (attrStr.string as NSString).substring(with: searchRange)
       guard
-        let match = regex.firstMatch(
-          in: string, range: NSRange(location: 0, length: string.utf16.count))
+        let match = boldRegex.firstMatch(
+          in: text, range: NSRange(location: 0, length: text.utf16.count))
       else { break }
 
-      let innerRange = match.range(at: 1)
-      let innerText = (string as NSString).substring(with: innerRange)
-
-      attrStr.replaceCharacters(in: match.range(at: 0), with: innerText)
-      let newRange = NSRange(location: match.range(at: 0).location, length: innerText.utf16.count)
+      let innerText = (text as NSString).substring(with: match.range(at: 1))
+      let absRange = NSRange(
+        location: searchRange.location + match.range(at: 0).location,
+        length: match.range(at: 0).length)
 
       let currentFont =
-        attrStr.attribute(.font, at: newRange.location, effectiveRange: nil) as? NSFont
-        ?? defaultBoldFont
+        attrStr.attribute(.font, at: absRange.location, effectiveRange: nil) as? NSFont
+        ?? defaultFont
       let boldFont = NSFontManager.shared.convert(currentFont, toHaveTrait: .boldFontMask)
-      attrStr.addAttributes(
-        [
-          .font: boldFont,
-          .markdownBold: true,
-        ], range: newRange)
+
+      attrStr.replaceCharacters(in: absRange, with: innerText)
+      let newRange = NSRange(location: absRange.location, length: innerText.utf16.count)
+      range.length -= absRange.length - newRange.length
+      attrStr.addAttributes([.font: boldFont, .markdownBold: true], range: newRange)
     }
-  }
 
-  // Strips single-asterisk italic delimiters without matching double-asterisk bold
-  private static func stripInlineItalic(
-    in attrStr: NSMutableAttributedString, defaultItalicFont: NSFont
-  ) {
-    let regex = italicRegex
-
+    // Italic (*text*)
     while true {
-      let string = attrStr.string
+      let currentEnd = min(range.location + range.length, attrStr.length)
+      let searchRange = NSRange(location: range.location, length: currentEnd - range.location)
+      let text = (attrStr.string as NSString).substring(with: searchRange)
       guard
-        let match = regex.firstMatch(
-          in: string, range: NSRange(location: 0, length: string.utf16.count))
+        let match = italicRegex.firstMatch(
+          in: text, range: NSRange(location: 0, length: text.utf16.count))
       else { break }
 
-      let innerRange = match.range(at: 1)
-      let innerText = (string as NSString).substring(with: innerRange)
-
-      attrStr.replaceCharacters(in: match.range(at: 0), with: innerText)
-      let newRange = NSRange(location: match.range(at: 0).location, length: innerText.utf16.count)
+      let innerText = (text as NSString).substring(with: match.range(at: 1))
+      let absRange = NSRange(
+        location: searchRange.location + match.range(at: 0).location,
+        length: match.range(at: 0).length)
 
       let currentFont =
-        attrStr.attribute(.font, at: newRange.location, effectiveRange: nil) as? NSFont
-        ?? defaultItalicFont
+        attrStr.attribute(.font, at: absRange.location, effectiveRange: nil) as? NSFont
+        ?? defaultFont
       let italicFont = NSFontManager.shared.convert(currentFont, toHaveTrait: .italicFontMask)
-      attrStr.addAttributes(
-        [
-          .font: italicFont,
-          .markdownItalic: true,
-        ], range: newRange)
+
+      attrStr.replaceCharacters(in: absRange, with: innerText)
+      let newRange = NSRange(location: absRange.location, length: innerText.utf16.count)
+      range.length -= absRange.length - newRange.length
+      attrStr.addAttributes([.font: italicFont, .markdownItalic: true], range: newRange)
     }
-  }
 
-  // Strips ~~text~~ strikethrough delimiters and applies visual strikethrough style
-  private static func stripInlineStrikethrough(in attrStr: NSMutableAttributedString) {
-    let regex = strikethroughRegex
-
+    // Strikethrough (~~text~~)
     while true {
-      let string = attrStr.string
+      let currentEnd = min(range.location + range.length, attrStr.length)
+      let searchRange = NSRange(location: range.location, length: currentEnd - range.location)
+      let text = (attrStr.string as NSString).substring(with: searchRange)
       guard
-        let match = regex.firstMatch(
-          in: string, range: NSRange(location: 0, length: string.utf16.count))
+        let match = strikethroughRegex.firstMatch(
+          in: text, range: NSRange(location: 0, length: text.utf16.count))
       else { break }
 
-      let innerRange = match.range(at: 1)
-      let innerText = (string as NSString).substring(with: innerRange)
+      let innerText = (text as NSString).substring(with: match.range(at: 1))
+      let absRange = NSRange(
+        location: searchRange.location + match.range(at: 0).location,
+        length: match.range(at: 0).length)
 
-      attrStr.replaceCharacters(in: match.range(at: 0), with: innerText)
-      let newRange = NSRange(location: match.range(at: 0).location, length: innerText.utf16.count)
-
+      attrStr.replaceCharacters(in: absRange, with: innerText)
+      let newRange = NSRange(location: absRange.location, length: innerText.utf16.count)
+      range.length -= absRange.length - newRange.length
       attrStr.addAttributes(
         [
           .strikethroughStyle: NSUnderlineStyle.single.rawValue,
           .markdownStrikethrough: true,
         ], range: newRange)
     }
-  }
 
-  private static func stripInlineCode(in attrStr: NSMutableAttributedString) {
-    let regex = inlineCodeRegex
-
+    // Inline code (`text`)
     while true {
-      let string = attrStr.string
+      let currentEnd = min(range.location + range.length, attrStr.length)
+      let searchRange = NSRange(location: range.location, length: currentEnd - range.location)
+      let text = (attrStr.string as NSString).substring(with: searchRange)
       guard
-        let match = regex.firstMatch(
-          in: string, range: NSRange(location: 0, length: string.utf16.count))
+        let match = inlineCodeRegex.firstMatch(
+          in: text, range: NSRange(location: 0, length: text.utf16.count))
       else { break }
 
-      let innerRange = match.range(at: 1)
-      let innerText = (string as NSString).substring(with: innerRange)
+      let innerText = (text as NSString).substring(with: match.range(at: 1))
+      let absRange = NSRange(
+        location: searchRange.location + match.range(at: 0).location,
+        length: match.range(at: 0).length)
 
-      attrStr.replaceCharacters(in: match.range(at: 0), with: innerText)
-      let newRange = NSRange(location: match.range(at: 0).location, length: innerText.utf16.count)
+      attrStr.replaceCharacters(in: absRange, with: innerText)
+      let newRange = NSRange(location: absRange.location, length: innerText.utf16.count)
+      range.length -= absRange.length - newRange.length
       attrStr.addAttributes(
         [
           .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
@@ -632,25 +601,26 @@ enum MarkdownStyler {
           .markdownInlineCode: true,
         ], range: newRange)
     }
-  }
 
-  private static func stripInlineLinks(in attrStr: NSMutableAttributedString) {
-    let regex = linkRegex
-
+    // Links ([text](url))
     while true {
-      let string = attrStr.string
+      let currentEnd = min(range.location + range.length, attrStr.length)
+      let searchRange = NSRange(location: range.location, length: currentEnd - range.location)
+      let text = (attrStr.string as NSString).substring(with: searchRange)
       guard
-        let match = regex.firstMatch(
-          in: string, range: NSRange(location: 0, length: string.utf16.count))
+        let match = linkRegex.firstMatch(
+          in: text, range: NSRange(location: 0, length: text.utf16.count))
       else { break }
 
-      let textRange = match.range(at: 1)
-      let urlRange = match.range(at: 2)
-      let linkText = (string as NSString).substring(with: textRange)
-      let urlString = (string as NSString).substring(with: urlRange)
+      let linkText = (text as NSString).substring(with: match.range(at: 1))
+      let urlString = (text as NSString).substring(with: match.range(at: 2))
+      let absRange = NSRange(
+        location: searchRange.location + match.range(at: 0).location,
+        length: match.range(at: 0).length)
 
-      attrStr.replaceCharacters(in: match.range(at: 0), with: linkText)
-      let newRange = NSRange(location: match.range(at: 0).location, length: linkText.utf16.count)
+      attrStr.replaceCharacters(in: absRange, with: linkText)
+      let newRange = NSRange(location: absRange.location, length: linkText.utf16.count)
+      range.length -= absRange.length - newRange.length
 
       var attrs: [NSAttributedString.Key: Any] = [
         .foregroundColor: NSColor.linkColor,
@@ -661,166 +631,12 @@ enum MarkdownStyler {
     }
   }
 
-  // MARK: - Inline Processing on Existing Text Storage
-
-  private static func processInlinePatterns(
-    in textStorage: NSTextStorage, lineRange: NSRange, defaultFont: NSFont
+  // Convenience for applying all inline formatting to a standalone attributed string.
+  private static func applyInlineFormatting(
+    in attrStr: NSMutableAttributedString, defaultFont: NSFont
   ) {
-    // Bold
-    let boldRegex = Self.boldRegex
-    while true {
-      let nsString = textStorage.string as NSString
-      let currentLineEnd = min(lineRange.location + lineRange.length, nsString.length)
-      let currentLineRange = NSRange(
-        location: lineRange.location, length: currentLineEnd - lineRange.location)
-      let lineText = nsString.substring(with: currentLineRange)
-      guard
-        let match = boldRegex.firstMatch(
-          in: lineText, range: NSRange(location: 0, length: lineText.utf16.count))
-      else { break }
-
-      let innerRange = match.range(at: 1)
-      let innerText = (lineText as NSString).substring(with: innerRange)
-      let absoluteRange = NSRange(
-        location: currentLineRange.location + match.range(at: 0).location,
-        length: match.range(at: 0).length)
-
-      let currentFont =
-        textStorage.attribute(.font, at: absoluteRange.location, effectiveRange: nil) as? NSFont
-        ?? defaultFont
-      let boldFont = NSFontManager.shared.convert(currentFont, toHaveTrait: .boldFontMask)
-
-      textStorage.beginEditing()
-      textStorage.replaceCharacters(in: absoluteRange, with: innerText)
-      let newRange = NSRange(location: absoluteRange.location, length: innerText.utf16.count)
-      textStorage.addAttributes([.font: boldFont, .markdownBold: true], range: newRange)
-      textStorage.endEditing()
-    }
-
-    // Italic (single asterisks, avoiding double-asterisk bold)
-    let italicRegex = Self.italicRegex
-    while true {
-      let nsStringI = textStorage.string as NSString
-      let currentEndI = min(lineRange.location + lineRange.length, nsStringI.length)
-      let currentRangeI = NSRange(
-        location: lineRange.location, length: currentEndI - lineRange.location)
-      let textI = nsStringI.substring(with: currentRangeI)
-      guard
-        let match = italicRegex.firstMatch(
-          in: textI, range: NSRange(location: 0, length: textI.utf16.count))
-      else { break }
-
-      let innerRange = match.range(at: 1)
-      let innerText = (textI as NSString).substring(with: innerRange)
-      let absoluteRange = NSRange(
-        location: currentRangeI.location + match.range(at: 0).location,
-        length: match.range(at: 0).length)
-
-      let currentFont =
-        textStorage.attribute(.font, at: absoluteRange.location, effectiveRange: nil) as? NSFont
-        ?? defaultFont
-      let italicFont = NSFontManager.shared.convert(currentFont, toHaveTrait: .italicFontMask)
-
-      textStorage.beginEditing()
-      textStorage.replaceCharacters(in: absoluteRange, with: innerText)
-      let newRange = NSRange(location: absoluteRange.location, length: innerText.utf16.count)
-      textStorage.addAttributes([.font: italicFont, .markdownItalic: true], range: newRange)
-      textStorage.endEditing()
-    }
-
-    // Strikethrough
-    let strikeRegex = Self.strikethroughRegex
-    while true {
-      let nsStringS = textStorage.string as NSString
-      let currentEndS = min(lineRange.location + lineRange.length, nsStringS.length)
-      let currentRangeS = NSRange(
-        location: lineRange.location, length: currentEndS - lineRange.location)
-      let textS = nsStringS.substring(with: currentRangeS)
-      guard
-        let match = strikeRegex.firstMatch(
-          in: textS, range: NSRange(location: 0, length: textS.utf16.count))
-      else { break }
-
-      let innerRange = match.range(at: 1)
-      let innerText = (textS as NSString).substring(with: innerRange)
-      let absoluteRange = NSRange(
-        location: currentRangeS.location + match.range(at: 0).location,
-        length: match.range(at: 0).length)
-
-      textStorage.beginEditing()
-      textStorage.replaceCharacters(in: absoluteRange, with: innerText)
-      let newRange = NSRange(location: absoluteRange.location, length: innerText.utf16.count)
-      textStorage.addAttributes(
-        [
-          .strikethroughStyle: NSUnderlineStyle.single.rawValue,
-          .markdownStrikethrough: true,
-        ], range: newRange)
-      textStorage.endEditing()
-    }
-
-    // Inline code
-    let codeRegex = Self.inlineCodeRegex
-    while true {
-      let nsString2 = textStorage.string as NSString
-      let currentEnd2 = min(lineRange.location + lineRange.length, nsString2.length)
-      let currentRange2 = NSRange(
-        location: lineRange.location, length: currentEnd2 - lineRange.location)
-      let text2 = nsString2.substring(with: currentRange2)
-      guard
-        let match = codeRegex.firstMatch(
-          in: text2, range: NSRange(location: 0, length: text2.utf16.count))
-      else { break }
-
-      let innerRange = match.range(at: 1)
-      let innerText = (text2 as NSString).substring(with: innerRange)
-      let absoluteRange = NSRange(
-        location: currentRange2.location + match.range(at: 0).location,
-        length: match.range(at: 0).length)
-
-      textStorage.beginEditing()
-      textStorage.replaceCharacters(in: absoluteRange, with: innerText)
-      let newRange = NSRange(location: absoluteRange.location, length: innerText.utf16.count)
-      textStorage.addAttributes(
-        [
-          .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
-          .backgroundColor: NSColor.quaternaryLabelColor,
-          .markdownInlineCode: true,
-        ], range: newRange)
-      textStorage.endEditing()
-    }
-
-    // Links
-    let linkRegex = Self.linkRegex
-    while true {
-      let nsString = textStorage.string as NSString
-      let currentLineEnd = min(lineRange.location + lineRange.length, nsString.length)
-      let currentLineRange = NSRange(
-        location: lineRange.location, length: currentLineEnd - lineRange.location)
-      let lineText = nsString.substring(with: currentLineRange)
-      guard
-        let match = linkRegex.firstMatch(
-          in: lineText, range: NSRange(location: 0, length: lineText.utf16.count))
-      else { break }
-
-      let textRange = match.range(at: 1)
-      let urlRange = match.range(at: 2)
-      let linkText = (lineText as NSString).substring(with: textRange)
-      let urlString = (lineText as NSString).substring(with: urlRange)
-      let absoluteRange = NSRange(
-        location: currentLineRange.location + match.range(at: 0).location,
-        length: match.range(at: 0).length)
-
-      textStorage.beginEditing()
-      textStorage.replaceCharacters(in: absoluteRange, with: linkText)
-      let newRange = NSRange(location: absoluteRange.location, length: linkText.utf16.count)
-      var attrs: [NSAttributedString.Key: Any] = [
-        .foregroundColor: NSColor.linkColor,
-        .markdownLinkURL: urlString,
-      ]
-      if let url = URL(string: urlString) { attrs[.link] = url }
-      textStorage.addAttributes(attrs, range: newRange)
-      textStorage.endEditing()
-    }
+    applyInlineFormatting(
+      in: attrStr, range: NSRange(location: 0, length: attrStr.length), defaultFont: defaultFont)
   }
 
   // MARK: - Reconstruct Markdown from Display Line
