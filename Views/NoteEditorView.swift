@@ -10,6 +10,7 @@ struct NoteEditorView: View {
   @Environment(\.openSettings) private var openSettings
   @ObservedObject var store: NoteStore
   let noteID: DayNote.ID
+  var sidebarCollapsed: Bool = false
   let requestDelete: (DayNote.ID) -> Void
 
   @State private var isShowingAppearancePopover = false
@@ -83,6 +84,7 @@ struct NoteEditorView: View {
             )
           }
         }
+        .padding(.leading, sidebarCollapsed ? 130 : 0)
 
         TextField("Title", text: store.titleBinding(for: noteID))
           .textFieldStyle(.plain)

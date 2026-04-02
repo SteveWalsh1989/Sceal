@@ -8,9 +8,10 @@ import SwiftUI
 struct ContentView: View {
   @ObservedObject var store: NoteStore
   @State private var notePendingDeletionID: DayNote.ID?
+  @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
 
   var body: some View {
-    NavigationSplitView {
+    NavigationSplitView(columnVisibility: $columnVisibility) {
       SidebarView(store: store) { noteID in
         notePendingDeletionID = noteID
       }
@@ -18,7 +19,11 @@ struct ContentView: View {
     } detail: {
       Group {
         if let selectedNoteID = store.selectedNoteID {
-          NoteEditorView(store: store, noteID: selectedNoteID) { noteID in
+          NoteEditorView(
+            store: store,
+            noteID: selectedNoteID,
+            sidebarCollapsed: columnVisibility == .detailOnly
+          ) { noteID in
             notePendingDeletionID = noteID
           }
         } else if store.isLoading {
@@ -32,10 +37,8 @@ struct ContentView: View {
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
-      .background {
-        Color.primary.opacity(0.02)
-          .ignoresSafeArea(.container, edges: .top)
-      }
+      .background(Color.primary.opacity(0.02))
+      .ignoresSafeArea(.container, edges: .top)
     }
     .navigationSplitViewStyle(.balanced)
     .task {
