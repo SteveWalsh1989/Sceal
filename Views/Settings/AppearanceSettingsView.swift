@@ -159,9 +159,9 @@ private struct SliderRow: View {
       Text(valueLabel)
         .monospacedDigit()
         .foregroundStyle(.secondary)
-        .frame(width: 44, alignment: .trailing)
+        .frame(width: 36, alignment: .trailing)
       Slider(value: $value, in: range, step: step)
-        .frame(width: 220)
+        .frame(width: 352)
     }
   }
 }
