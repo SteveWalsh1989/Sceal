@@ -1,6 +1,5 @@
 //
 //  ImportSettingsView.swift
-//  dayra
 //
 
 import SwiftUI
@@ -11,7 +10,7 @@ struct ImportSettingsView: View {
   var body: some View {
     Form {
       Section {
-        Text("Import notes from other journaling apps into dayra.")
+        Text("Import notes from other journaling apps into Scéal.")
           .foregroundStyle(.secondary)
       }
 

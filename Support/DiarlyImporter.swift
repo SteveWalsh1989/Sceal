@@ -1,6 +1,5 @@
 //
 //  DiarlyImporter.swift
-//  dayra
 //
 //
 
@@ -53,7 +52,7 @@ enum DiarlyImporter {
             continue
           }
 
-          let noteID = DayraDateFormatters.storageDate.string(from: date)
+          let noteID = ScealDateFormatters.storageDate.string(from: date)
           if existingNoteIDs.contains(noteID) {
             skipped += 1
             continue

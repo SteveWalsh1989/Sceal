@@ -1,6 +1,5 @@
 //
 //  SlashCommandPopup.swift
-//  dayra
 //
 //
 

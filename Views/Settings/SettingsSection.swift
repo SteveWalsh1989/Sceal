@@ -1,6 +1,5 @@
 //
 //  SettingsSection.swift
-//  dayra
 //
 
 // Sidebar sections for the settings window.

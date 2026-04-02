@@ -1,6 +1,5 @@
 //
 //  AppearanceSettingsView.swift
-//  dayra
 //
 
 import AppKit
@@ -173,7 +172,7 @@ private struct AccentColorRow: View {
 
   var body: some View {
     HStack(spacing: 8) {
-      ForEach(DayraPalette.colors, id: \.name) { entry in
+      ForEach(ScealPalette.colors, id: \.name) { entry in
         Button {
           onSelect(entry.name)
         } label: {

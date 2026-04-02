@@ -1,6 +1,5 @@
 //
 //  SidebarDateFormat.swift
-//  dayra
 //
 
 import Foundation
@@ -34,15 +33,15 @@ enum SidebarDateFormat: String, CaseIterable, Codable {
   func string(from date: Date) -> String {
     switch self {
     case .yearMonthDay:
-      return DayraDateFormatters.sidebarYearMonthDay.string(from: date)
+      return ScealDateFormatters.sidebarYearMonthDay.string(from: date)
     case .dayMonthYear:
-      return DayraDateFormatters.sidebarDayMonthYear.string(from: date)
+      return ScealDateFormatters.sidebarDayMonthYear.string(from: date)
     case .dayMonthYearSlashes:
-      return DayraDateFormatters.sidebarDayMonthYearSlashes.string(from: date)
+      return ScealDateFormatters.sidebarDayMonthYearSlashes.string(from: date)
     case .monthDayYear:
-      return DayraDateFormatters.sidebarMonthDayYear.string(from: date)
+      return ScealDateFormatters.sidebarMonthDayYear.string(from: date)
     case .monthDayYearSlashes:
-      return DayraDateFormatters.sidebarMonthDayYearSlashes.string(from: date)
+      return ScealDateFormatters.sidebarMonthDayYearSlashes.string(from: date)
     case .dayShortMonthContextual:
       return contextualShortMonthString(from: date)
     }
@@ -54,8 +53,8 @@ enum SidebarDateFormat: String, CaseIterable, Codable {
     let noteYear = Calendar.current.component(.year, from: date)
     let formatter =
       noteYear == currentYear
-      ? DayraDateFormatters.sidebarDayShortMonth
-      : DayraDateFormatters.sidebarDayShortMonthShortYear
+      ? ScealDateFormatters.sidebarDayShortMonth
+      : ScealDateFormatters.sidebarDayShortMonthShortYear
 
     return formatter.string(from: date)
   }

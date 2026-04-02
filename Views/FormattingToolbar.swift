@@ -1,6 +1,5 @@
 //
 //  FormattingToolbar.swift
-//  dayra
 //
 //
 
@@ -110,7 +109,7 @@ class FormattingToolbar: NSView {
     addSymbolButton("link", action: #selector(showLinkPopover(_:)), tooltip: "Link")
     let sep = addSeparator()
     colorSeparator = sep
-    for (index, entry) in DayraPalette.colors.enumerated() {
+    for (index, entry) in ScealPalette.colors.enumerated() {
       let swatch = addColorSwatch(color: entry.color, name: entry.name, index: index)
       colorSwatches.append(swatch)
     }
@@ -450,8 +449,8 @@ class FormattingToolbar: NSView {
   @objc private func applyHeadingColor(_ sender: NSButton) {
     guard let textView, let textStorage = textView.textStorage else { return }
     let presetIndex = sender.tag
-    guard presetIndex < DayraPalette.colors.count else { return }
-    let preset = DayraPalette.colors[presetIndex]
+    guard presetIndex < ScealPalette.colors.count else { return }
+    let preset = ScealPalette.colors[presetIndex]
 
     let (lineRange, _) = currentLineRange()
     guard lineRange.length > 0 else { return }

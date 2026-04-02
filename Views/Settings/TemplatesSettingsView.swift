@@ -1,6 +1,5 @@
 //
 //  TemplatesSettingsView.swift
-//  dayra
 //
 
 import SwiftUI

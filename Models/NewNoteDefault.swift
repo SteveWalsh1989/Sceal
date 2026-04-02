@@ -1,6 +1,5 @@
 //
 //  NewNoteDefault.swift
-//  dayra
 //
 
 // Controls whether a new "today" note starts blank or copies the most recent previous note.

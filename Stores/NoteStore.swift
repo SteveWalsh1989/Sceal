@@ -1,6 +1,5 @@
 //
 //  NoteStore.swift
-//  dayra
 //
 //
 
@@ -14,7 +13,7 @@ struct NoteMonthSection: Identifiable, Equatable {
   let notes: [DayNote]
 
   var id: String {
-    DayraDateFormatters.storageDate.string(from: monthStartDate)
+    ScealDateFormatters.storageDate.string(from: monthStartDate)
   }
 
   var title: String {
@@ -23,7 +22,7 @@ struct NoteMonthSection: Identifiable, Equatable {
       == Calendar.current.component(.year, from: Date.now)
     let formatter =
       isCurrentYear
-      ? DayraDateFormatters.monthDividerMonthOnly : DayraDateFormatters.monthDivider
+      ? ScealDateFormatters.monthDividerMonthOnly : ScealDateFormatters.monthDivider
     return formatter.string(from: monthStartDate).uppercased()
   }
 }
@@ -43,8 +42,8 @@ final class NoteStore: ObservableObject {
   private var hasLoaded = false
   private var pendingSaveTasks: [DayNote.ID: Task<Void, Never>] = [:]
 
-  private static let appearanceSettingsDefaultsKey = "dayra.noteAppearanceSettings"
-  private static let newNoteDefaultKey = "dayra.newNoteDefault"
+  private static let appearanceSettingsDefaultsKey = "sceal.noteAppearanceSettings"
+  private static let newNoteDefaultKey = "sceal.newNoteDefault"
 
   init(
     fileManager: FileManager = .default,
@@ -247,7 +246,7 @@ final class NoteStore: ObservableObject {
       notes = (notes + result.imported).sorted(by: { $0.date > $1.date })
 
       if result.imported.isEmpty && result.skipped > 0 {
-        errorMessage = "No new notes imported. \(result.skipped) dates already exist in dayra."
+        errorMessage = "No new notes imported. \(result.skipped) dates already exist in Scéal."
       } else if result.imported.isEmpty {
         errorMessage = "No Diarly notes found in the selected folder."
       } else {
@@ -520,7 +519,7 @@ final class NoteStore: ObservableObject {
 
     let notesDirectoryURL =
       appSupportURL
-      .appendingPathComponent("dayra", isDirectory: true)
+      .appendingPathComponent("Sceal", isDirectory: true)
       .appendingPathComponent("Notes", isDirectory: true)
 
     try fileManager.createDirectory(
@@ -532,7 +531,7 @@ final class NoteStore: ObservableObject {
   }
 
   private func dayID(for date: Date) -> DayNote.ID {
-    DayraDateFormatters.storageDate.string(from: calendar.startOfDay(for: date))
+    ScealDateFormatters.storageDate.string(from: calendar.startOfDay(for: date))
   }
 
   private func normalizedTags(from rawTags: String) -> [String] {

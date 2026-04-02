@@ -1,6 +1,5 @@
 //
 //  SettingsView.swift
-//  dayra
 //
 
 import SwiftUI

@@ -1,6 +1,5 @@
 //
 //  SlashCommandHandler.swift
-//  dayra
 //
 //
 

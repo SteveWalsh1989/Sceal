@@ -1,6 +1,5 @@
 //
 //  NoteAppearanceFontPanelController.swift
-//  dayra
 //
 
 import AppKit

@@ -1,6 +1,5 @@
 //
 //  NoteEditorView.swift
-//  dayra
 //
 //
 
@@ -360,7 +359,7 @@ private struct QuickAppearanceColorRow: View {
       }
 
       HStack(spacing: 10) {
-        ForEach(DayraPalette.colors, id: \.name) { entry in
+        ForEach(ScealPalette.colors, id: \.name) { entry in
           Button {
             onSelect(entry.name)
           } label: {

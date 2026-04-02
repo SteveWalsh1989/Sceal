@@ -1,6 +1,5 @@
 //
 //  MarkdownNoteFile.swift
-//  dayra
 //
 //
 
@@ -15,7 +14,7 @@ enum MarkdownNoteFile {
 
     return """
       \(frontMatterMarker)
-      date: \(DayraDateFormatters.storageDate.string(from: note.date))
+      date: \(ScealDateFormatters.storageDate.string(from: note.date))
       title: \(titleValue)
       tags: \(tagsValue)
       \(frontMatterMarker)
@@ -40,7 +39,7 @@ enum MarkdownNoteFile {
 
     guard
       let dateValue = metadata["date"],
-      let date = DayraDateFormatters.storageDate.date(from: dateValue)
+      let date = ScealDateFormatters.storageDate.date(from: dateValue)
     else {
       throw MarkdownNoteFileError.invalidDate(sourceURL)
     }
@@ -112,7 +111,7 @@ enum MarkdownNoteFileError: LocalizedError {
   var errorDescription: String? {
     switch self {
     case .encodingFailed:
-      return "dayra could not encode a markdown note."
+      return "Scéal could not encode a markdown note."
     case .missingFrontMatter(let url):
       return "The note file at \(url.lastPathComponent) is missing front matter."
     case .invalidFrontMatter(let url):

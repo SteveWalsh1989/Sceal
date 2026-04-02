@@ -1,6 +1,5 @@
 //
 //  DayNote.swift
-//  dayra
 //
 //
 
@@ -15,7 +14,7 @@ struct DayNote: Identifiable, Equatable {
   var body: String
 
   var id: ID {
-    DayraDateFormatters.storageDate.string(from: date)
+    ScealDateFormatters.storageDate.string(from: date)
   }
 
   var fileName: String {
@@ -28,15 +27,15 @@ struct DayNote: Identifiable, Equatable {
   }
 
   var dayNumberText: String {
-    DayraDateFormatters.dayNumber.string(from: date)
+    ScealDateFormatters.dayNumber.string(from: date)
   }
 
   var weekdayText: String {
-    DayraDateFormatters.weekday.string(from: date)
+    ScealDateFormatters.weekday.string(from: date)
   }
 
   var editorDateText: String {
-    DayraDateFormatters.editorDate.string(from: date)
+    ScealDateFormatters.editorDate.string(from: date)
   }
 
   func sidebarDateText(using format: SidebarDateFormat) -> String {
@@ -162,7 +161,7 @@ extension DayNote {
   }
 
   static let previewNotes: [DayNote] = {
-    let previewDate = DayraDateFormatters.storageDate.date(from: "2026-04-01") ?? .now
+    let previewDate = ScealDateFormatters.storageDate.date(from: "2026-04-01") ?? .now
     return sampleSeedNotes(relativeTo: previewDate)
   }()
 }

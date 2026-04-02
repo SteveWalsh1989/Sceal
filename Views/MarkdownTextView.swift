@@ -1,6 +1,5 @@
 //
 //  MarkdownTextView.swift
-//  dayra
 //
 //
 
@@ -17,7 +16,7 @@ struct MarkdownTextView: NSViewRepresentable {
   }
 
   func makeNSView(context: Context) -> NSScrollView {
-    let textView = DayraTextView()
+    let textView = ScealTextView()
     textView.appearanceSettings = appearanceSettings
     textView.isRichText = true
     textView.isEditable = true
@@ -87,8 +86,8 @@ struct MarkdownTextView: NSViewRepresentable {
     context.coordinator.isUpdating = true
     let selectedRange = clampedRange(textView.selectedRange(), maxLength: text.utf16.count)
     let visibleOrigin = scrollView.contentView.bounds.origin
-    if let dayraTextView = textView as? DayraTextView {
-      dayraTextView.appearanceSettings = appearanceSettings
+    if let scealTextView = textView as? ScealTextView {
+      scealTextView.appearanceSettings = appearanceSettings
     }
     textView.font = appearanceSettings.bodyFont
     textView.typingAttributes = MarkdownStyler.baseTypingAttributes(for: appearanceSettings)
@@ -98,10 +97,10 @@ struct MarkdownTextView: NSViewRepresentable {
     context.coordinator.lastAppliedAppearance = appearanceSettings
     context.coordinator.lastNoteID = noteID
     textView.setSelectedRange(clampedRange(selectedRange, maxLength: textView.string.utf16.count))
-    if let dayraTextView = textView as? DayraTextView {
-      _ = dayraTextView.normalizeSelectionIfNeeded()
-      dayraTextView.refreshSectionLayout()
-      context.coordinator.lastDividerCount = dayraTextView.sectionDividerCount
+    if let scealTextView = textView as? ScealTextView {
+      _ = scealTextView.normalizeSelectionIfNeeded()
+      scealTextView.refreshSectionLayout()
+      context.coordinator.lastDividerCount = scealTextView.sectionDividerCount
     }
     scrollView.contentView.scroll(to: visibleOrigin)
     scrollView.reflectScrolledClipView(scrollView.contentView)
@@ -153,8 +152,8 @@ struct MarkdownTextView: NSViewRepresentable {
 
     func textViewDidChangeSelection(_ notification: Notification) {
       guard let textView = notification.object as? NSTextView else { return }
-      if let dayraTextView = textView as? DayraTextView,
-        dayraTextView.normalizeSelectionIfNeeded()
+      if let scealTextView = textView as? ScealTextView,
+        scealTextView.normalizeSelectionIfNeeded()
       {
         return
       }
@@ -205,10 +204,10 @@ struct MarkdownTextView: NSViewRepresentable {
       isUpdating = false
 
       // Force full background redraw for section card updates (e.g., backspace deleting a divider)
-      if let dayraTextView = textView as? DayraTextView {
-        let dividerCount = dayraTextView.sectionDividerCount
+      if let scealTextView = textView as? ScealTextView {
+        let dividerCount = scealTextView.sectionDividerCount
         if dividerCount != lastDividerCount {
-          dayraTextView.refreshSectionLayout()
+          scealTextView.refreshSectionLayout()
         } else {
           textView.setNeedsDisplay(textView.bounds)
         }
@@ -313,9 +312,9 @@ struct MarkdownTextView: NSViewRepresentable {
 
           guard handled else { return false }
 
-          if let dayraTextView = textView as? DayraTextView {
-            _ = dayraTextView.normalizeSelectionIfNeeded(prefer: .next)
-            dayraTextView.refreshSectionLayout()
+          if let scealTextView = textView as? ScealTextView {
+            _ = scealTextView.normalizeSelectionIfNeeded(prefer: .next)
+            scealTextView.refreshSectionLayout()
           } else {
             textView.layoutManager?.ensureLayout(
               forCharacterRange: NSRange(location: 0, length: textStorage.length))
@@ -410,8 +409,8 @@ struct MarkdownTextView: NSViewRepresentable {
 
       guard handled else { return false }
 
-      if let dayraTextView = textView as? DayraTextView {
-        _ = dayraTextView.normalizeSelectionIfNeeded(prefer: .previous)
+      if let scealTextView = textView as? ScealTextView {
+        _ = scealTextView.normalizeSelectionIfNeeded(prefer: .previous)
       }
 
       // Blockquote continuation — set typing attributes so the next line inherits blockquote style
@@ -428,8 +427,8 @@ struct MarkdownTextView: NSViewRepresentable {
       }
 
       // Force immediate redraw so section card backgrounds update on this frame
-      if let dayraTextView = textView as? DayraTextView {
-        dayraTextView.refreshSectionLayout()
+      if let scealTextView = textView as? ScealTextView {
+        scealTextView.refreshSectionLayout()
       } else {
         textView.layoutManager?.ensureLayout(
           forCharacterRange: NSRange(location: 0, length: textStorage.length))
@@ -740,8 +739,8 @@ struct MarkdownTextView: NSViewRepresentable {
       textView.setSelectedRange(
         clampedRange(updatedSelection, maxLength: textStorage.string.utf16.count)
       )
-      if let dayraTextView = textView as? DayraTextView {
-        _ = dayraTextView.normalizeSelectionIfNeeded()
+      if let scealTextView = textView as? ScealTextView {
+        _ = scealTextView.normalizeSelectionIfNeeded()
       }
       syncTypingAttributesToInsertionPoint(in: textView, textStorage: textStorage)
     }
@@ -861,8 +860,8 @@ struct MarkdownTextView: NSViewRepresentable {
         return
       }
 
-      if let dayraTextView = textView as? DayraTextView,
-        let sourceLocation = dayraTextView.typingAttributeSourceLocation(
+      if let scealTextView = textView as? ScealTextView,
+        let sourceLocation = scealTextView.typingAttributeSourceLocation(
           forInsertionLocation: textView.selectedRange().location)
       {
         textView.typingAttributes = textStorage.attributes(
@@ -886,7 +885,7 @@ private enum DividerResolutionPreference {
   case nearest
 }
 
-private class DayraTextView: NSTextView {
+private class ScealTextView: NSTextView {
 
   var appearanceSettings = NoteAppearanceSettings.default
   private let cardColor = NSColor.labelColor.withAlphaComponent(0.04)

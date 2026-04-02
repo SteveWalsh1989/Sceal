@@ -1,6 +1,5 @@
 //
 //  NoteAppearanceSettings.swift
-//  dayra
 //
 
 import AppKit
@@ -87,8 +86,8 @@ struct NoteAppearanceSettings: Codable, Equatable {
   }
 
   var accentColor: NSColor {
-    DayraPalette.color(named: normalizedAccentColorName)
-      ?? DayraPalette.color(named: Self.defaultAccentColorName)
+    ScealPalette.color(named: normalizedAccentColorName)
+      ?? ScealPalette.color(named: Self.defaultAccentColorName)
       ?? .systemPink
   }
 
@@ -116,7 +115,7 @@ struct NoteAppearanceSettings: Codable, Equatable {
   }
 
   private var normalizedAccentColorName: String {
-    DayraPalette.colors.contains(where: { $0.name == accentColorName })
+    ScealPalette.colors.contains(where: { $0.name == accentColorName })
       ? accentColorName
       : Self.defaultAccentColorName
   }

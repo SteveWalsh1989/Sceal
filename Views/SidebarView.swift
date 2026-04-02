@@ -1,6 +1,5 @@
 //
 //  SidebarView.swift
-//  dayra
 //
 //
 

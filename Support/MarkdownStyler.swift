@@ -1,6 +1,5 @@
 //
 //  MarkdownStyler.swift
-//  dayra
 //
 //
 
@@ -9,19 +8,19 @@ import AppKit
 // MARK: - Custom Attribute Keys
 
 extension NSAttributedString.Key {
-  static let markdownHeadingLevel = NSAttributedString.Key("dayra.headingLevel")
-  static let markdownListType = NSAttributedString.Key("dayra.listType")
-  static let markdownBold = NSAttributedString.Key("dayra.bold")
-  static let markdownItalic = NSAttributedString.Key("dayra.italic")
-  static let markdownStrikethrough = NSAttributedString.Key("dayra.strikethrough")
-  static let markdownLinkURL = NSAttributedString.Key("dayra.linkURL")
-  static let markdownCodeFence = NSAttributedString.Key("dayra.codeFence")
-  static let markdownCodeBlock = NSAttributedString.Key("dayra.codeBlock")
-  static let markdownSectionDivider = NSAttributedString.Key("dayra.sectionDivider")
-  static let markdownHorizontalRule = NSAttributedString.Key("dayra.horizontalRule")
-  static let markdownInlineCode = NSAttributedString.Key("dayra.inlineCode")
-  static let markdownHeadingColor = NSAttributedString.Key("dayra.headingColor")
-  static let markdownBlockquote = NSAttributedString.Key("dayra.blockquote")
+  static let markdownHeadingLevel = NSAttributedString.Key("sceal.headingLevel")
+  static let markdownListType = NSAttributedString.Key("sceal.listType")
+  static let markdownBold = NSAttributedString.Key("sceal.bold")
+  static let markdownItalic = NSAttributedString.Key("sceal.italic")
+  static let markdownStrikethrough = NSAttributedString.Key("sceal.strikethrough")
+  static let markdownLinkURL = NSAttributedString.Key("sceal.linkURL")
+  static let markdownCodeFence = NSAttributedString.Key("sceal.codeFence")
+  static let markdownCodeBlock = NSAttributedString.Key("sceal.codeBlock")
+  static let markdownSectionDivider = NSAttributedString.Key("sceal.sectionDivider")
+  static let markdownHorizontalRule = NSAttributedString.Key("sceal.horizontalRule")
+  static let markdownInlineCode = NSAttributedString.Key("sceal.inlineCode")
+  static let markdownHeadingColor = NSAttributedString.Key("sceal.headingColor")
+  static let markdownBlockquote = NSAttributedString.Key("sceal.blockquote")
 }
 
 enum MarkdownListType: String {
@@ -34,7 +33,7 @@ enum MarkdownListType: String {
 // MARK: - Shared Color Palette
 
 /// Muted flat palette shared across headings, bullets, checkboxes, and future appearance settings.
-enum DayraPalette {
+enum ScealPalette {
 
   struct Entry {
     let name: String
@@ -78,14 +77,14 @@ enum MarkdownStyler {
   // MARK: - Heading Color Presets (backed by the shared palette)
 
   static let headingColorPresets: [(name: String, color: NSColor)] =
-    DayraPalette.colors.map { ($0.name, $0.color) }
+    ScealPalette.colors.map { ($0.name, $0.color) }
 
   static func headingColor(named name: String) -> NSColor? {
-    DayraPalette.color(named: name)
+    ScealPalette.color(named: name)
   }
 
   static func headingColorName(for color: NSColor) -> String? {
-    DayraPalette.name(for: color)
+    ScealPalette.name(for: color)
   }
 
   static func accentColor(for appearance: NoteAppearanceSettings) -> NSColor {
@@ -215,7 +214,7 @@ enum MarkdownStyler {
         continue
       }
 
-      // Section divider — dayra-specific card-gap marker
+      // Section divider — Sceal-specific card-gap marker
       if line == "<!-- section -->" {
         if let colorName = pendingHeadingColorName {
           result.append(NSAttributedString(string: "<!-- hcolor:\(colorName) -->\n"))
@@ -361,7 +360,7 @@ enum MarkdownStyler {
       .paragraphStyle: bodyParagraphStyle(for: appearance),
     ]
 
-    // Section divider — dayra card-gap marker
+    // Section divider — Sceal card-gap marker
     if rawLine == "<!-- section -->" {
       return styledSectionDivider()
     }
@@ -855,7 +854,7 @@ enum MarkdownStyler {
       return lineText
     }
 
-    // Section divider — dayra-specific card-gap marker
+    // Section divider — Sceal-specific card-gap marker
     if attrs[.markdownSectionDivider] as? Bool == true {
       return "<!-- section -->"
     }
@@ -990,7 +989,7 @@ enum MarkdownStyler {
   }
 
   private static func styledSectionDivider() -> NSAttributedString {
-    // Invisible marker — the visual split comes from DayraTextView drawing
+    // Invisible marker — the visual split comes from ScealTextView drawing
     // separate card backgrounds for each section. This character occupies
     // a single line that becomes the gap between cards.
     let gapStyle = NSMutableParagraphStyle()
@@ -1014,7 +1013,7 @@ enum MarkdownStyler {
   }
 
   // Visible thin line for standard markdown horizontal rules (e.g. imported `---`).
-  // The actual line is drawn by DayraTextView; this marker reserves the vertical space.
+  // The actual line is drawn by ScealTextView; this marker reserves the vertical space.
   private static func styledHorizontalRule() -> NSAttributedString {
     let style = NSMutableParagraphStyle()
     style.paragraphSpacingBefore = 8

@@ -1,13 +1,12 @@
 //
-//  dayraApp.swift
-//  dayra
+//  ScealApp.swift
 //
 //
 
 import SwiftUI
 
 @main
-struct DayraApp: App {
+struct ScealApp: App {
   @Environment(\.scenePhase) private var scenePhase
   @StateObject private var noteStore = NoteStore()
 

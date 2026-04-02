@@ -1,12 +1,11 @@
 //
-//  DayraDateFormatters.swift
-//  dayra
+//  ScealDateFormatters.swift
 //
 //
 
 import Foundation
 
-enum DayraDateFormatters {
+enum ScealDateFormatters {
   static let storageDate: DateFormatter = {
     let formatter = DateFormatter()
     formatter.calendar = Calendar(identifier: .gregorian)
