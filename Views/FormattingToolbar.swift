@@ -7,7 +7,7 @@
 import AppKit
 
 extension NSTextView {
-  // Routes editor mutations through NSTextView's edit lifecycle so undo/redo stays coherent.
+  // Routes editor mutations through NSTextView's edit lifecycle so AppKit sees the final caret only.
   @discardableResult
   func performEditorEdit(
     affectedRange: NSRange? = nil,
@@ -28,6 +28,7 @@ extension NSTextView {
     textStorage.endEditing()
     didChangeText()
 
+    // Layout must reflect the final text storage before AppKit recomputes the insertion rect.
     if let layoutManager, textStorage.length > 0 {
       layoutManager.ensureLayout(
         forCharacterRange: NSRange(location: 0, length: textStorage.length))

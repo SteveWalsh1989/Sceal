@@ -1008,6 +1008,7 @@ enum MarkdownStyler {
       ])
   }
 
+  // Exposes the final divider display form for editor insertions that must avoid raw markdown text.
   static func sectionDividerDisplayString() -> NSAttributedString {
     styledSectionDivider()
   }

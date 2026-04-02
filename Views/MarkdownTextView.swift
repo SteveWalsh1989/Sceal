@@ -296,6 +296,7 @@ struct MarkdownTextView: NSViewRepresentable {
       if let slashCommand {
         switch slashCommand.action {
         case .sectionDivider:
+          // Insert the final divider display directly so AppKit never sees the raw marker length.
           let replacementRange = fullLineRange.length > lineRange.length ? fullLineRange : lineRange
           let dividerLine = NSMutableAttributedString(
             attributedString: MarkdownStyler.sectionDividerDisplayString())
@@ -470,9 +471,7 @@ struct MarkdownTextView: NSViewRepresentable {
     }
 
     private func removeListMarker(in textStorage: NSTextStorage, lineRange: NSRange) {
-      textStorage.beginEditing()
       textStorage.replaceCharacters(in: lineRange, with: "")
-      textStorage.endEditing()
     }
 
     private func continuationMarker(for listType: MarkdownListType, previousLineText: String)
@@ -632,9 +631,7 @@ struct MarkdownTextView: NSViewRepresentable {
       lineRange: NSRange,
       with attributedString: NSAttributedString
     ) {
-      textStorage.beginEditing()
       textStorage.replaceCharacters(in: lineRange, with: attributedString)
-      textStorage.endEditing()
     }
 
     private func headingTypingAttributes(level: Int) -> [NSAttributedString.Key: Any] {
@@ -666,7 +663,7 @@ struct MarkdownTextView: NSViewRepresentable {
       }
     }
 
-    // Replaces the partially-typed command with the full command text, then fires Enter.
+    // Expand the popup selection into its full slash command, then reuse the normal Enter path.
     private func applySlashCommand(_ entry: SlashCommandEntry, in textView: NSTextView) {
       guard let triggerLoc = slashTriggerLocation else { return }
       let cursorLoc = textView.selectedRange().location
@@ -682,7 +679,7 @@ struct MarkdownTextView: NSViewRepresentable {
         affectedRange: replaceRange,
         replacementString: entry.command
       ) { textStorage in
-        // Clamp range against current text storage to avoid out-of-bounds crash
+        // The popup may confirm after other edits have shifted the line, so clamp before replacing.
         let safeLoc = min(replaceRange.location, textStorage.length)
         let safeLen = min(replaceRange.length, max(textStorage.length - safeLoc, 0))
         let safeRange = NSRange(location: safeLoc, length: safeLen)
