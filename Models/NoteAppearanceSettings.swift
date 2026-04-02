@@ -19,7 +19,7 @@ struct NoteAppearanceSettings: Codable, Equatable, Sendable {
   static let maximumBulletSize: CGFloat = 30
   static let defaultBulletSize: CGFloat = 16
   static let minimumSectionDividerGapScale: CGFloat = 1
-  static let maximumSectionDividerGapScale: CGFloat = 2
+  static let maximumSectionDividerGapScale: CGFloat = 3
   static let defaultSectionDividerGapScale: CGFloat = 1
   static let minimumSidebarFontSize: CGFloat = 12
   static let maximumSidebarFontSize: CGFloat = 18

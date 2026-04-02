@@ -79,7 +79,7 @@ struct AppearanceSettingsView: View {
 
         SliderRow(
           title: "Section gap",
-          valueLabel: String(format: "%.1fx", store.appearanceSettings.sectionDividerGapScale),
+          valueLabel: String(format: "%.2fx", store.appearanceSettings.sectionDividerGapScale),
           value: Binding(
             get: { Double(store.appearanceSettings.sectionDividerGapScale) },
             set: { store.updateSectionDividerGapScale(CGFloat($0)) }
@@ -87,7 +87,7 @@ struct AppearanceSettingsView: View {
           range: Double(
             NoteAppearanceSettings.minimumSectionDividerGapScale)...Double(
               NoteAppearanceSettings.maximumSectionDividerGapScale),
-          step: 0.1
+          step: 0.25
         )
 
         SliderRow(

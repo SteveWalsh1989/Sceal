@@ -1170,7 +1170,10 @@ private enum DividerResolutionPreference {
 @MainActor private class ScealTextView: NSTextView {
 
   var appearanceSettings = NoteAppearanceSettings.default
-  private let sectionCardGapOffset: CGFloat = 4
+  private let sectionCardBaseGapOffset: CGFloat = 4
+  private var sectionCardGapOffset: CGFloat {
+    sectionCardBaseGapOffset * appearanceSettings.sectionDividerGapScale
+  }
   private let cardColor = NSColor.labelColor.withAlphaComponent(0.04)
   private let cardRadius: CGFloat = 24
   private let cardHInset: CGFloat = 0
@@ -1588,8 +1591,6 @@ private enum DividerResolutionPreference {
       dividerMidYs.append(divRect.midY + textContainerOrigin.y)
     }
 
-    let viewBottom = max(bounds.height, enclosingScrollView?.contentSize.height ?? bounds.height)
-
     // Check each divider-defined section (index >= 1) for an icon hit.
     for (index, sectionRange) in sections.enumerated() {
       guard index > 0, index - 1 < dividerLineRanges.count else { continue }
@@ -1600,14 +1601,6 @@ private enum DividerResolutionPreference {
 
       let divIndex = min(index - 1, dividerMidYs.count - 1)
       let cardTop = dividerMidYs[divIndex] + sectionCardGapOffset
-
-      let cardBottom: CGFloat
-      if isLastSection {
-        cardBottom = viewBottom
-      } else {
-        let nextDivIndex = min(index, dividerMidYs.count - 1)
-        cardBottom = dividerMidYs[nextDivIndex] - sectionCardGapOffset
-      }
 
       let cardWidth = bounds.width - (cardHInset * 2)
       let iconRect = NSRect(
