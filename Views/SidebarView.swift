@@ -8,7 +8,6 @@ import SwiftUI
 struct SidebarView: View {
   @ObservedObject var store: NoteStore
   let requestDelete: (DayNote.ID) -> Void
-  @FocusState private var isSidebarFocused: Bool
 
   var body: some View {
     Group {
@@ -31,7 +30,6 @@ struct SidebarView: View {
               ForEach(section.notes) { note in
                 Button {
                   store.select(noteID: note.id)
-                  isSidebarFocused = true
                 } label: {
                   DayNoteCardView(
                     note: note,
@@ -52,21 +50,74 @@ struct SidebarView: View {
           }
           .padding(.bottom, 20)
         }
-        .focusable()
-        .focused($isSidebarFocused)
-        .onKeyPress(.upArrow) {
-          store.selectNextNote()
-          return .handled
-        }
-        .onKeyPress(.downArrow) {
-          store.selectPreviousNote()
-          return .handled
-        }
       }
     }
     .padding(.horizontal, 16)
     .padding(.vertical, 14)
     .background(Color.primary.opacity(0.03))
+    .background {
+      // Captures arrow keys at the AppKit level when the editor isn't first responder.
+      SidebarKeyboardHelper(
+        onUpArrow: { store.selectNextNote() },
+        onDownArrow: { store.selectPreviousNote() }
+      )
+    }
+  }
+}
+
+// Installs a local event monitor for arrow keys that only fires when
+// no NSTextView is the first responder, bridging the gap between SwiftUI
+// focus and AppKit's responder chain.
+private struct SidebarKeyboardHelper: NSViewRepresentable {
+  let onUpArrow: () -> Void
+  let onDownArrow: () -> Void
+
+  func makeNSView(context: Context) -> NSView {
+    let view = NSView()
+    context.coordinator.install(onUpArrow: onUpArrow, onDownArrow: onDownArrow)
+    return view
+  }
+
+  func updateNSView(_ nsView: NSView, context: Context) {
+    context.coordinator.onUpArrow = onUpArrow
+    context.coordinator.onDownArrow = onDownArrow
+  }
+
+  func makeCoordinator() -> Coordinator { Coordinator() }
+
+  static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+    coordinator.uninstall()
+  }
+
+  class Coordinator {
+    var onUpArrow: (() -> Void)?
+    var onDownArrow: (() -> Void)?
+    private var monitor: Any?
+
+    func install(onUpArrow: @escaping () -> Void, onDownArrow: @escaping () -> Void) {
+      self.onUpArrow = onUpArrow
+      self.onDownArrow = onDownArrow
+      monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        guard let self else { return event }
+        // Only handle arrows when the editor text view isn't focused.
+        if event.window?.firstResponder is NSTextView { return event }
+        switch event.keyCode {
+        case 126:  // up arrow
+          self.onUpArrow?()
+          return nil
+        case 125:  // down arrow
+          self.onDownArrow?()
+          return nil
+        default:
+          return event
+        }
+      }
+    }
+
+    func uninstall() {
+      if let monitor { NSEvent.removeMonitor(monitor) }
+      monitor = nil
+    }
   }
 }
 
