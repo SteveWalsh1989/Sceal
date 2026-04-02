@@ -273,6 +273,12 @@ struct MarkdownTextView: NSViewRepresentable {
       if commandSelector == #selector(NSResponder.insertBacktab(_:)) {
         return handleListIndent(textView: textView, increase: false)
       }
+      if commandSelector == #selector(NSResponder.deleteBackward(_:)),
+        let textStorage = textView.textStorage,
+        handleSectionDividerBackspace(in: textView, textStorage: textStorage)
+      {
+        return true
+      }
 
       guard commandSelector == #selector(NSResponder.insertNewline(_:)),
         let textStorage = textView.textStorage
@@ -523,6 +529,68 @@ struct MarkdownTextView: NSViewRepresentable {
       if emptyMarkers.contains(trimmed) { return true }
       if trimmed.range(of: #"^\d+\.\s*$"#, options: .regularExpression) != nil { return true }
       return false
+    }
+
+    // Deletes the divider above when Backspace is pressed from the next line start.
+    private func handleSectionDividerBackspace(in textView: NSTextView, textStorage: NSTextStorage)
+      -> Bool
+    {
+      let selection = textView.selectedRange()
+      guard selection.length == 0 else { return false }
+
+      let nsString = textStorage.string as NSString
+      guard selection.location > 0, nsString.length > 0 else { return false }
+
+      let currentLocation = min(selection.location, nsString.length)
+      let currentLineProbe = min(currentLocation, max(nsString.length - 1, 0))
+      let currentLineRange = nsString.lineRange(
+        for: NSRange(location: currentLineProbe, length: 0))
+      guard currentLocation == currentLineRange.location else { return false }
+
+      let previousLineRange = nsString.lineRange(
+        for: NSRange(location: currentLocation - 1, length: 0))
+      guard lineHasSectionDivider(previousLineRange, in: textStorage, string: nsString) else {
+        return false
+      }
+
+      let handled = textView.performEditorEdit(
+        affectedRange: previousLineRange,
+        replacementString: "",
+        actionName: "Delete Section Divider"
+      ) { textStorage in
+        textStorage.replaceCharacters(in: previousLineRange, with: "")
+        return NSRange(location: previousLineRange.location, length: 0)
+      }
+
+      guard handled else { return false }
+
+      if let scealTextView = textView as? ScealTextView {
+        scealTextView.refreshSectionLayout()
+      } else {
+        textView.setNeedsDisplay(textView.bounds)
+      }
+
+      return true
+    }
+
+    private func lineHasSectionDivider(
+      _ lineRange: NSRange,
+      in textStorage: NSTextStorage,
+      string nsString: NSString
+    ) -> Bool {
+      var trimmedRange = lineRange
+      if trimmedRange.length > 0,
+        nsString.character(at: trimmedRange.location + trimmedRange.length - 1) == 0x0A
+      {
+        trimmedRange.length -= 1
+      }
+
+      guard trimmedRange.length > 0, trimmedRange.location < textStorage.length else {
+        return false
+      }
+      return textStorage.attribute(
+        .markdownSectionDivider, at: trimmedRange.location, effectiveRange: nil)
+        as? Bool == true
     }
 
     private func removeListMarker(in textStorage: NSTextStorage, lineRange: NSRange) {
