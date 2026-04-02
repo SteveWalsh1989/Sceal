@@ -39,6 +39,9 @@ enum MarkdownStyler {
   static let uncheckedMarker = "\u{FFFC}"
   static let checkedMarker = "\u{FFFC}"
   static let attachmentChar = "\u{FFFC}"
+  static let sectionDividerSpacingBefore: CGFloat = 10
+  static let sectionDividerSpacingAfter: CGFloat = 6
+  static let sectionDividerLineHeight: CGFloat = 1
 
   // Cached regex patterns to avoid recreation per format pass.
   private static let hcolorRegex = try! NSRegularExpression(pattern: #"^<!-- hcolor:(\w+) -->$"#)
@@ -983,9 +986,10 @@ enum MarkdownStyler {
     // separate card backgrounds for each section. This character occupies
     // a single line that becomes the gap between cards.
     let gapStyle = NSMutableParagraphStyle()
-    gapStyle.paragraphSpacingBefore = 16
-    gapStyle.paragraphSpacing = 16
-    gapStyle.maximumLineHeight = 2
+    gapStyle.paragraphSpacingBefore = sectionDividerSpacingBefore
+    gapStyle.paragraphSpacing = sectionDividerSpacingAfter
+    gapStyle.minimumLineHeight = sectionDividerLineHeight
+    gapStyle.maximumLineHeight = sectionDividerLineHeight
 
     return NSAttributedString(
       string: " ",

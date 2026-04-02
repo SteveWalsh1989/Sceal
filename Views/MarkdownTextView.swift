@@ -87,7 +87,8 @@ struct MarkdownTextView: NSViewRepresentable {
     guard noteChanged || textChanged || appearanceChanged else { return }
 
     context.coordinator.isUpdating = true
-    let selectedRange = noteChanged
+    let selectedRange =
+      noteChanged
       ? NSRange(location: 0, length: 0)
       : clampedRange(textView.selectedRange(), maxLength: text.utf16.count)
     let visibleOrigin = scrollView.contentView.bounds.origin
@@ -386,7 +387,8 @@ struct MarkdownTextView: NSViewRepresentable {
       // Carry forward indent level from the current line
       let currentIndentLevel: Int = {
         guard lineRange.length > 0 else { return 0 }
-        return textStorage.attribute(.markdownIndentLevel, at: lineRange.location, effectiveRange: nil)
+        return textStorage.attribute(
+          .markdownIndentLevel, at: lineRange.location, effectiveRange: nil)
           as? Int ?? 0
       }()
       // Track whether the cursor is mid-line so we split there instead of at line end.
@@ -407,7 +409,8 @@ struct MarkdownTextView: NSViewRepresentable {
 
         let formattedNS = textStorage.string as NSString
         let formattedFullRange = formattedNS.lineRange(
-          for: NSRange(location: min(lineRange.location, max(formattedNS.length - 1, 0)), length: 0))
+          for: NSRange(location: min(lineRange.location, max(formattedNS.length - 1, 0)), length: 0)
+        )
         let formattedLineEnd = min(NSMaxRange(formattedFullRange), formattedNS.length)
         var formattedLineLength = formattedLineEnd - lineRange.location
         if formattedLineLength > 0,
@@ -751,7 +754,8 @@ struct MarkdownTextView: NSViewRepresentable {
 
     private func headingTypingAttributes(level: Int) -> [NSAttributedString.Key: Any] {
       [
-        .font: parent.appearanceSettings.boldBodyFont(ofSize: MarkdownStyler.headingFontSize(for: level)),
+        .font: parent.appearanceSettings.boldBodyFont(
+          ofSize: MarkdownStyler.headingFontSize(for: level)),
         .foregroundColor: NSColor.labelColor,
         .paragraphStyle: MarkdownStyler.bodyParagraphStyle(for: parent.appearanceSettings),
         .markdownHeadingLevel: level,
@@ -993,6 +997,7 @@ private enum DividerResolutionPreference {
 @MainActor private class ScealTextView: NSTextView {
 
   var appearanceSettings = NoteAppearanceSettings.default
+  private let sectionCardGapOffset: CGFloat = 4
   private let cardColor = NSColor.labelColor.withAlphaComponent(0.04)
   private let cardRadius: CGFloat = 24
   private let cardHInset: CGFloat = 0
@@ -1147,7 +1152,7 @@ private enum DividerResolutionPreference {
         cardTop = 0
       } else {
         let divIndex = min(index - 1, dividerMidYs.count - 1)
-        cardTop = dividerMidYs[divIndex] + 6  // 6pt gap below midpoint
+        cardTop = dividerMidYs[divIndex] + sectionCardGapOffset
       }
 
       // Card bottom: divider midpoint for intermediate sections, view bottom for last
@@ -1156,7 +1161,7 @@ private enum DividerResolutionPreference {
         cardBottom = viewBottom
       } else {
         let divIndex = min(index, dividerMidYs.count - 1)
-        cardBottom = dividerMidYs[divIndex] - 6  // 6pt gap above midpoint
+        cardBottom = dividerMidYs[divIndex] - sectionCardGapOffset
       }
 
       let cardRect = NSRect(

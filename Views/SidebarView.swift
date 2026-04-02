@@ -99,8 +99,9 @@ private struct SidebarKeyboardHelper: NSViewRepresentable {
       self.onDownArrow = onDownArrow
       monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
         guard let self else { return event }
-        // Only handle arrows when the editor text view isn't focused.
-        if event.window?.firstResponder is NSTextView { return event }
+        // Only handle arrows when the sidebar is the relevant context.
+        let responder = event.window?.firstResponder
+        if responder is NSTextView || responder is NSTableView { return event }
         switch event.keyCode {
         case 126:  // up arrow
           self.onUpArrow?()
