@@ -116,7 +116,7 @@ enum MarkdownStyler {
     let style = NSMutableParagraphStyle()
     style.firstLineHeadIndent = 8
     style.headIndent = 28
-    style.paragraphSpacing = 2
+    style.paragraphSpacing = appearance.listItemSpacing
     style.lineHeightMultiple = appearance.lineHeight
     return style
   }
@@ -446,8 +446,8 @@ enum MarkdownStyler {
     }
 
     // Bullet list
-    if rawLine.range(of: #"^-\s+"#, options: .regularExpression) != nil {
-      let prefixMatch = rawLine.range(of: #"^-\s+"#, options: .regularExpression)!
+    if rawLine.range(of: #"^(?:-|•)\s+"#, options: .regularExpression) != nil {
+      let prefixMatch = rawLine.range(of: #"^(?:-|•)\s+"#, options: .regularExpression)!
       let content = String(rawLine[prefixMatch.upperBound...])
       let displayText = "\(bulletMarker) \(content)"
       let result = NSMutableAttributedString(string: displayText, attributes: baseAttrs)

@@ -10,32 +10,44 @@ struct NoteAppearanceSettings: Codable, Equatable {
   static let minimumBodyFontSize: CGFloat = 11
   static let maximumBodyFontSize: CGFloat = 24
   static let defaultBodyFontSize: CGFloat = 15
-  static let minimumLineHeight: CGFloat = 1.0
+  static let minimumLineHeight: CGFloat = 0.8
   static let maximumLineHeight: CGFloat = 1.8
   static let defaultLineHeight: CGFloat = 1.0
+  static let minimumListItemSpacing: CGFloat = 0
+  static let maximumListItemSpacing: CGFloat = 6
+  static let defaultListItemSpacing: CGFloat = 1
   static let minimumBulletSize: CGFloat = 12
   static let maximumBulletSize: CGFloat = 30
   static let defaultBulletSize: CGFloat = 16
+  static let minimumSidebarFontSize: CGFloat = 12
+  static let maximumSidebarFontSize: CGFloat = 18
+  static let defaultSidebarFontSize: CGFloat = 14
   static let defaultAccentColorName = "pink"
   static let `default` = NoteAppearanceSettings()
 
   var bodyFontName: String
   var bodyFontSize: CGFloat
   var lineHeight: CGFloat
+  var listItemSpacing: CGFloat
   var bulletSize: CGFloat
+  var sidebarFontSize: CGFloat
   var accentColorName: String
 
   init(
     bodyFontName: String = Self.systemFontToken,
     bodyFontSize: CGFloat = Self.defaultBodyFontSize,
     lineHeight: CGFloat = Self.defaultLineHeight,
+    listItemSpacing: CGFloat = Self.defaultListItemSpacing,
     bulletSize: CGFloat = Self.defaultBulletSize,
+    sidebarFontSize: CGFloat = Self.defaultSidebarFontSize,
     accentColorName: String = Self.defaultAccentColorName
   ) {
     self.bodyFontName = bodyFontName
     self.bodyFontSize = bodyFontSize
     self.lineHeight = lineHeight
+    self.listItemSpacing = listItemSpacing
     self.bulletSize = bulletSize
+    self.sidebarFontSize = sidebarFontSize
     self.accentColorName = accentColorName
   }
 
@@ -45,7 +57,11 @@ struct NoteAppearanceSettings: Codable, Equatable {
       bodyFontSize: bodyFontSize.clamped(
         to: Self.minimumBodyFontSize...Self.maximumBodyFontSize),
       lineHeight: lineHeight.clamped(to: Self.minimumLineHeight...Self.maximumLineHeight),
+      listItemSpacing: listItemSpacing.clamped(
+        to: Self.minimumListItemSpacing...Self.maximumListItemSpacing),
       bulletSize: bulletSize.clamped(to: Self.minimumBulletSize...Self.maximumBulletSize),
+      sidebarFontSize: sidebarFontSize.clamped(
+        to: Self.minimumSidebarFontSize...Self.maximumSidebarFontSize),
       accentColorName: normalizedAccentColorName
     )
   }
@@ -95,6 +111,47 @@ struct NoteAppearanceSettings: Codable, Equatable {
     DayraPalette.colors.contains(where: { $0.name == accentColorName })
       ? accentColorName
       : Self.defaultAccentColorName
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case bodyFontName
+    case bodyFontSize
+    case lineHeight
+    case listItemSpacing
+    case bulletSize
+    case sidebarFontSize
+    case accentColorName
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    self.init(
+      bodyFontName: try container.decodeIfPresent(String.self, forKey: .bodyFontName)
+        ?? Self.systemFontToken,
+      bodyFontSize: try container.decodeIfPresent(CGFloat.self, forKey: .bodyFontSize)
+        ?? Self.defaultBodyFontSize,
+      lineHeight: try container.decodeIfPresent(CGFloat.self, forKey: .lineHeight)
+        ?? Self.defaultLineHeight,
+      listItemSpacing: try container.decodeIfPresent(CGFloat.self, forKey: .listItemSpacing)
+        ?? Self.defaultListItemSpacing,
+      bulletSize: try container.decodeIfPresent(CGFloat.self, forKey: .bulletSize)
+        ?? Self.defaultBulletSize,
+      sidebarFontSize: try container.decodeIfPresent(CGFloat.self, forKey: .sidebarFontSize)
+        ?? Self.defaultSidebarFontSize,
+      accentColorName: try container.decodeIfPresent(String.self, forKey: .accentColorName)
+        ?? Self.defaultAccentColorName
+    )
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(bodyFontName, forKey: .bodyFontName)
+    try container.encode(bodyFontSize, forKey: .bodyFontSize)
+    try container.encode(lineHeight, forKey: .lineHeight)
+    try container.encode(listItemSpacing, forKey: .listItemSpacing)
+    try container.encode(bulletSize, forKey: .bulletSize)
+    try container.encode(sidebarFontSize, forKey: .sidebarFontSize)
+    try container.encode(accentColorName, forKey: .accentColorName)
   }
 }
 

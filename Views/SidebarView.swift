@@ -18,7 +18,7 @@ struct SidebarView: View {
         }
       } else {
         ScrollView {
-          LazyVStack(alignment: .leading, spacing: 12) {
+          LazyVStack(alignment: .leading, spacing: 10) {
             if !store.hasTodayNote {
               AddTodayButton {
                 store.selectToday()
@@ -34,6 +34,7 @@ struct SidebarView: View {
                 } label: {
                   DayNoteCardView(
                     note: note,
+                    appearanceSettings: store.appearanceSettings,
                     isSelected: store.selectedNoteID == note.id
                   )
                 }
@@ -124,62 +125,57 @@ private struct MonthDividerView: View {
 
       Text(title)
         .font(.caption.weight(.bold))
-        .foregroundStyle(.secondary)
+        .foregroundStyle(Color.accentColor)
         .fixedSize()
 
       Rectangle()
         .fill(Color.primary.opacity(0.12))
         .frame(height: 1)
     }
-    .padding(.top, 6)
+    .padding(.top, 4)
   }
 }
 
 private struct DayNoteCardView: View {
   let note: DayNote
+  let appearanceSettings: NoteAppearanceSettings
   let isSelected: Bool
 
   var body: some View {
-    HStack(alignment: .top, spacing: 12) {
-      VStack(alignment: .leading, spacing: 6) {
+    HStack(alignment: .top, spacing: 10) {
+      VStack(alignment: .leading, spacing: 4) {
         Text(note.displayTitle)
-          .font(.system(size: 16, weight: .semibold))
+          .font(.system(size: titleFontSize, weight: .semibold))
           .multilineTextAlignment(.leading)
           .lineLimit(2)
           .foregroundStyle(.primary)
 
-        HStack(spacing: 6) {
-          Text(note.id)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-
-          if !note.tags.isEmpty {
-            Text(note.tags.joined(separator: ", "))
-              .font(.caption)
-              .foregroundStyle(.tertiary)
-              .lineLimit(1)
-          }
-        }
+        Text(note.id)
+          .font(.system(size: metadataFontSize, weight: .medium))
+          .foregroundStyle(.secondary)
       }
       .layoutPriority(1)
 
-      Spacer(minLength: 8)
+      Spacer(minLength: 6)
 
       VStack(alignment: .trailing, spacing: 4) {
         Text(note.dayNumberText)
-          .font(.system(size: 22, weight: .bold, design: .rounded))
+          .font(.system(size: dayNumberFontSize, weight: .bold, design: .rounded))
           .monospacedDigit()
           .foregroundStyle(.primary)
 
         Text(note.weekdayText)
-          .font(.caption2.weight(.semibold))
+          .font(.system(size: weekdayFontSize, weight: .semibold))
           .foregroundStyle(.secondary)
       }
       .frame(minWidth: 34, alignment: .trailing)
     }
-    .padding(.horizontal, 14)
-    .padding(.vertical, 12)
-    .background(cardBackground)
+    .padding(.horizontal, 13)
+    .padding(.vertical, 10)
+    .background(
+      RoundedRectangle(cornerRadius: 20, style: .continuous)
+        .fill(cardBackground)
+    )
     .overlay(
       RoundedRectangle(cornerRadius: 20, style: .continuous)
         .strokeBorder(isSelected ? Color.accentColor.opacity(0.4) : Color.clear, lineWidth: 1)
@@ -187,7 +183,23 @@ private struct DayNoteCardView: View {
     .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
   }
 
-  private var cardBackground: some ShapeStyle {
+  private var titleFontSize: CGFloat {
+    appearanceSettings.sidebarFontSize
+  }
+
+  private var metadataFontSize: CGFloat {
+    max(appearanceSettings.sidebarFontSize - 3, 10)
+  }
+
+  private var weekdayFontSize: CGFloat {
+    max(appearanceSettings.sidebarFontSize - 4, 9)
+  }
+
+  private var dayNumberFontSize: CGFloat {
+    appearanceSettings.sidebarFontSize + 6
+  }
+
+  private var cardBackground: Color {
     isSelected ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.04)
   }
 }

@@ -6,6 +6,41 @@
 
 import AppKit
 
+extension NSTextView {
+  // Routes editor mutations through NSTextView's edit lifecycle so undo/redo stays coherent.
+  @discardableResult
+  func performEditorEdit(
+    affectedRange: NSRange? = nil,
+    replacementString: String? = nil,
+    actionName: String? = nil,
+    edit: (NSTextStorage) -> Void
+  ) -> Bool {
+    guard let textStorage else { return false }
+    let targetRange = clampedEditorRange(
+      affectedRange ?? selectedRange(), maxLength: textStorage.length)
+    guard shouldChangeText(in: targetRange, replacementString: replacementString) else {
+      return false
+    }
+
+    textStorage.beginEditing()
+    edit(textStorage)
+    textStorage.endEditing()
+    didChangeText()
+
+    if let actionName {
+      undoManager?.setActionName(actionName)
+    }
+
+    return true
+  }
+
+  private func clampedEditorRange(_ range: NSRange, maxLength: Int) -> NSRange {
+    let safeLocation = min(range.location, maxLength)
+    let safeLength = min(range.length, max(maxLength - safeLocation, 0))
+    return NSRange(location: safeLocation, length: safeLength)
+  }
+}
+
 class FormattingToolbar: NSView {
   weak var textView: NSTextView?
   var appearanceSettings = NoteAppearanceSettings.default
@@ -274,19 +309,22 @@ class FormattingToolbar: NSView {
       }
     }
 
-    textStorage.beginEditing()
-    if allBold {
-      textStorage.removeAttribute(.markdownBold, range: range)
-      textStorage.addAttribute(.font, value: appearanceSettings.bodyFont, range: range)
-    } else {
-      let currentFont =
-        textStorage.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont
-        ?? appearanceSettings.bodyFont
-      let boldFont = NSFontManager.shared.convert(currentFont, toHaveTrait: .boldFontMask)
-      textStorage.addAttribute(.font, value: boldFont, range: range)
-      textStorage.addAttribute(.markdownBold, value: true, range: range)
+    _ = textView.performEditorEdit(
+      affectedRange: range,
+      actionName: allBold ? "Remove Bold" : "Bold"
+    ) { textStorage in
+      if allBold {
+        textStorage.removeAttribute(.markdownBold, range: range)
+        textStorage.addAttribute(.font, value: appearanceSettings.bodyFont, range: range)
+      } else {
+        let currentFont =
+          textStorage.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont
+          ?? appearanceSettings.bodyFont
+        let boldFont = NSFontManager.shared.convert(currentFont, toHaveTrait: .boldFontMask)
+        textStorage.addAttribute(.font, value: boldFont, range: range)
+        textStorage.addAttribute(.markdownBold, value: true, range: range)
+      }
     }
-    textStorage.endEditing()
   }
 
   // Toggles italic trait and markdownItalic attribute on the selected text
@@ -303,23 +341,27 @@ class FormattingToolbar: NSView {
       }
     }
 
-    textStorage.beginEditing()
-    if allItalic {
-      textStorage.removeAttribute(.markdownItalic, range: range)
-      let currentFont =
-        textStorage.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont
-        ?? appearanceSettings.bodyFont
-      let unitalicFont = NSFontManager.shared.convert(currentFont, toNotHaveTrait: .italicFontMask)
-      textStorage.addAttribute(.font, value: unitalicFont, range: range)
-    } else {
-      let currentFont =
-        textStorage.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont
-        ?? appearanceSettings.bodyFont
-      let italicFont = NSFontManager.shared.convert(currentFont, toHaveTrait: .italicFontMask)
-      textStorage.addAttribute(.font, value: italicFont, range: range)
-      textStorage.addAttribute(.markdownItalic, value: true, range: range)
+    _ = textView.performEditorEdit(
+      affectedRange: range,
+      actionName: allItalic ? "Remove Italic" : "Italic"
+    ) { textStorage in
+      if allItalic {
+        textStorage.removeAttribute(.markdownItalic, range: range)
+        let currentFont =
+          textStorage.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont
+          ?? appearanceSettings.bodyFont
+        let unitalicFont = NSFontManager.shared.convert(
+          currentFont, toNotHaveTrait: .italicFontMask)
+        textStorage.addAttribute(.font, value: unitalicFont, range: range)
+      } else {
+        let currentFont =
+          textStorage.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont
+          ?? appearanceSettings.bodyFont
+        let italicFont = NSFontManager.shared.convert(currentFont, toHaveTrait: .italicFontMask)
+        textStorage.addAttribute(.font, value: italicFont, range: range)
+        textStorage.addAttribute(.markdownItalic, value: true, range: range)
+      }
     }
-    textStorage.endEditing()
   }
 
   // Toggles strikethrough style and markdownStrikethrough attribute on the selected text
@@ -337,18 +379,23 @@ class FormattingToolbar: NSView {
       }
     }
 
-    textStorage.beginEditing()
-    if allStrike {
-      textStorage.removeAttribute(.markdownStrikethrough, range: range)
-      textStorage.removeAttribute(.strikethroughStyle, range: range)
-    } else {
-      textStorage.addAttributes(
-        [
-          .strikethroughStyle: NSUnderlineStyle.single.rawValue,
-          .markdownStrikethrough: true,
-        ], range: range)
+    _ = textView.performEditorEdit(
+      affectedRange: range,
+      actionName: allStrike ? "Remove Strikethrough" : "Strikethrough"
+    ) { textStorage in
+      if allStrike {
+        textStorage.removeAttribute(.markdownStrikethrough, range: range)
+        textStorage.removeAttribute(.strikethroughStyle, range: range)
+      } else {
+        textStorage.addAttributes(
+          [
+            .strikethroughStyle: NSUnderlineStyle.single.rawValue,
+            .markdownStrikethrough: true,
+          ],
+          range: range
+        )
+      }
     }
-    textStorage.endEditing()
   }
 
   @objc private func toggleCode() {
@@ -365,20 +412,25 @@ class FormattingToolbar: NSView {
       }
     }
 
-    textStorage.beginEditing()
-    if allCode {
-      textStorage.removeAttribute(.markdownInlineCode, range: range)
-      textStorage.removeAttribute(.backgroundColor, range: range)
-      textStorage.addAttribute(.font, value: appearanceSettings.bodyFont, range: range)
-    } else {
-      textStorage.addAttributes(
-        [
-          .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
-          .backgroundColor: NSColor.quaternaryLabelColor,
-          .markdownInlineCode: true,
-        ], range: range)
+    _ = textView.performEditorEdit(
+      affectedRange: range,
+      actionName: allCode ? "Remove Inline Code" : "Inline Code"
+    ) { textStorage in
+      if allCode {
+        textStorage.removeAttribute(.markdownInlineCode, range: range)
+        textStorage.removeAttribute(.backgroundColor, range: range)
+        textStorage.addAttribute(.font, value: appearanceSettings.bodyFont, range: range)
+      } else {
+        textStorage.addAttributes(
+          [
+            .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
+            .backgroundColor: NSColor.quaternaryLabelColor,
+            .markdownInlineCode: true,
+          ],
+          range: range
+        )
+      }
     }
-    textStorage.endEditing()
   }
 
   // MARK: - Heading Color Action
@@ -395,23 +447,25 @@ class FormattingToolbar: NSView {
     let attrs = textStorage.attributes(at: lineRange.location, effectiveRange: nil)
     guard attrs[.markdownHeadingLevel] != nil else { return }
 
-    textStorage.beginEditing()
-    textStorage.addAttribute(.foregroundColor, value: preset.color, range: lineRange)
-    textStorage.addAttribute(.markdownHeadingColor, value: preset.name, range: lineRange)
-    textStorage.endEditing()
+    _ = textView.performEditorEdit(affectedRange: lineRange, actionName: "Heading Color") {
+      textStorage in
+      textStorage.addAttribute(.foregroundColor, value: preset.color, range: lineRange)
+      textStorage.addAttribute(.markdownHeadingColor, value: preset.name, range: lineRange)
+    }
     refreshToolbarPresentation()
   }
 
   // MARK: - Line-Level Actions
 
   @objc private func applyParagraph() {
-    guard let textView, let textStorage = textView.textStorage else { return }
+    guard let textView else { return }
     let (lineRange, _) = currentLineRange()
     guard lineRange.length > 0 else { return }
 
-    textStorage.beginEditing()
-    applyParagraphAttributes(in: textStorage, range: lineRange)
-    textStorage.endEditing()
+    _ = textView.performEditorEdit(affectedRange: lineRange, actionName: "Paragraph") {
+      textStorage in
+      applyParagraphAttributes(in: textStorage, range: lineRange)
+    }
     refreshToolbarPresentation()
   }
 
@@ -428,21 +482,24 @@ class FormattingToolbar: NSView {
       ? textStorage.attribute(.markdownHeadingLevel, at: lineRange.location, effectiveRange: nil)
         as? Int : nil
 
-    textStorage.beginEditing()
-    if currentLevel == level {
-      applyParagraphAttributes(in: textStorage, range: lineRange)
-    } else {
-      let fontSize: CGFloat = level == 1 ? 22 : level == 2 ? 19 : 17
-      textStorage.addAttribute(.markdownHeadingLevel, value: level, range: lineRange)
-      textStorage.addAttribute(
-        .font, value: appearanceSettings.boldBodyFont(ofSize: fontSize), range: lineRange)
-      textStorage.removeAttribute(.markdownBlockquote, range: lineRange)
-      textStorage.removeAttribute(.markdownListType, range: lineRange)
-      textStorage.addAttribute(
-        .paragraphStyle, value: MarkdownStyler.bodyParagraphStyle(for: appearanceSettings),
-        range: lineRange)
+    _ = textView.performEditorEdit(
+      affectedRange: lineRange,
+      actionName: currentLevel == level ? "Paragraph" : "Heading \(level)"
+    ) { textStorage in
+      if currentLevel == level {
+        applyParagraphAttributes(in: textStorage, range: lineRange)
+      } else {
+        let fontSize: CGFloat = level == 1 ? 22 : level == 2 ? 19 : 17
+        textStorage.addAttribute(.markdownHeadingLevel, value: level, range: lineRange)
+        textStorage.addAttribute(
+          .font, value: appearanceSettings.boldBodyFont(ofSize: fontSize), range: lineRange)
+        textStorage.removeAttribute(.markdownBlockquote, range: lineRange)
+        textStorage.removeAttribute(.markdownListType, range: lineRange)
+        textStorage.addAttribute(
+          .paragraphStyle, value: MarkdownStyler.bodyParagraphStyle(for: appearanceSettings),
+          range: lineRange)
+      }
     }
-    textStorage.endEditing()
     refreshToolbarPresentation()
   }
 
@@ -483,34 +540,37 @@ class FormattingToolbar: NSView {
     guard let textView, let textStorage = textView.textStorage else { return }
     guard range.location + range.length <= textStorage.length else { return }
 
-    textStorage.beginEditing()
+    _ = textView.performEditorEdit(
+      affectedRange: range,
+      replacementString: removeLink ? nil : newText,
+      actionName: removeLink ? "Remove Link" : "Edit Link"
+    ) { textStorage in
+      if removeLink {
+        // Strip link attributes but keep the text
+        textStorage.removeAttribute(.markdownLinkURL, range: range)
+        textStorage.removeAttribute(.link, range: range)
+        textStorage.removeAttribute(.underlineStyle, range: range)
+        textStorage.addAttribute(.foregroundColor, value: NSColor.labelColor, range: range)
+      } else {
+        // Replace text if changed, then apply link attributes
+        let replacement = NSAttributedString(
+          string: newText,
+          attributes: textStorage.attributes(at: range.location, effectiveRange: nil))
+        textStorage.replaceCharacters(in: range, with: replacement)
 
-    if removeLink {
-      // Strip link attributes but keep the text
-      textStorage.removeAttribute(.markdownLinkURL, range: range)
-      textStorage.removeAttribute(.link, range: range)
-      textStorage.removeAttribute(.underlineStyle, range: range)
-      textStorage.addAttribute(.foregroundColor, value: NSColor.labelColor, range: range)
-    } else {
-      // Replace text if changed, then apply link attributes
-      let replacement = NSAttributedString(
-        string: newText,
-        attributes: textStorage.attributes(at: range.location, effectiveRange: nil))
-      textStorage.replaceCharacters(in: range, with: replacement)
+        let newRange = NSRange(location: range.location, length: newText.utf16.count)
+        var attrs: [NSAttributedString.Key: Any] = [
+          .foregroundColor: NSColor.linkColor,
+          .underlineStyle: NSUnderlineStyle.single.rawValue,
+          .markdownLinkURL: newURL,
+        ]
+        if let url = URL(string: newURL) { attrs[.link] = url }
+        textStorage.addAttributes(attrs, range: newRange)
 
-      let newRange = NSRange(location: range.location, length: newText.utf16.count)
-      var attrs: [NSAttributedString.Key: Any] = [
-        .foregroundColor: NSColor.linkColor,
-        .underlineStyle: NSUnderlineStyle.single.rawValue,
-        .markdownLinkURL: newURL,
-      ]
-      if let url = URL(string: newURL) { attrs[.link] = url }
-      textStorage.addAttributes(attrs, range: newRange)
-
-      textView.setSelectedRange(NSRange(location: newRange.location + newRange.length, length: 0))
+        textView.setSelectedRange(
+          NSRange(location: newRange.location + newRange.length, length: 0))
+      }
     }
-
-    textStorage.endEditing()
   }
 
   // Toggles blockquote attribute and visual styling on the current line
@@ -525,43 +585,44 @@ class FormattingToolbar: NSView {
         as? Bool == true
       : false
 
-    textStorage.beginEditing()
-    if isBlockquote {
-      // Toggle off — remove blockquote styling, restore default attributes
-      let attrs: [NSAttributedString.Key: Any] = [
-        .font: appearanceSettings.bodyFont,
-        .foregroundColor: NSColor.labelColor,
-        .paragraphStyle: MarkdownStyler.bodyParagraphStyle(for: appearanceSettings),
-      ]
-      textStorage.replaceCharacters(
-        in: lineRange,
-        with: NSAttributedString(string: lineText, attributes: attrs))
-    } else {
-      // Apply blockquote — strip any existing list prefix first
-      let currentTypeRaw =
-        lineRange.length > 0
-        ? textStorage.attribute(.markdownListType, at: lineRange.location, effectiveRange: nil)
-          as? String
-        : nil
-      let cleanText: String
-      if let rawType = currentTypeRaw, let listType = MarkdownListType(rawValue: rawType) {
-        cleanText = stripDisplayListPrefix(lineText, listType: listType)
-      } else {
-        cleanText = lineText
-      }
-
-      let quoteStyle = MarkdownStyler.blockquoteParagraphStyle(for: appearanceSettings)
-      let result = NSAttributedString(
-        string: cleanText,
-        attributes: [
+    _ = textView.performEditorEdit(affectedRange: lineRange, actionName: "Blockquote") {
+      textStorage in
+      if isBlockquote {
+        // Toggle off — remove blockquote styling, restore default attributes
+        let attrs: [NSAttributedString.Key: Any] = [
           .font: appearanceSettings.bodyFont,
-          .foregroundColor: NSColor.secondaryLabelColor,
-          .markdownBlockquote: true,
-          .paragraphStyle: quoteStyle,
-        ])
-      textStorage.replaceCharacters(in: lineRange, with: result)
+          .foregroundColor: NSColor.labelColor,
+          .paragraphStyle: MarkdownStyler.bodyParagraphStyle(for: appearanceSettings),
+        ]
+        textStorage.replaceCharacters(
+          in: lineRange,
+          with: NSAttributedString(string: lineText, attributes: attrs))
+      } else {
+        // Apply blockquote — strip any existing list prefix first
+        let currentTypeRaw =
+          lineRange.length > 0
+          ? textStorage.attribute(.markdownListType, at: lineRange.location, effectiveRange: nil)
+            as? String
+          : nil
+        let cleanText: String
+        if let rawType = currentTypeRaw, let listType = MarkdownListType(rawValue: rawType) {
+          cleanText = stripDisplayListPrefix(lineText, listType: listType)
+        } else {
+          cleanText = lineText
+        }
+
+        let quoteStyle = MarkdownStyler.blockquoteParagraphStyle(for: appearanceSettings)
+        let result = NSAttributedString(
+          string: cleanText,
+          attributes: [
+            .font: appearanceSettings.bodyFont,
+            .foregroundColor: NSColor.secondaryLabelColor,
+            .markdownBlockquote: true,
+            .paragraphStyle: quoteStyle,
+          ])
+        textStorage.replaceCharacters(in: lineRange, with: result)
+      }
     }
-    textStorage.endEditing()
   }
 
   private func toggleListType(_ targetType: MarkdownListType) {
@@ -574,71 +635,75 @@ class FormattingToolbar: NSView {
         as? String : nil
     let currentType = currentTypeRaw.flatMap { MarkdownListType(rawValue: $0) }
 
-    textStorage.beginEditing()
+    _ = textView.performEditorEdit(affectedRange: lineRange, actionName: "List Style") {
+      textStorage in
+      if currentType == targetType {
+        // Toggle off — remove list prefix and attributes
+        let cleanText = stripDisplayListPrefix(lineText, listType: targetType)
+        let attrs: [NSAttributedString.Key: Any] = [
+          .font: appearanceSettings.bodyFont,
+          .foregroundColor: NSColor.labelColor,
+          .paragraphStyle: MarkdownStyler.bodyParagraphStyle(for: appearanceSettings),
+        ]
+        textStorage.replaceCharacters(
+          in: lineRange,
+          with: NSAttributedString(string: cleanText, attributes: attrs))
+      } else {
+        // Apply — strip any existing list prefix, then add the new one
+        let cleanText =
+          currentType != nil ? stripDisplayListPrefix(lineText, listType: currentType!) : lineText
+        let listStyle = MarkdownStyler.listParagraphStyle(for: appearanceSettings)
 
-    if currentType == targetType {
-      // Toggle off — remove list prefix and attributes
-      let cleanText = stripDisplayListPrefix(lineText, listType: targetType)
-      let attrs: [NSAttributedString.Key: Any] = [
-        .font: appearanceSettings.bodyFont,
-        .foregroundColor: NSColor.labelColor,
-        .paragraphStyle: MarkdownStyler.bodyParagraphStyle(for: appearanceSettings),
-      ]
-      textStorage.replaceCharacters(
-        in: lineRange,
-        with: NSAttributedString(string: cleanText, attributes: attrs))
-    } else {
-      // Apply — strip any existing list prefix, then add the new one
-      let cleanText =
-        currentType != nil ? stripDisplayListPrefix(lineText, listType: currentType!) : lineText
-      let listStyle = MarkdownStyler.listParagraphStyle(for: appearanceSettings)
+        let result: NSMutableAttributedString
 
-      let result: NSMutableAttributedString
+        if targetType == .checkboxUnchecked || targetType == .checkboxChecked {
+          let checked = targetType == .checkboxChecked
+          result = NSMutableAttributedString()
+          result.append(
+            MarkdownStyler.checkboxAttributedString(
+              checked: checked,
+              appearance: appearanceSettings
+            ))
+          result.append(
+            NSAttributedString(
+              string: " \(cleanText)",
+              attributes: [
+                .font: appearanceSettings.bodyFont,
+                .foregroundColor: NSColor.labelColor,
+                .paragraphStyle: MarkdownStyler.bodyParagraphStyle(for: appearanceSettings),
+              ]))
+          let fullRange = NSRange(location: 0, length: result.length)
+          result.addAttributes(
+            [
+              .markdownListType: targetType.rawValue,
+              .paragraphStyle: listStyle,
+            ],
+            range: fullRange
+          )
+        } else {
+          let marker: String
+          switch targetType {
+          case .bullet: marker = "\(MarkdownStyler.bulletMarker) "
+          case .numbered: marker = "1. "
+          default: marker = ""
+          }
 
-      if targetType == .checkboxUnchecked || targetType == .checkboxChecked {
-        let checked = targetType == .checkboxChecked
-        result = NSMutableAttributedString()
-        result.append(
-          MarkdownStyler.checkboxAttributedString(checked: checked, appearance: appearanceSettings))
-        result.append(
-          NSAttributedString(
-            string: " \(cleanText)",
+          let newText = marker + cleanText
+          result = NSMutableAttributedString(
+            string: newText,
             attributes: [
               .font: appearanceSettings.bodyFont,
               .foregroundColor: NSColor.labelColor,
-              .paragraphStyle: MarkdownStyler.bodyParagraphStyle(for: appearanceSettings),
-            ]))
-        let fullRange = NSRange(location: 0, length: result.length)
-        result.addAttributes(
-          [
-            .markdownListType: targetType.rawValue,
-            .paragraphStyle: listStyle,
-          ], range: fullRange)
-      } else {
-        let marker: String
-        switch targetType {
-        case .bullet: marker = "\(MarkdownStyler.bulletMarker) "
-        case .numbered: marker = "1. "
-        default: marker = ""
+              .markdownListType: targetType.rawValue,
+              .paragraphStyle: listStyle,
+            ])
+
+          styleListMarker(in: result, listType: targetType)
         }
 
-        let newText = marker + cleanText
-        result = NSMutableAttributedString(
-          string: newText,
-          attributes: [
-            .font: appearanceSettings.bodyFont,
-            .foregroundColor: NSColor.labelColor,
-            .markdownListType: targetType.rawValue,
-            .paragraphStyle: listStyle,
-          ])
-
-        styleListMarker(in: result, listType: targetType)
+        textStorage.replaceCharacters(in: lineRange, with: result)
       }
-
-      textStorage.replaceCharacters(in: lineRange, with: result)
     }
-
-    textStorage.endEditing()
   }
 
   // MARK: - Helpers

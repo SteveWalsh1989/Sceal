@@ -25,13 +25,28 @@ struct AppearanceSettingsView: View {
         }
 
         SliderRow(
-          title: "Size",
+          title: "Body size",
           valueLabel: "\(Int(store.appearanceSettings.bodyFontSize))",
           value: Binding(
             get: { Double(store.appearanceSettings.bodyFontSize) },
             set: { store.updateBodyFontSize(CGFloat($0)) }
           ),
-          range: Double(NoteAppearanceSettings.minimumBodyFontSize)...Double(NoteAppearanceSettings.maximumBodyFontSize),
+          range: Double(
+            NoteAppearanceSettings.minimumBodyFontSize)...Double(
+              NoteAppearanceSettings.maximumBodyFontSize),
+          step: 1
+        )
+
+        SliderRow(
+          title: "Sidebar size",
+          valueLabel: "\(Int(store.appearanceSettings.sidebarFontSize))",
+          value: Binding(
+            get: { Double(store.appearanceSettings.sidebarFontSize) },
+            set: { store.updateSidebarFontSize(CGFloat($0)) }
+          ),
+          range: Double(
+            NoteAppearanceSettings.minimumSidebarFontSize)...Double(
+              NoteAppearanceSettings.maximumSidebarFontSize),
           step: 1
         )
       }
@@ -44,8 +59,23 @@ struct AppearanceSettingsView: View {
             get: { Double(store.appearanceSettings.lineHeight) },
             set: { store.updateLineHeight(CGFloat($0)) }
           ),
-          range: Double(NoteAppearanceSettings.minimumLineHeight)...Double(NoteAppearanceSettings.maximumLineHeight),
+          range: Double(
+            NoteAppearanceSettings.minimumLineHeight)...Double(
+              NoteAppearanceSettings.maximumLineHeight),
           step: 0.1
+        )
+
+        SliderRow(
+          title: "List spacing",
+          valueLabel: String(format: "%.1f", store.appearanceSettings.listItemSpacing),
+          value: Binding(
+            get: { Double(store.appearanceSettings.listItemSpacing) },
+            set: { store.updateListItemSpacing(CGFloat($0)) }
+          ),
+          range: Double(
+            NoteAppearanceSettings.minimumListItemSpacing)...Double(
+              NoteAppearanceSettings.maximumListItemSpacing),
+          step: 0.5
         )
 
         SliderRow(
@@ -55,7 +85,9 @@ struct AppearanceSettingsView: View {
             get: { Double(store.appearanceSettings.bulletSize) },
             set: { store.updateBulletSize(CGFloat($0)) }
           ),
-          range: Double(NoteAppearanceSettings.minimumBulletSize)...Double(NoteAppearanceSettings.maximumBulletSize),
+          range: Double(
+            NoteAppearanceSettings.minimumBulletSize)...Double(
+              NoteAppearanceSettings.maximumBulletSize),
           step: 2
         )
       }
@@ -68,10 +100,13 @@ struct AppearanceSettingsView: View {
       }
 
       Section("Behavior") {
-        Picker("New note default", selection: Binding(
-          get: { store.newNoteDefault },
-          set: { store.updateNewNoteDefault($0) }
-        )) {
+        Picker(
+          "New note default",
+          selection: Binding(
+            get: { store.newNoteDefault },
+            set: { store.updateNewNoteDefault($0) }
+          )
+        ) {
           ForEach(NewNoteDefault.allCases, id: \.self) { option in
             Text(option.displayName).tag(option)
           }

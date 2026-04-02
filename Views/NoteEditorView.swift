@@ -189,6 +189,19 @@ private struct QuickAppearancePopover: View {
       )
 
       QuickAppearanceSliderRow(
+        title: "Sidebar size",
+        valueLabel: "\(Int(store.appearanceSettings.sidebarFontSize))",
+        value: Binding(
+          get: { Double(store.appearanceSettings.sidebarFontSize) },
+          set: { store.updateSidebarFontSize(CGFloat($0)) }
+        ),
+        range: Double(
+          NoteAppearanceSettings.minimumSidebarFontSize)...Double(
+            NoteAppearanceSettings.maximumSidebarFontSize),
+        step: 1
+      )
+
+      QuickAppearanceSliderRow(
         title: "Line height",
         valueLabel: String(format: "%.1fx", store.appearanceSettings.lineHeight),
         value: Binding(
@@ -199,6 +212,19 @@ private struct QuickAppearancePopover: View {
           NoteAppearanceSettings.minimumLineHeight)...Double(
             NoteAppearanceSettings.maximumLineHeight),
         step: 0.1
+      )
+
+      QuickAppearanceSliderRow(
+        title: "List spacing",
+        valueLabel: String(format: "%.1f", store.appearanceSettings.listItemSpacing),
+        value: Binding(
+          get: { Double(store.appearanceSettings.listItemSpacing) },
+          set: { store.updateListItemSpacing(CGFloat($0)) }
+        ),
+        range: Double(
+          NoteAppearanceSettings.minimumListItemSpacing)...Double(
+            NoteAppearanceSettings.maximumListItemSpacing),
+        step: 0.5
       )
 
       QuickAppearanceSliderRow(

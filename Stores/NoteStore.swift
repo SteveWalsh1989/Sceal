@@ -18,9 +18,11 @@ struct NoteMonthSection: Identifiable, Equatable {
   }
 
   var title: String {
-    let isCurrentYear = Calendar.current.component(.year, from: monthStartDate)
+    let isCurrentYear =
+      Calendar.current.component(.year, from: monthStartDate)
       == Calendar.current.component(.year, from: Date.now)
-    let formatter = isCurrentYear
+    let formatter =
+      isCurrentYear
       ? DayraDateFormatters.monthDividerMonthOnly : DayraDateFormatters.monthDivider
     return formatter.string(from: monthStartDate).uppercased()
   }
@@ -180,9 +182,21 @@ final class NoteStore: ObservableObject {
     }
   }
 
+  func updateListItemSpacing(_ listItemSpacing: CGFloat) {
+    updateAppearanceSettings { settings in
+      settings.listItemSpacing = listItemSpacing
+    }
+  }
+
   func updateBulletSize(_ bulletSize: CGFloat) {
     updateAppearanceSettings { settings in
       settings.bulletSize = bulletSize
+    }
+  }
+
+  func updateSidebarFontSize(_ sidebarFontSize: CGFloat) {
+    updateAppearanceSettings { settings in
+      settings.sidebarFontSize = sidebarFontSize
     }
   }
 
