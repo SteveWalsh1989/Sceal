@@ -33,6 +33,11 @@ struct MarkdownTextView: NSViewRepresentable {
       .backgroundColor: NSColor.selectedTextBackgroundColor.withAlphaComponent(0.28)
     ]
     textView.textContainerInset = NSSize(width: 22, height: 22)
+    // Show links in blue without the default underline that NSTextView adds.
+    textView.linkTextAttributes = [
+      .foregroundColor: NSColor.linkColor,
+      .cursor: NSCursor.pointingHand,
+    ]
     textView.typingAttributes = MarkdownStyler.baseTypingAttributes(for: appearanceSettings)
     textView.delegate = context.coordinator
     context.coordinator.toolbar.appearanceSettings = appearanceSettings
@@ -351,10 +356,13 @@ struct MarkdownTextView: NSViewRepresentable {
         switch slashCommand.action {
         case .sectionDivider:
           // Insert the final divider display directly so AppKit never sees the raw marker length.
+          // Adds a blank line after the divider so the heading starts visually separated.
           let replacementRange = fullLineRange.length > lineRange.length ? fullLineRange : lineRange
+          let baseAttrs = MarkdownStyler.baseTypingAttributes(for: parent.appearanceSettings)
           let dividerLine = NSMutableAttributedString(
             attributedString: MarkdownStyler.sectionDividerDisplayString())
-          dividerLine.append(NSAttributedString(string: "\n"))
+          dividerLine.append(NSAttributedString(string: "\n", attributes: baseAttrs))
+          dividerLine.append(NSAttributedString(string: "\n", attributes: baseAttrs))
 
           let handled = textView.performEditorEdit(
             affectedRange: replacementRange,
