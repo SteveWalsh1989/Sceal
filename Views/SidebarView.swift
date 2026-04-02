@@ -8,6 +8,7 @@ import SwiftUI
 struct SidebarView: View {
   @ObservedObject var store: NoteStore
   let requestDelete: (DayNote.ID) -> Void
+  @FocusState private var isSidebarFocused: Bool
 
   var body: some View {
     Group {
@@ -30,6 +31,7 @@ struct SidebarView: View {
               ForEach(section.notes) { note in
                 Button {
                   store.select(noteID: note.id)
+                  isSidebarFocused = true
                 } label: {
                   DayNoteCardView(
                     note: note,
@@ -50,6 +52,8 @@ struct SidebarView: View {
           }
           .padding(.bottom, 20)
         }
+        .focusable()
+        .focused($isSidebarFocused)
         .onKeyPress(.upArrow) {
           store.selectNextNote()
           return .handled

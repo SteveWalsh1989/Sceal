@@ -153,15 +153,14 @@ private struct SliderRow: View {
   let step: Double
 
   var body: some View {
-    HStack {
-      Text(title)
-      Spacer()
-      Text(valueLabel)
-        .monospacedDigit()
-        .foregroundStyle(.secondary)
-        .frame(width: 36, alignment: .trailing)
-      Slider(value: $value, in: range, step: step)
-        .frame(width: 352)
+    LabeledContent(title) {
+      HStack(spacing: 4) {
+        Text(valueLabel)
+          .monospacedDigit()
+          .foregroundStyle(.secondary)
+          .frame(width: 42, alignment: .trailing)
+        Slider(value: $value, in: range, step: step)
+      }
     }
   }
 }
