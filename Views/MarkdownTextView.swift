@@ -8,6 +8,7 @@ import AppKit
 import SwiftUI
 
 struct MarkdownTextView: NSViewRepresentable {
+  let noteID: DayNote.ID
   @Binding var text: String
   let appearanceSettings: NoteAppearanceSettings
 
@@ -56,6 +57,7 @@ struct MarkdownTextView: NSViewRepresentable {
     textView.textStorage?.setAttributedString(displayString)
     context.coordinator.lastPushedMarkdown = text
     context.coordinator.lastAppliedAppearance = appearanceSettings
+    context.coordinator.lastNoteID = noteID
 
     // Ensure text view fills at least the scroll view height
     textView.minSize = NSSize(width: 0, height: scrollView.contentSize.height)
@@ -66,6 +68,7 @@ struct MarkdownTextView: NSViewRepresentable {
   func updateNSView(_ scrollView: NSScrollView, context: Context) {
     guard !context.coordinator.isUpdating else { return }
     guard let textView = scrollView.documentView as? NSTextView else { return }
+    context.coordinator.parent = self
     context.coordinator.toolbar.appearanceSettings = appearanceSettings
 
     // Keep text view filling the scroll view height
@@ -74,9 +77,10 @@ struct MarkdownTextView: NSViewRepresentable {
       textView.minSize = NSSize(width: 0, height: minH)
     }
 
+    let noteChanged = noteID != context.coordinator.lastNoteID
     let textChanged = text != context.coordinator.lastPushedMarkdown
     let appearanceChanged = appearanceSettings != context.coordinator.lastAppliedAppearance
-    guard textChanged || appearanceChanged else { return }
+    guard noteChanged || textChanged || appearanceChanged else { return }
 
     context.coordinator.isUpdating = true
     let selectedRange = clampedRange(textView.selectedRange(), maxLength: text.utf16.count)
@@ -90,6 +94,7 @@ struct MarkdownTextView: NSViewRepresentable {
     textView.textStorage?.setAttributedString(displayString)
     context.coordinator.lastPushedMarkdown = text
     context.coordinator.lastAppliedAppearance = appearanceSettings
+    context.coordinator.lastNoteID = noteID
     textView.setSelectedRange(clampedRange(selectedRange, maxLength: textView.string.utf16.count))
     scrollView.contentView.scroll(to: visibleOrigin)
     scrollView.reflectScrolledClipView(scrollView.contentView)
@@ -109,6 +114,7 @@ struct MarkdownTextView: NSViewRepresentable {
     var isUpdating = false
     var lastPushedMarkdown = ""
     var lastAppliedAppearance = NoteAppearanceSettings.default
+    var lastNoteID: DayNote.ID?
     let toolbar = FormattingToolbar()
     let slashPopup = SlashCommandPopup()
     private var slashTriggerLocation: Int?
@@ -232,10 +238,41 @@ struct MarkdownTextView: NSViewRepresentable {
         return true
       }
 
-      // Slash commands FIRST so /section → --- is formatted in the same pass
+      let slashCommand = SlashCommandHandler.matchedCommand(in: textStorage, lineRange: lineRange)
+      if let slashCommand {
+        switch slashCommand.action {
+        case .sectionDivider:
+          break
+        case .heading(let level):
+          replaceCurrentLine(in: textStorage, lineRange: lineRange, with: NSAttributedString())
+          textView.setSelectedRange(NSRange(location: lineRange.location, length: 0))
+          textView.typingAttributes = headingTypingAttributes(level: level)
+          syncToBinding(textView)
+          isUpdating = false
+          return true
+        case .codeBlock:
+          let snippet = "```\n\n\n```"
+          let displaySnippet = MarkdownStyler.formatForDisplay(
+            snippet, appearance: parent.appearanceSettings)
+          replaceCurrentLine(in: textStorage, lineRange: lineRange, with: displaySnippet)
+          let insertionPoint = lineRange.location + 4
+          textView.setSelectedRange(NSRange(location: insertionPoint, length: 0))
+          textView.typingAttributes = codeBlockTypingAttributes()
+          syncToBinding(textView)
+          textView.layoutManager?.ensureLayout(
+            forCharacterRange: NSRange(location: 0, length: textStorage.length))
+          textView.setNeedsDisplay(textView.bounds)
+          isUpdating = false
+          return true
+        }
+      }
+
+      // Slash commands FIRST so /section → divider is formatted in the same pass
       textStorage.beginEditing()
-      let slashReplaced = SlashCommandHandler.detectAndReplace(
-        in: textStorage, lineRange: lineRange)
+      let slashReplaced = slashCommand?.action == .sectionDivider
+      if slashReplaced {
+        textStorage.replaceCharacters(in: lineRange, with: "<!-- section -->")
+      }
 
       // Recalculate line range if slash command changed the text
       let formatLineRange: NSRange
@@ -307,12 +344,7 @@ struct MarkdownTextView: NSViewRepresentable {
         ]
       } else if slashReplaced {
         // After a section divider, auto-start a heading 1
-        textView.typingAttributes = [
-          .font: parent.appearanceSettings.boldBodyFont(ofSize: 22),
-          .foregroundColor: NSColor.labelColor,
-          .paragraphStyle: MarkdownStyler.bodyParagraphStyle(for: parent.appearanceSettings),
-          .markdownHeadingLevel: 1,
-        ]
+        textView.typingAttributes = headingTypingAttributes(level: 1)
       } else if listType == nil {
         textView.typingAttributes = MarkdownStyler.baseTypingAttributes(
           for: parent.appearanceSettings)
@@ -442,23 +474,35 @@ struct MarkdownTextView: NSViewRepresentable {
 
     private func checkSlashCommandTrigger(in textView: NSTextView) {
       let cursorLocation = textView.selectedRange().location
-      guard cursorLocation > 0 else { dismissSlashPopup(); return }
+      guard cursorLocation > 0 else {
+        dismissSlashPopup()
+        return
+      }
 
       let nsString = textView.string as NSString
       let lineRange = nsString.lineRange(for: NSRange(location: cursorLocation, length: 0))
 
       // Get text from line start to cursor
       let prefixLength = cursorLocation - lineRange.location
-      guard prefixLength > 0 else { dismissSlashPopup(); return }
+      guard prefixLength > 0 else {
+        dismissSlashPopup()
+        return
+      }
       let prefixRange = NSRange(location: lineRange.location, length: prefixLength)
       let prefixText = nsString.substring(with: prefixRange)
       let trimmed = prefixText.trimmingCharacters(in: .whitespaces)
 
       // Must start with "/" and only have whitespace before it
-      guard trimmed.hasPrefix("/") else { dismissSlashPopup(); return }
+      guard trimmed.hasPrefix("/") else {
+        dismissSlashPopup()
+        return
+      }
 
       let filtered = SlashCommandHandler.filteredCommands(for: trimmed)
-      guard !filtered.isEmpty else { dismissSlashPopup(); return }
+      guard !filtered.isEmpty else {
+        dismissSlashPopup()
+        return
+      }
 
       // Track where the "/" character starts
       if slashTriggerLocation == nil {
@@ -470,7 +514,6 @@ struct MarkdownTextView: NSViewRepresentable {
 
       // Position popup near the cursor
       guard let layoutManager = textView.layoutManager,
-        let textContainer = textView.textContainer,
         let scrollView = textView.enclosingScrollView
       else { return }
 
@@ -496,6 +539,45 @@ struct MarkdownTextView: NSViewRepresentable {
     private func dismissSlashPopup() {
       slashPopup.hide()
       slashTriggerLocation = nil
+    }
+
+    private func replaceCurrentLine(
+      in textStorage: NSTextStorage,
+      lineRange: NSRange,
+      with attributedString: NSAttributedString
+    ) {
+      textStorage.beginEditing()
+      textStorage.replaceCharacters(in: lineRange, with: attributedString)
+      textStorage.endEditing()
+    }
+
+    private func headingTypingAttributes(level: Int) -> [NSAttributedString.Key: Any] {
+      [
+        .font: parent.appearanceSettings.boldBodyFont(ofSize: headingFontSize(for: level)),
+        .foregroundColor: NSColor.labelColor,
+        .paragraphStyle: MarkdownStyler.bodyParagraphStyle(for: parent.appearanceSettings),
+        .markdownHeadingLevel: level,
+      ]
+    }
+
+    private func codeBlockTypingAttributes() -> [NSAttributedString.Key: Any] {
+      [
+        .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
+        .backgroundColor: NSColor.quaternaryLabelColor,
+        .foregroundColor: NSColor.labelColor,
+        .markdownCodeBlock: true,
+      ]
+    }
+
+    private func headingFontSize(for level: Int) -> CGFloat {
+      switch level {
+      case 1:
+        return 22
+      case 2:
+        return 19
+      default:
+        return 17
+      }
     }
 
     // Replaces the partially-typed command with the full command text, then fires Enter

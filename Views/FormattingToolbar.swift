@@ -58,6 +58,7 @@ class FormattingToolbar: NSView {
     addTextButton("H1", action: #selector(applyH1), tooltip: "Heading 1", size: 11)
     addTextButton("H2", action: #selector(applyH2), tooltip: "Heading 2", size: 11)
     addTextButton("H3", action: #selector(applyH3), tooltip: "Heading 3", size: 11)
+    addTextButton("P", action: #selector(applyParagraph), tooltip: "Paragraph", size: 11)
     addSeparator()
     addSymbolButton("list.bullet", action: #selector(toggleBullet), tooltip: "Bullet List")
     addSymbolButton("list.number", action: #selector(toggleNumbered), tooltip: "Numbered List")
@@ -196,13 +197,28 @@ class FormattingToolbar: NSView {
       guard let textView, let textStorage = textView.textStorage else { return false }
       let (lineRange, _) = currentLineRange()
       guard lineRange.length > 0 else { return false }
-      return textStorage.attribute(.markdownHeadingLevel, at: lineRange.location, effectiveRange: nil) != nil
+      return textStorage.attribute(
+        .markdownHeadingLevel, at: lineRange.location, effectiveRange: nil) != nil
     }()
 
     colorSeparator?.isHidden = !isHeading
     for swatch in colorSwatches {
       swatch.isHidden = !isHeading
     }
+  }
+
+  // Refreshes the visible controls and toolbar frame after line-level formatting changes.
+  private func refreshToolbarPresentation() {
+    updateColorSwatchVisibility()
+
+    guard
+      !isHidden,
+      let textView,
+      let scrollView = textView.enclosingScrollView,
+      let selectionRect = currentSelectionRect(in: textView, scrollView: scrollView)
+    else { return }
+
+    show(relativeTo: selectionRect, in: scrollView)
   }
 
   // MARK: - Positioning
@@ -383,9 +399,21 @@ class FormattingToolbar: NSView {
     textStorage.addAttribute(.foregroundColor, value: preset.color, range: lineRange)
     textStorage.addAttribute(.markdownHeadingColor, value: preset.name, range: lineRange)
     textStorage.endEditing()
+    refreshToolbarPresentation()
   }
 
   // MARK: - Line-Level Actions
+
+  @objc private func applyParagraph() {
+    guard let textView, let textStorage = textView.textStorage else { return }
+    let (lineRange, _) = currentLineRange()
+    guard lineRange.length > 0 else { return }
+
+    textStorage.beginEditing()
+    applyParagraphAttributes(in: textStorage, range: lineRange)
+    textStorage.endEditing()
+    refreshToolbarPresentation()
+  }
 
   @objc private func applyH1() { applyHeading(level: 1) }
   @objc private func applyH2() { applyHeading(level: 2) }
@@ -402,24 +430,20 @@ class FormattingToolbar: NSView {
 
     textStorage.beginEditing()
     if currentLevel == level {
-      // Toggle off
-      textStorage.removeAttribute(.markdownHeadingLevel, range: lineRange)
-      textStorage.addAttribute(
-        .font, value: appearanceSettings.bodyFont, range: lineRange)
-      textStorage.addAttribute(
-        .paragraphStyle, value: MarkdownStyler.bodyParagraphStyle(for: appearanceSettings),
-        range: lineRange)
+      applyParagraphAttributes(in: textStorage, range: lineRange)
     } else {
       let fontSize: CGFloat = level == 1 ? 22 : level == 2 ? 19 : 17
       textStorage.addAttribute(.markdownHeadingLevel, value: level, range: lineRange)
       textStorage.addAttribute(
         .font, value: appearanceSettings.boldBodyFont(ofSize: fontSize), range: lineRange)
+      textStorage.removeAttribute(.markdownBlockquote, range: lineRange)
       textStorage.removeAttribute(.markdownListType, range: lineRange)
       textStorage.addAttribute(
         .paragraphStyle, value: MarkdownStyler.bodyParagraphStyle(for: appearanceSettings),
         range: lineRange)
     }
     textStorage.endEditing()
+    refreshToolbarPresentation()
   }
 
   @objc private func toggleBullet() { toggleListType(.bullet) }
@@ -630,6 +654,30 @@ class FormattingToolbar: NSView {
       textRange.length -= 1
     }
     return (textRange, nsString.substring(with: textRange))
+  }
+
+  private func currentSelectionRect(in textView: NSTextView, scrollView: NSScrollView) -> NSRect? {
+    let range = textView.selectedRange()
+    guard
+      range.length > 0,
+      let layoutManager = textView.layoutManager,
+      let textContainer = textView.textContainer
+    else { return nil }
+
+    let glyphRange = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+    let selectionRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+    return textView.convert(selectionRect, to: scrollView)
+  }
+
+  private func applyParagraphAttributes(in textStorage: NSTextStorage, range: NSRange) {
+    textStorage.removeAttribute(.markdownHeadingLevel, range: range)
+    textStorage.removeAttribute(.markdownHeadingColor, range: range)
+    textStorage.removeAttribute(.markdownBlockquote, range: range)
+    textStorage.addAttribute(.foregroundColor, value: NSColor.labelColor, range: range)
+    textStorage.addAttribute(.font, value: appearanceSettings.bodyFont, range: range)
+    textStorage.addAttribute(
+      .paragraphStyle, value: MarkdownStyler.bodyParagraphStyle(for: appearanceSettings),
+      range: range)
   }
 
   private func stripDisplayListPrefix(_ text: String, listType: MarkdownListType) -> String {

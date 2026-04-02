@@ -19,8 +19,9 @@ struct SettingsView: View {
       .navigationSplitViewColumnWidth(min: 160, ideal: 180, max: 220)
     } detail: {
       detailView
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
-    .frame(minWidth: 580, minHeight: 400)
+    .frame(width: 620, height: 460)
   }
 
   @ViewBuilder

@@ -93,6 +93,7 @@ struct NoteEditorView: View {
           }
 
           MarkdownTextView(
+            noteID: noteID,
             text: store.bodyBinding(for: noteID),
             appearanceSettings: store.appearanceSettings
           )
