@@ -7,6 +7,7 @@ import AppKit
 import Combine
 import Foundation
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct NoteMonthSection: Identifiable, Equatable {
   let monthStartDate: Date
@@ -257,6 +258,83 @@ final class NoteStore: ObservableObject {
       }
     } catch {
       report(error, context: "Importing from Diarly failed")
+    }
+  }
+
+  // Exports notes within a date range to a zip file at a user-chosen location.
+  func exportNotes(startDate: Date, endDate: Date) {
+    flushPendingSaves()
+
+    let filtered = notes.filter { note in
+      let noteDay = calendar.startOfDay(for: note.date)
+      return noteDay >= calendar.startOfDay(for: startDate)
+        && noteDay <= calendar.startOfDay(for: endDate)
+    }
+
+    guard !filtered.isEmpty else {
+      errorMessage = "No notes found in the selected date range."
+      return
+    }
+
+    let panel = NSSavePanel()
+    panel.title = "Export Notes"
+    panel.nameFieldStringValue = "sceal-export.zip"
+    panel.allowedContentTypes = [.zip]
+
+    guard panel.runModal() == .OK, let saveURL = panel.url else { return }
+
+    do {
+      let zipURL = try ScealExporter.exportNotes(filtered)
+
+      if fileManager.fileExists(atPath: saveURL.path) {
+        try fileManager.removeItem(at: saveURL)
+      }
+      try fileManager.moveItem(at: zipURL, to: saveURL)
+
+      ScealExporter.cleanUp(zipURL: zipURL)
+      errorMessage = "Exported \(filtered.count) notes."
+    } catch {
+      report(error, context: "Exporting notes failed")
+    }
+  }
+
+  // Opens a folder picker and imports notes from an unzipped Scéal export.
+  func importFromSceal() {
+    let panel = NSOpenPanel()
+    panel.title = "Select Scéal Export Folder"
+    panel.message = "Choose the unzipped Scéal export folder"
+    panel.canChooseDirectories = true
+    panel.canChooseFiles = false
+    panel.allowsMultipleSelection = false
+
+    guard panel.runModal() == .OK, let folderURL = panel.url else { return }
+
+    let existingIDs = Set(notes.map(\.id))
+
+    do {
+      let result = try ScealImporter.importNotes(
+        from: folderURL, existingNoteIDs: existingIDs)
+
+      for note in result.imported {
+        try save(note)
+      }
+
+      notes = (notes + result.imported).sorted(by: { $0.date > $1.date })
+
+      if result.imported.isEmpty && result.skipped > 0 {
+        errorMessage = "No new notes imported. \(result.skipped) dates already exist in Scéal."
+      } else if result.imported.isEmpty {
+        errorMessage = "No Scéal notes found in the selected folder."
+      } else {
+        var details: [String] = []
+        if result.skipped > 0 { details.append("\(result.skipped) skipped") }
+        if result.failed > 0 { details.append("\(result.failed) failed to parse") }
+        let suffix = details.isEmpty ? "" : " (\(details.joined(separator: ", ")))"
+        errorMessage = "Imported \(result.imported.count) notes.\(suffix)"
+        selectedNoteID = result.imported.first?.id
+      }
+    } catch {
+      report(error, context: "Importing from Scéal failed")
     }
   }
 

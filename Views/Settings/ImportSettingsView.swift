@@ -14,6 +14,24 @@ struct ImportSettingsView: View {
           .foregroundStyle(.secondary)
       }
 
+      Section("Scéal") {
+        HStack {
+          VStack(alignment: .leading, spacing: 4) {
+            Text("Import from Scéal")
+              .font(.body)
+            Text("Select an unzipped Scéal export folder.")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+
+          Spacer()
+
+          Button("Import\u{2026}") {
+            store.importFromSceal()
+          }
+        }
+      }
+
       Section("Diarly") {
         HStack {
           VStack(alignment: .leading, spacing: 4) {

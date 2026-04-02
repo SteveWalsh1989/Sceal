@@ -33,7 +33,7 @@ struct SettingsView: View {
     case .importData:
       ImportSettingsView(store: store)
     case .exportData:
-      ExportSettingsView()
+      ExportSettingsView(store: store)
     }
   }
 }
