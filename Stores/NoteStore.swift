@@ -222,6 +222,12 @@ final class NoteStore: ObservableObject {
     }
   }
 
+  func updateSectionDividerGapScale(_ sectionDividerGapScale: CGFloat) {
+    updateAppearanceSettings { settings in
+      settings.sectionDividerGapScale = sectionDividerGapScale
+    }
+  }
+
   func updateSidebarFontSize(_ sidebarFontSize: CGFloat) {
     updateAppearanceSettings { settings in
       settings.sidebarFontSize = sidebarFontSize
@@ -276,7 +282,10 @@ final class NoteStore: ObservableObject {
       rebuildNoteIndex()
 
       if result.imported.isEmpty && result.skipped > 0 {
-        userMessage = (text: "No new notes imported. \(result.skipped) dates already exist in Scéal.", kind: .info)
+        userMessage = (
+          text: "No new notes imported. \(result.skipped) dates already exist in Scéal.",
+          kind: .info
+        )
       } else if result.imported.isEmpty {
         userMessage = (text: "No Diarly notes found in the selected folder.", kind: .info)
       } else {
@@ -363,7 +372,10 @@ final class NoteStore: ObservableObject {
       rebuildNoteIndex()
 
       if result.imported.isEmpty && result.skipped > 0 {
-        userMessage = (text: "No new notes imported. \(result.skipped) dates already exist in Scéal.", kind: .info)
+        userMessage = (
+          text: "No new notes imported. \(result.skipped) dates already exist in Scéal.",
+          kind: .info
+        )
       } else if result.imported.isEmpty {
         userMessage = (text: "No Scéal notes found in the selected folder.", kind: .info)
       } else {

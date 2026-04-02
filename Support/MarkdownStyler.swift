@@ -22,6 +22,10 @@ extension NSAttributedString.Key {
   static let markdownHeadingColor = NSAttributedString.Key("sceal.headingColor")
   static let markdownBlockquote = NSAttributedString.Key("sceal.blockquote")
   static let markdownIndentLevel = NSAttributedString.Key("sceal.indentLevel")
+  static let markdownSectionHeadingColor = NSAttributedString.Key("sceal.sectionHeadingColor")
+  static let markdownSectionBulletColor = NSAttributedString.Key("sceal.sectionBulletColor")
+  static let markdownSectionUseSectionColor = NSAttributedString.Key(
+    "sceal.sectionUseSectionColor")
 }
 
 enum MarkdownListType: String {
@@ -45,6 +49,10 @@ enum MarkdownStyler {
 
   // Cached regex patterns to avoid recreation per format pass.
   private static let hcolorRegex = try! NSRegularExpression(pattern: #"^<!-- hcolor:(\w+) -->$"#)
+  private static let sectionDividerRegex = try! NSRegularExpression(
+    pattern:
+      #"^<!-- section(?:\s+heading:(\w+))?(?:\s+bullet:(\w+))?(?:\s+usesectioncolor:(true|false))? -->$"#
+  )
   private static let boldRegex = try! NSRegularExpression(pattern: #"\*\*(.+?)\*\*"#)
   private static let italicRegex = try! NSRegularExpression(
     pattern: #"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)"#)
@@ -146,6 +154,18 @@ enum MarkdownStyler {
     NSAttributedString(attachment: checkboxAttachment(checked: checked, appearance: appearance))
   }
 
+  // Section-color variant — uses a specific color instead of the global accent.
+  static func checkboxAttachment(checked: Bool, color: NSColor) -> NSTextAttachment {
+    let symbolName = checked ? "checkmark.circle.fill" : "circle"
+    let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+      .applying(NSImage.SymbolConfiguration(paletteColors: [color]))
+    let attachment = NSTextAttachment()
+    attachment.image = NSImage(
+      systemSymbolName: symbolName, accessibilityDescription: checked ? "Done" : "To do")?
+      .withSymbolConfiguration(config)
+    return attachment
+  }
+
   // MARK: - Raw Markdown → Display Attributed String
 
   static func formatForDisplay(_ rawMarkdown: String, appearance: NoteAppearanceSettings)
@@ -158,6 +178,11 @@ enum MarkdownStyler {
     var pendingHeadingColor: NSColor? = nil
     var pendingHeadingColorName: String? = nil
     let hcolorRegex = Self.hcolorRegex
+    let sectionRegex = Self.sectionDividerRegex
+    // Per-section color state — applies to content after the most recent divider.
+    var currentSectionHeadingColorName: String? = nil
+    var currentSectionBulletColorName: String? = nil
+    var currentSectionUseSectionColor = false
     // Newlines must carry real attributes so NSTextView never inherits bare system defaults.
     let newlineAttrs = baseTypingAttributes(for: appearance)
 
@@ -203,14 +228,32 @@ enum MarkdownStyler {
         continue
       }
 
-      // Section divider — Sceal-specific card-gap marker
-      if line == "<!-- section -->" {
+      // Section divider — Sceal-specific card-gap marker with optional per-section colors
+      if let sectionMatch = sectionRegex.firstMatch(
+        in: line, range: NSRange(location: 0, length: line.utf16.count))
+      {
         if let colorName = pendingHeadingColorName {
           result.append(NSAttributedString(string: "<!-- hcolor:\(colorName) -->\n"))
           pendingHeadingColor = nil
           pendingHeadingColorName = nil
         }
-        result.append(styledSectionDivider())
+        let headingName = extractGroup(sectionMatch, index: 1, in: line)
+        let bulletName = extractGroup(sectionMatch, index: 2, in: line)
+        let useSCStr = extractGroup(sectionMatch, index: 3, in: line)
+        let useSC = useSCStr == "true"
+
+        // Update section tracking state for subsequent lines.
+        currentSectionHeadingColorName = headingName
+        currentSectionBulletColorName = bulletName
+        currentSectionUseSectionColor = useSC
+
+        result.append(
+          styledSectionDivider(
+            appearance: appearance,
+            headingColorName: headingName,
+            bulletColorName: bulletName,
+            useSectionColor: useSC ? true : nil
+          ))
         continue
       }
 
@@ -246,6 +289,19 @@ enum MarkdownStyler {
         result.append(NSAttributedString(string: "<!-- hcolor:\(colorName) -->\n"))
         pendingHeadingColor = nil
         pendingHeadingColorName = nil
+      }
+
+      // Apply section-level color defaults to headings without an explicit hcolor
+      // and to bullets/checkboxes when the section's useSectionColor flag is on.
+      if let colored = applySectionColors(
+        to: displayLine,
+        headingColorName: currentSectionHeadingColorName,
+        bulletColorName: currentSectionBulletColorName,
+        useSectionColor: currentSectionUseSectionColor,
+        appearance: appearance
+      ) {
+        result.append(colored)
+        continue
       }
 
       result.append(displayLine)
@@ -358,7 +414,7 @@ enum MarkdownStyler {
 
     // Section divider — Sceal card-gap marker
     if trimmedLine == "<!-- section -->" {
-      return styledSectionDivider()
+      return styledSectionDivider(appearance: appearance)
     }
 
     // Horizontal rule — standard markdown visible line
@@ -660,9 +716,19 @@ enum MarkdownStyler {
       return lineText
     }
 
-    // Section divider — Sceal-specific card-gap marker
+    // Section divider — Sceal-specific card-gap marker with optional per-section colors
     if attrs[.markdownSectionDivider] as? Bool == true {
-      return "<!-- section -->"
+      var parts = ["section"]
+      if let name = attrs[.markdownSectionHeadingColor] as? String {
+        parts.append("heading:\(name)")
+      }
+      if let name = attrs[.markdownSectionBulletColor] as? String {
+        parts.append("bullet:\(name)")
+      }
+      if let flag = attrs[.markdownSectionUseSectionColor] as? Bool, flag {
+        parts.append("usesectioncolor:true")
+      }
+      return "<!-- \(parts.joined(separator: " ")) -->"
     }
 
     // Horizontal rule — standard markdown
@@ -797,29 +863,46 @@ enum MarkdownStyler {
       ])
   }
 
-  private static func styledSectionDivider() -> NSAttributedString {
+  private static func styledSectionDivider(
+    appearance: NoteAppearanceSettings = .default,
+    headingColorName: String? = nil,
+    bulletColorName: String? = nil,
+    useSectionColor: Bool? = nil
+  ) -> NSAttributedString {
     // Invisible marker — the visual split comes from ScealTextView drawing
     // separate card backgrounds for each section. This character occupies
     // a single line that becomes the gap between cards.
     let gapStyle = NSMutableParagraphStyle()
-    gapStyle.paragraphSpacingBefore = sectionDividerSpacingBefore
-    gapStyle.paragraphSpacing = sectionDividerSpacingAfter
+    gapStyle.paragraphSpacingBefore =
+      sectionDividerSpacingBefore * appearance.sectionDividerGapScale
+    gapStyle.paragraphSpacing = sectionDividerSpacingAfter * appearance.sectionDividerGapScale
     gapStyle.minimumLineHeight = sectionDividerLineHeight
     gapStyle.maximumLineHeight = sectionDividerLineHeight
 
-    return NSAttributedString(
-      string: " ",
-      attributes: [
-        .font: NSFont.systemFont(ofSize: 1),
-        .foregroundColor: NSColor.clear,
-        .paragraphStyle: gapStyle,
-        .markdownSectionDivider: true,
-      ])
+    var attrs: [NSAttributedString.Key: Any] = [
+      .font: NSFont.systemFont(ofSize: 1),
+      .foregroundColor: NSColor.clear,
+      .paragraphStyle: gapStyle,
+      .markdownSectionDivider: true,
+    ]
+    if let name = headingColorName {
+      attrs[.markdownSectionHeadingColor] = name
+    }
+    if let name = bulletColorName {
+      attrs[.markdownSectionBulletColor] = name
+    }
+    if let flag = useSectionColor {
+      attrs[.markdownSectionUseSectionColor] = flag
+    }
+
+    return NSAttributedString(string: " ", attributes: attrs)
   }
 
   // Exposes the final divider display form for editor insertions that must avoid raw markdown text.
-  static func sectionDividerDisplayString() -> NSAttributedString {
-    styledSectionDivider()
+  static func sectionDividerDisplayString(appearance: NoteAppearanceSettings = .default)
+    -> NSAttributedString
+  {
+    styledSectionDivider(appearance: appearance)
   }
 
   // Visible thin line for standard markdown horizontal rules (e.g. imported `---`).
@@ -840,7 +923,81 @@ enum MarkdownStyler {
       ])
   }
 
+  // MARK: - Section Color Propagation
+
+  // Applies section-level color defaults to a display line. Returns a modified
+  // copy when changes were made, or nil when the line is unaffected.
+  private static func applySectionColors(
+    to displayLine: NSAttributedString,
+    headingColorName: String?,
+    bulletColorName: String?,
+    useSectionColor: Bool,
+    appearance: NoteAppearanceSettings
+  ) -> NSAttributedString? {
+    guard displayLine.length > 0 else { return nil }
+    let attrs = displayLine.attributes(at: 0, effectiveRange: nil)
+
+    // Headings without an explicit hcolor inherit the section heading color.
+    if attrs[.markdownHeadingLevel] != nil,
+      attrs[.markdownHeadingColor] == nil,
+      let colorName = headingColorName,
+      let color = headingColor(named: colorName)
+    {
+      let mutable = NSMutableAttributedString(attributedString: displayLine)
+      let fullRange = NSRange(location: 0, length: mutable.length)
+      mutable.addAttribute(.foregroundColor, value: color, range: fullRange)
+      // Intentionally NOT setting .markdownHeadingColor — absence means "inherited from section".
+      return mutable
+    }
+
+    // Bullets and checkboxes inherit section color when useSectionColor is on.
+    guard useSectionColor,
+      let rawType = attrs[.markdownListType] as? String,
+      let listType = MarkdownListType(rawValue: rawType)
+    else { return nil }
+
+    let sectionColor: NSColor? = {
+      if let name = bulletColorName { return headingColor(named: name) }
+      if let name = headingColorName { return headingColor(named: name) }
+      return nil
+    }()
+    guard let color = sectionColor else { return nil }
+
+    switch listType {
+    case .bullet:
+      let mutable = NSMutableAttributedString(attributedString: displayLine)
+      mutable.addAttributes(
+        [
+          .foregroundColor: color,
+          .font: NSFont.systemFont(ofSize: appearance.bulletSize, weight: .bold),
+        ], range: NSRange(location: 0, length: 1))
+      return mutable
+
+    case .checkboxChecked, .checkboxUnchecked:
+      let checked = listType == .checkboxChecked
+      let newAttachment = NSAttributedString(
+        attachment: checkboxAttachment(checked: checked, color: color))
+      let mutable = NSMutableAttributedString(attributedString: displayLine)
+      mutable.replaceCharacters(in: NSRange(location: 0, length: 1), with: newAttachment)
+      return mutable
+
+    case .numbered:
+      return nil
+    }
+  }
+
   // MARK: - Helpers
+
+  // Extracts an optional capture group from a regex match, returning nil when unmatched.
+  private static func extractGroup(
+    _ match: NSTextCheckingResult, index: Int, in line: String
+  ) -> String? {
+    let range = match.range(at: index)
+    guard range.location != NSNotFound, let swiftRange = Range(range, in: line) else {
+      return nil
+    }
+    return String(line[swiftRange])
+  }
 
   static func headingFontSize(for level: Int) -> CGFloat {
     switch level {

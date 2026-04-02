@@ -18,6 +18,9 @@ struct NoteAppearanceSettings: Codable, Equatable, Sendable {
   static let minimumBulletSize: CGFloat = 12
   static let maximumBulletSize: CGFloat = 30
   static let defaultBulletSize: CGFloat = 16
+  static let minimumSectionDividerGapScale: CGFloat = 1
+  static let maximumSectionDividerGapScale: CGFloat = 2
+  static let defaultSectionDividerGapScale: CGFloat = 1
   static let minimumSidebarFontSize: CGFloat = 12
   static let maximumSidebarFontSize: CGFloat = 18
   static let defaultSidebarFontSize: CGFloat = 14
@@ -29,6 +32,7 @@ struct NoteAppearanceSettings: Codable, Equatable, Sendable {
   var lineHeight: CGFloat
   var listItemSpacing: CGFloat
   var bulletSize: CGFloat
+  var sectionDividerGapScale: CGFloat
   var sidebarFontSize: CGFloat
   var accentColorName: String
   var sidebarShowsTags: Bool
@@ -40,6 +44,7 @@ struct NoteAppearanceSettings: Codable, Equatable, Sendable {
     lineHeight: CGFloat = Self.defaultLineHeight,
     listItemSpacing: CGFloat = Self.defaultListItemSpacing,
     bulletSize: CGFloat = Self.defaultBulletSize,
+    sectionDividerGapScale: CGFloat = Self.defaultSectionDividerGapScale,
     sidebarFontSize: CGFloat = Self.defaultSidebarFontSize,
     accentColorName: String = Self.defaultAccentColorName,
     sidebarShowsTags: Bool = false,
@@ -50,6 +55,7 @@ struct NoteAppearanceSettings: Codable, Equatable, Sendable {
     self.lineHeight = lineHeight
     self.listItemSpacing = listItemSpacing
     self.bulletSize = bulletSize
+    self.sectionDividerGapScale = sectionDividerGapScale
     self.sidebarFontSize = sidebarFontSize
     self.accentColorName = accentColorName
     self.sidebarShowsTags = sidebarShowsTags
@@ -65,6 +71,8 @@ struct NoteAppearanceSettings: Codable, Equatable, Sendable {
       listItemSpacing: listItemSpacing.clamped(
         to: Self.minimumListItemSpacing...Self.maximumListItemSpacing),
       bulletSize: bulletSize.clamped(to: Self.minimumBulletSize...Self.maximumBulletSize),
+      sectionDividerGapScale: sectionDividerGapScale.clamped(
+        to: Self.minimumSectionDividerGapScale...Self.maximumSectionDividerGapScale),
       sidebarFontSize: sidebarFontSize.clamped(
         to: Self.minimumSidebarFontSize...Self.maximumSidebarFontSize),
       accentColorName: normalizedAccentColorName,
@@ -126,6 +134,7 @@ struct NoteAppearanceSettings: Codable, Equatable, Sendable {
     case lineHeight
     case listItemSpacing
     case bulletSize
+    case sectionDividerGapScale
     case sidebarFontSize
     case accentColorName
     case sidebarShowsTags
@@ -145,6 +154,10 @@ struct NoteAppearanceSettings: Codable, Equatable, Sendable {
         ?? Self.defaultListItemSpacing,
       bulletSize: try container.decodeIfPresent(CGFloat.self, forKey: .bulletSize)
         ?? Self.defaultBulletSize,
+      sectionDividerGapScale: try container.decodeIfPresent(
+        CGFloat.self,
+        forKey: .sectionDividerGapScale
+      ) ?? Self.defaultSectionDividerGapScale,
       sidebarFontSize: try container.decodeIfPresent(CGFloat.self, forKey: .sidebarFontSize)
         ?? Self.defaultSidebarFontSize,
       accentColorName: try container.decodeIfPresent(String.self, forKey: .accentColorName)
@@ -165,6 +178,7 @@ struct NoteAppearanceSettings: Codable, Equatable, Sendable {
     try container.encode(lineHeight, forKey: .lineHeight)
     try container.encode(listItemSpacing, forKey: .listItemSpacing)
     try container.encode(bulletSize, forKey: .bulletSize)
+    try container.encode(sectionDividerGapScale, forKey: .sectionDividerGapScale)
     try container.encode(sidebarFontSize, forKey: .sidebarFontSize)
     try container.encode(accentColorName, forKey: .accentColorName)
     try container.encode(sidebarShowsTags, forKey: .sidebarShowsTags)

@@ -78,6 +78,19 @@ struct AppearanceSettingsView: View {
         )
 
         SliderRow(
+          title: "Section gap",
+          valueLabel: String(format: "%.1fx", store.appearanceSettings.sectionDividerGapScale),
+          value: Binding(
+            get: { Double(store.appearanceSettings.sectionDividerGapScale) },
+            set: { store.updateSectionDividerGapScale(CGFloat($0)) }
+          ),
+          range: Double(
+            NoteAppearanceSettings.minimumSectionDividerGapScale)...Double(
+              NoteAppearanceSettings.maximumSectionDividerGapScale),
+          step: 0.1
+        )
+
+        SliderRow(
           title: "Bullet size",
           valueLabel: "\(Int(store.appearanceSettings.bulletSize))",
           value: Binding(

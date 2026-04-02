@@ -360,7 +360,8 @@ struct MarkdownTextView: NSViewRepresentable {
           let replacementRange = fullLineRange.length > lineRange.length ? fullLineRange : lineRange
           let baseAttrs = MarkdownStyler.baseTypingAttributes(for: parent.appearanceSettings)
           let dividerLine = NSMutableAttributedString(
-            attributedString: MarkdownStyler.sectionDividerDisplayString())
+            attributedString: MarkdownStyler.sectionDividerDisplayString(
+              appearance: parent.appearanceSettings))
           dividerLine.append(NSAttributedString(string: "\n", attributes: baseAttrs))
           dividerLine.append(NSAttributedString(string: "\n", attributes: baseAttrs))
 
@@ -943,6 +944,12 @@ struct MarkdownTextView: NSViewRepresentable {
         )
       }
 
+      // Post-apply section colors to any lines that were just formatted.
+      if let scealTV = textView as? ScealTextView {
+        applySectionColorsToEditedLines(
+          lineRanges, in: textStorage, scealTextView: scealTV)
+      }
+
       textView.setSelectedRange(
         clampedRange(updatedSelection, maxLength: textStorage.string.utf16.count)
       )
@@ -950,6 +957,74 @@ struct MarkdownTextView: NSViewRepresentable {
         _ = scealTextView.normalizeSelectionIfNeeded()
       }
       syncTypingAttributesToInsertionPoint(in: textView, textStorage: textStorage)
+    }
+
+    // Applies section-level colors to recently formatted lines so that live
+    // edits inside a colored section pick up the section defaults immediately.
+    private func applySectionColorsToEditedLines(
+      _ lineRanges: [NSRange],
+      in textStorage: NSTextStorage,
+      scealTextView: ScealTextView
+    ) {
+      for lineRange in lineRanges {
+        guard lineRange.location < textStorage.length else { continue }
+        guard let sectionInfo = scealTextView.sectionColors(at: lineRange.location) else {
+          continue
+        }
+        let nsString = textStorage.string as NSString
+        let currentLineRange = nsString.lineRange(
+          for: NSRange(location: lineRange.location, length: 0))
+        var trimmed = currentLineRange
+        if trimmed.length > 0,
+          nsString.character(at: trimmed.location + trimmed.length - 1) == 0x0A
+        {
+          trimmed.length -= 1
+        }
+        guard trimmed.length > 0 else { continue }
+
+        let attrs = textStorage.attributes(at: trimmed.location, effectiveRange: nil)
+
+        // Heading without explicit hcolor → apply section heading color
+        if attrs[.markdownHeadingLevel] != nil,
+          attrs[.markdownHeadingColor] == nil,
+          let colorName = sectionInfo.headingColorName,
+          let color = MarkdownStyler.headingColor(named: colorName)
+        {
+          textStorage.addAttribute(.foregroundColor, value: color, range: trimmed)
+          continue
+        }
+
+        // Bullet/checkbox with useSectionColor → apply section bullet color
+        guard sectionInfo.useSectionColor,
+          let rawType = attrs[.markdownListType] as? String,
+          let listType = MarkdownListType(rawValue: rawType)
+        else { continue }
+
+        let color: NSColor? = {
+          if let n = sectionInfo.bulletColorName { return MarkdownStyler.headingColor(named: n) }
+          if let n = sectionInfo.headingColorName { return MarkdownStyler.headingColor(named: n) }
+          return nil
+        }()
+        guard let bulletColor = color else { continue }
+
+        switch listType {
+        case .bullet:
+          textStorage.addAttributes(
+            [
+              .foregroundColor: bulletColor,
+              .font: NSFont.systemFont(
+                ofSize: scealTextView.appearanceSettings.bulletSize, weight: .bold),
+            ], range: NSRange(location: trimmed.location, length: 1))
+        case .checkboxChecked, .checkboxUnchecked:
+          let checked = listType == .checkboxChecked
+          let newAttachment = NSAttributedString(
+            attachment: MarkdownStyler.checkboxAttachment(checked: checked, color: bulletColor))
+          textStorage.replaceCharacters(
+            in: NSRange(location: trimmed.location, length: 1), with: newAttachment)
+        case .numbered:
+          break
+        }
+      }
     }
 
     private func affectedLineRanges(in nsString: NSString, editContext: PendingEditContext)
@@ -1101,6 +1176,35 @@ private enum DividerResolutionPreference {
   private let cardHInset: CGFloat = 0
   private let cardVPad: CGFloat = 10
 
+  private let sectionIconSize: CGFloat = 18
+  private let sectionIconPadding: CGFloat = 24
+  private let sectionIconHitPadding: CGFloat = 8
+  // Tracks which section icon (by divider range location) the mouse is hovering over.
+  private var hoveredSectionIconLocation: Int? = nil
+  private var sectionIconTrackingAreas: [NSTrackingArea] = []
+
+  // Walks backward from a character position to find the enclosing section's color settings.
+  func sectionColors(at location: Int) -> (
+    headingColorName: String?, bulletColorName: String?, useSectionColor: Bool
+  )? {
+    guard let textStorage, location <= textStorage.length else { return nil }
+    var result: (headingColorName: String?, bulletColorName: String?, useSectionColor: Bool)? = nil
+    let searchRange = NSRange(location: 0, length: min(location, textStorage.length))
+    textStorage.enumerateAttribute(
+      .markdownSectionDivider, in: searchRange, options: .reverse
+    ) { value, range, stop in
+      guard value as? Bool == true else { return }
+      let attrs = textStorage.attributes(at: range.location, effectiveRange: nil)
+      result = (
+        headingColorName: attrs[.markdownSectionHeadingColor] as? String,
+        bulletColorName: attrs[.markdownSectionBulletColor] as? String,
+        useSectionColor: attrs[.markdownSectionUseSectionColor] as? Bool ?? false
+      )
+      stop.pointee = true
+    }
+    return result
+  }
+
   var sectionDividerCount: Int {
     guard let textStorage else { return 0 }
 
@@ -1241,10 +1345,8 @@ private enum DividerResolutionPreference {
       let glyphRange = layoutManager.glyphRange(
         forCharacterRange: sectionRange, actualCharacterRange: nil)
       let isLastSection = (index == sections.count - 1)
-      // Always draw the last section so the card gap appears immediately after a divider
       guard glyphRange.length > 0 || isLastSection else { continue }
 
-      // Card top: y=0 for first section, divider midpoint for others
       let cardTop: CGFloat
       if index == 0 {
         cardTop = 0
@@ -1253,7 +1355,6 @@ private enum DividerResolutionPreference {
         cardTop = dividerMidYs[divIndex] + sectionCardGapOffset
       }
 
-      // Card bottom: divider midpoint for intermediate sections, view bottom for last
       let cardBottom: CGFloat
       if index == sections.count - 1 {
         cardBottom = viewBottom
@@ -1274,8 +1375,19 @@ private enum DividerResolutionPreference {
       let path = NSBezierPath(roundedRect: cardRect, xRadius: cardRadius, yRadius: cardRadius)
       cardColor.setFill()
       path.fill()
-    }
 
+      // Draw palette icon for divider-defined sections (index >= 1).
+      if index > 0, index - 1 < dividerLineRanges.count {
+        let iconRect = NSRect(
+          x: cardRect.maxX - sectionIconSize - sectionIconPadding,
+          y: cardRect.minY + sectionIconPadding,
+          width: sectionIconSize,
+          height: sectionIconSize
+        )
+        let isHovered = hoveredSectionIconLocation == dividerLineRanges[index - 1].location
+        drawSectionIcon(in: iconRect, hovered: isHovered)
+      }
+    }
     drawHorizontalRules(hrLineRanges, in: rect)
   }
 
@@ -1314,6 +1426,205 @@ private enum DividerResolutionPreference {
       guard hrRect.intersects(rect) else { continue }
       hrRect.fill()
     }
+  }
+
+  // Draws the small palette icon — faint by default, full opacity on hover.
+  private func drawSectionIcon(in rect: NSRect, hovered: Bool) {
+    let color: NSColor =
+      hovered
+      ? .secondaryLabelColor
+      : .quaternaryLabelColor
+    guard
+      let image = NSImage(
+        systemSymbolName: "paintpalette",
+        accessibilityDescription: "Section colors")?
+        .withSymbolConfiguration(
+          NSImage.SymbolConfiguration(pointSize: sectionIconSize, weight: .regular)
+            .applying(NSImage.SymbolConfiguration(paletteColors: [color])))
+    else { return }
+    image.draw(
+      in: rect,
+      from: .zero,
+      operation: .sourceOver,
+      fraction: 1.0,
+      respectFlipped: true,
+      hints: nil
+    )
+  }
+
+  // MARK: - Section Icon Hover Tracking
+
+  override func updateTrackingAreas() {
+    super.updateTrackingAreas()
+
+    // Remove old tracking areas.
+    for area in sectionIconTrackingAreas {
+      removeTrackingArea(area)
+    }
+    sectionIconTrackingAreas.removeAll()
+
+    guard let textStorage, let layoutManager, let textContainer,
+      textStorage.length > 0
+    else { return }
+
+    let fullRange = NSRange(location: 0, length: textStorage.length)
+    var dividerLineRanges: [NSRange] = []
+    textStorage.enumerateAttribute(.markdownSectionDivider, in: fullRange, options: []) {
+      value, range, _ in
+      if value as? Bool == true {
+        dividerLineRanges.append((textStorage.string as NSString).lineRange(for: range))
+      }
+    }
+    guard !dividerLineRanges.isEmpty else { return }
+
+    var sections: [NSRange] = []
+    var currentStart = 0
+    for divRange in dividerLineRanges {
+      if divRange.location > currentStart {
+        sections.append(NSRange(location: currentStart, length: divRange.location - currentStart))
+      }
+      currentStart = NSMaxRange(divRange)
+    }
+    if currentStart < textStorage.length {
+      sections.append(NSRange(location: currentStart, length: textStorage.length - currentStart))
+    }
+
+    var dividerMidYs: [CGFloat] = []
+    for divRange in dividerLineRanges {
+      let glyphs = layoutManager.glyphRange(
+        forCharacterRange: divRange, actualCharacterRange: nil)
+      let rect = layoutManager.boundingRect(forGlyphRange: glyphs, in: textContainer)
+      dividerMidYs.append(rect.midY + textContainerOrigin.y)
+    }
+
+    for (index, sectionRange) in sections.enumerated() {
+      guard index > 0, index - 1 < dividerLineRanges.count else { continue }
+      let glyphRange = layoutManager.glyphRange(
+        forCharacterRange: sectionRange, actualCharacterRange: nil)
+      let isLastSection = (index == sections.count - 1)
+      guard glyphRange.length > 0 || isLastSection else { continue }
+
+      let divIndex = min(index - 1, dividerMidYs.count - 1)
+      let cardTop = dividerMidYs[divIndex] + sectionCardGapOffset
+      let cardWidth = bounds.width - (cardHInset * 2)
+
+      let iconRect = NSRect(
+        x: cardHInset + cardWidth - sectionIconSize - sectionIconPadding,
+        y: cardTop + sectionIconPadding,
+        width: sectionIconSize,
+        height: sectionIconSize
+      )
+      let trackRect = iconRect.insetBy(dx: -sectionIconHitPadding, dy: -sectionIconHitPadding)
+
+      let area = NSTrackingArea(
+        rect: trackRect,
+        options: [.mouseEnteredAndExited, .activeInActiveApp],
+        owner: self,
+        userInfo: ["dividerLocation": dividerLineRanges[index - 1].location]
+      )
+      addTrackingArea(area)
+      sectionIconTrackingAreas.append(area)
+    }
+  }
+
+  override func mouseEntered(with event: NSEvent) {
+    if let location = event.trackingArea?.userInfo?["dividerLocation"] as? Int {
+      hoveredSectionIconLocation = location
+      setNeedsDisplay(bounds)
+      NSCursor.pointingHand.push()
+      return
+    }
+    super.mouseEntered(with: event)
+  }
+
+  override func mouseExited(with event: NSEvent) {
+    if event.trackingArea?.userInfo?["dividerLocation"] != nil {
+      hoveredSectionIconLocation = nil
+      setNeedsDisplay(bounds)
+      NSCursor.pop()
+      return
+    }
+    super.mouseExited(with: event)
+  }
+
+  // MARK: - Section Icon Hit Testing
+
+  // Computes fresh icon rects on every call so hit testing never relies on stale cache.
+  private func sectionIconHitTest(at point: NSPoint) -> NSRange? {
+    guard let textStorage, let layoutManager, let textContainer,
+      textStorage.length > 0
+    else { return nil }
+
+    let fullRange = NSRange(location: 0, length: textStorage.length)
+    var dividerLineRanges: [NSRange] = []
+    textStorage.enumerateAttribute(.markdownSectionDivider, in: fullRange, options: []) {
+      value, range, _ in
+      if value as? Bool == true {
+        let nsString = textStorage.string as NSString
+        dividerLineRanges.append(nsString.lineRange(for: range))
+      }
+    }
+    guard !dividerLineRanges.isEmpty else { return nil }
+
+    // Build section ranges (content between dividers).
+    var sections: [NSRange] = []
+    var currentStart = 0
+    for divRange in dividerLineRanges {
+      if divRange.location > currentStart {
+        sections.append(NSRange(location: currentStart, length: divRange.location - currentStart))
+      }
+      currentStart = NSMaxRange(divRange)
+    }
+    if currentStart < textStorage.length {
+      sections.append(NSRange(location: currentStart, length: textStorage.length - currentStart))
+    }
+
+    // Calculate divider midpoints.
+    var dividerMidYs: [CGFloat] = []
+    for divRange in dividerLineRanges {
+      let divGlyphs = layoutManager.glyphRange(
+        forCharacterRange: divRange, actualCharacterRange: nil)
+      let divRect = layoutManager.boundingRect(forGlyphRange: divGlyphs, in: textContainer)
+      dividerMidYs.append(divRect.midY + textContainerOrigin.y)
+    }
+
+    let viewBottom = max(bounds.height, enclosingScrollView?.contentSize.height ?? bounds.height)
+
+    // Check each divider-defined section (index >= 1) for an icon hit.
+    for (index, sectionRange) in sections.enumerated() {
+      guard index > 0, index - 1 < dividerLineRanges.count else { continue }
+      let glyphRange = layoutManager.glyphRange(
+        forCharacterRange: sectionRange, actualCharacterRange: nil)
+      let isLastSection = (index == sections.count - 1)
+      guard glyphRange.length > 0 || isLastSection else { continue }
+
+      let divIndex = min(index - 1, dividerMidYs.count - 1)
+      let cardTop = dividerMidYs[divIndex] + sectionCardGapOffset
+
+      let cardBottom: CGFloat
+      if isLastSection {
+        cardBottom = viewBottom
+      } else {
+        let nextDivIndex = min(index, dividerMidYs.count - 1)
+        cardBottom = dividerMidYs[nextDivIndex] - sectionCardGapOffset
+      }
+
+      let cardWidth = bounds.width - (cardHInset * 2)
+      let iconRect = NSRect(
+        x: cardHInset + cardWidth - sectionIconSize - sectionIconPadding,
+        y: cardTop + sectionIconPadding,
+        width: sectionIconSize,
+        height: sectionIconSize
+      )
+
+      // Use a padded rect for a more forgiving click target.
+      let hitRect = iconRect.insetBy(dx: -sectionIconHitPadding, dy: -sectionIconHitPadding)
+      if hitRect.contains(point) {
+        return dividerLineRanges[index - 1]
+      }
+    }
+
+    return nil
   }
 
   // MARK: - Paste
@@ -1397,6 +1708,20 @@ private enum DividerResolutionPreference {
     }
 
     let point = convert(event.locationInWindow, from: nil)
+
+    // Section color icon click — computed fresh each time, no stale cache.
+    if let dividerRange = sectionIconHitTest(at: point) {
+      let cardWidth = bounds.width - (cardHInset * 2)
+      let iconRect = NSRect(
+        x: cardHInset + cardWidth - sectionIconSize - sectionIconPadding,
+        y: point.y - sectionIconSize / 2,
+        width: sectionIconSize,
+        height: sectionIconSize
+      )
+      showSectionColorPopover(for: dividerRange, at: iconRect)
+      return
+    }
+
     let textPoint = NSPoint(
       x: point.x - textContainerInset.width,
       y: point.y - textContainerInset.height)
@@ -1686,5 +2011,354 @@ private enum DividerResolutionPreference {
       trimmedRange.length -= 1
     }
     return trimmedRange
+  }
+
+  // MARK: - Section Color Popover
+
+  private func showSectionColorPopover(for dividerRange: NSRange, at iconRect: NSRect) {
+    guard let textStorage else { return }
+    let attrs = textStorage.attributes(at: dividerRange.location, effectiveRange: nil)
+
+    let currentHeading = attrs[.markdownSectionHeadingColor] as? String
+    let currentBullet = attrs[.markdownSectionBulletColor] as? String
+    let currentUseSC = attrs[.markdownSectionUseSectionColor] as? Bool ?? false
+
+    let popover = NSPopover()
+    popover.behavior = .transient
+    popover.contentSize = NSSize(width: 240, height: 240)
+
+    let controller = SectionColorPopoverViewController(
+      headingColorName: currentHeading,
+      bulletColorName: currentBullet,
+      useSectionColor: currentUseSC
+    ) { [weak self, weak popover] newHeading, newBullet, newUseSC in
+      popover?.performClose(nil)
+      self?.applySectionColorChange(
+        dividerRange: dividerRange,
+        headingColorName: newHeading,
+        bulletColorName: newBullet,
+        useSectionColor: newUseSC
+      )
+    }
+
+    popover.contentViewController = controller
+    popover.show(relativeTo: iconRect, of: self, preferredEdge: .maxX)
+  }
+
+  // Updates the divider's section color attributes and re-applies colors to affected content.
+  private func applySectionColorChange(
+    dividerRange: NSRange,
+    headingColorName: String?,
+    bulletColorName: String?,
+    useSectionColor: Bool
+  ) {
+    guard let textStorage else { return }
+
+    // Find the character range for just the divider marker (trimmed).
+    let nsString = textStorage.string as NSString
+    let trimmed = trimmedLineRange(from: dividerRange, in: nsString)
+    guard trimmed.length > 0, trimmed.location < textStorage.length else { return }
+
+    _ = performEditorEdit(
+      affectedRange: trimmed,
+      actionName: "Section Colors"
+    ) { textStorage in
+      // Set or remove section color attributes on the divider.
+      if let name = headingColorName {
+        textStorage.addAttribute(.markdownSectionHeadingColor, value: name, range: trimmed)
+      } else {
+        textStorage.removeAttribute(.markdownSectionHeadingColor, range: trimmed)
+      }
+      if let name = bulletColorName {
+        textStorage.addAttribute(.markdownSectionBulletColor, value: name, range: trimmed)
+      } else {
+        textStorage.removeAttribute(.markdownSectionBulletColor, range: trimmed)
+      }
+      if useSectionColor {
+        textStorage.addAttribute(.markdownSectionUseSectionColor, value: true, range: trimmed)
+      } else {
+        textStorage.removeAttribute(.markdownSectionUseSectionColor, range: trimmed)
+      }
+      return nil
+    }
+
+    // Re-apply section colors to content lines between this divider and the next.
+    reapplySectionColorsAfterDivider(at: dividerRange)
+  }
+
+  // Walks forward from a divider and recolors headings/bullets within that section.
+  private func reapplySectionColorsAfterDivider(at dividerRange: NSRange) {
+    guard let textStorage else { return }
+
+    let nsString = textStorage.string as NSString
+    let dividerAttrs = textStorage.attributes(at: dividerRange.location, effectiveRange: nil)
+
+    let headingColorName = dividerAttrs[.markdownSectionHeadingColor] as? String
+    let bulletColorName = dividerAttrs[.markdownSectionBulletColor] as? String
+    let useSC = dividerAttrs[.markdownSectionUseSectionColor] as? Bool ?? false
+
+    let headingColor = headingColorName.flatMap { MarkdownStyler.headingColor(named: $0) }
+    let bulletColor: NSColor? = {
+      if let n = bulletColorName { return MarkdownStyler.headingColor(named: n) }
+      if let n = headingColorName { return MarkdownStyler.headingColor(named: n) }
+      return nil
+    }()
+
+    // Walk forward from the end of the divider line to the next divider or document end.
+    var lineStart = NSMaxRange(dividerRange)
+    while lineStart < nsString.length {
+      let lineRange = nsString.lineRange(for: NSRange(location: lineStart, length: 0))
+      var trimmed = lineRange
+      if trimmed.length > 0,
+        nsString.character(at: trimmed.location + trimmed.length - 1) == 0x0A
+      {
+        trimmed.length -= 1
+      }
+      guard trimmed.length > 0 else {
+        lineStart = NSMaxRange(lineRange)
+        continue
+      }
+
+      let attrs = textStorage.attributes(at: trimmed.location, effectiveRange: nil)
+
+      // Stop at the next section divider.
+      if attrs[.markdownSectionDivider] as? Bool == true { break }
+
+      // Heading without explicit hcolor
+      if attrs[.markdownHeadingLevel] != nil, attrs[.markdownHeadingColor] == nil {
+        if let color = headingColor {
+          textStorage.addAttribute(.foregroundColor, value: color, range: trimmed)
+        } else {
+          textStorage.addAttribute(.foregroundColor, value: NSColor.labelColor, range: trimmed)
+        }
+      }
+
+      // Bullet/checkbox
+      if useSC, let color = bulletColor,
+        let rawType = attrs[.markdownListType] as? String,
+        let listType = MarkdownListType(rawValue: rawType)
+      {
+        switch listType {
+        case .bullet:
+          textStorage.addAttributes(
+            [
+              .foregroundColor: color,
+              .font: NSFont.systemFont(ofSize: appearanceSettings.bulletSize, weight: .bold),
+            ], range: NSRange(location: trimmed.location, length: 1))
+        case .checkboxChecked, .checkboxUnchecked:
+          let checked = listType == .checkboxChecked
+          let newAttachment = NSAttributedString(
+            attachment: MarkdownStyler.checkboxAttachment(checked: checked, color: color))
+          textStorage.replaceCharacters(
+            in: NSRange(location: trimmed.location, length: 1), with: newAttachment)
+        case .numbered:
+          break
+        }
+      } else if !useSC,
+        let rawType = attrs[.markdownListType] as? String,
+        let listType = MarkdownListType(rawValue: rawType)
+      {
+        // Reset to global defaults when useSectionColor is off.
+        switch listType {
+        case .bullet:
+          textStorage.addAttributes(
+            [
+              .foregroundColor: MarkdownStyler.bulletColor(for: appearanceSettings),
+              .font: NSFont.systemFont(ofSize: appearanceSettings.bulletSize, weight: .bold),
+            ], range: NSRange(location: trimmed.location, length: 1))
+        case .checkboxChecked, .checkboxUnchecked:
+          let checked = listType == .checkboxChecked
+          let newAttachment = NSAttributedString(
+            attachment: MarkdownStyler.checkboxAttachment(
+              checked: checked, appearance: appearanceSettings))
+          textStorage.replaceCharacters(
+            in: NSRange(location: trimmed.location, length: 1), with: newAttachment)
+        case .numbered:
+          break
+        }
+      }
+
+      lineStart = NSMaxRange(lineRange)
+    }
+
+    setNeedsDisplay(bounds)
+  }
+}
+
+// MARK: - Section Color Popover
+
+@MainActor private class SectionColorPopoverViewController: NSViewController {
+
+  private let currentHeadingColorName: String?
+  private let currentBulletColorName: String?
+  private let currentUseSectionColor: Bool
+  private let onApply: (String?, String?, Bool) -> Void
+
+  private var selectedHeadingColor: String?
+  private var selectedBulletColor: String?
+  private var useSectionColorToggle: Bool
+
+  init(
+    headingColorName: String?,
+    bulletColorName: String?,
+    useSectionColor: Bool,
+    onApply: @escaping (String?, String?, Bool) -> Void
+  ) {
+    self.currentHeadingColorName = headingColorName
+    self.currentBulletColorName = bulletColorName
+    self.currentUseSectionColor = useSectionColor
+    self.onApply = onApply
+    self.selectedHeadingColor = headingColorName
+    self.selectedBulletColor = bulletColorName
+    self.useSectionColorToggle = useSectionColor
+    super.init(nibName: nil, bundle: nil)
+  }
+
+  @available(*, unavailable)
+  required init?(coder: NSCoder) { fatalError() }
+
+  override func loadView() {
+    let container = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 240))
+
+    var y: CGFloat = 220
+
+    // Title
+    let title = makeLabel("Section Colors", bold: true)
+    title.frame.origin = NSPoint(x: 16, y: y - 18)
+    container.addSubview(title)
+    y -= 34
+
+    // Heading Color
+    let headingLabel = makeLabel("Heading Color")
+    headingLabel.frame.origin = NSPoint(x: 16, y: y - 14)
+    container.addSubview(headingLabel)
+    y -= 28
+
+    let headingSwatches = makeSwatchRow(
+      selected: selectedHeadingColor,
+      action: #selector(headingSwatchClicked(_:)),
+      yOrigin: y - 22
+    )
+    for swatch in headingSwatches { container.addSubview(swatch) }
+    y -= 36
+
+    // Bullet Color
+    let bulletLabel = makeLabel("Bullet Color")
+    bulletLabel.frame.origin = NSPoint(x: 16, y: y - 14)
+    container.addSubview(bulletLabel)
+    y -= 28
+
+    let bulletSwatches = makeSwatchRow(
+      selected: selectedBulletColor,
+      action: #selector(bulletSwatchClicked(_:)),
+      yOrigin: y - 22
+    )
+    for swatch in bulletSwatches { container.addSubview(swatch) }
+    y -= 36
+
+    // Use section color toggle
+    let toggle = NSButton(
+      checkboxWithTitle: "Use section color for bullets & checkboxes",
+      target: self,
+      action: #selector(toggleChanged(_:))
+    )
+    toggle.state = useSectionColorToggle ? .on : .off
+    toggle.font = NSFont.systemFont(ofSize: 11)
+    toggle.sizeToFit()
+    toggle.frame.origin = NSPoint(x: 16, y: y - 18)
+    container.addSubview(toggle)
+    y -= 32
+
+    // Apply button
+    let applyBtn = NSButton(title: "Apply", target: self, action: #selector(applyClicked(_:)))
+    applyBtn.bezelStyle = .rounded
+    applyBtn.keyEquivalent = "\r"
+    applyBtn.sizeToFit()
+    applyBtn.frame.origin = NSPoint(x: 240 - applyBtn.frame.width - 16, y: 8)
+    container.addSubview(applyBtn)
+
+    self.view = container
+  }
+
+  private func makeLabel(_ text: String, bold: Bool = false) -> NSTextField {
+    let label = NSTextField(labelWithString: text)
+    label.font =
+      bold
+      ? NSFont.systemFont(ofSize: 13, weight: .semibold)
+      : NSFont.systemFont(ofSize: 11)
+    label.sizeToFit()
+    return label
+  }
+
+  private func makeSwatchRow(
+    selected: String?,
+    action: Selector,
+    yOrigin: CGFloat
+  ) -> [NSView] {
+    var views: [NSView] = []
+    let swatchSize: CGFloat = 20
+    let spacing: CGFloat = 4
+    var x: CGFloat = 16
+
+    // "None" button
+    let noneBtn = NSButton(frame: NSRect(x: x, y: yOrigin, width: 36, height: swatchSize))
+    noneBtn.title = "–"
+    noneBtn.bezelStyle = .rounded
+    noneBtn.isBordered = selected == nil
+    noneBtn.tag = -1
+    noneBtn.target = self
+    noneBtn.action = action
+    noneBtn.toolTip = "None"
+    views.append(noneBtn)
+    x += 36 + spacing
+
+    for (idx, preset) in ScealPalette.colors.enumerated() {
+      let btn = NSButton(frame: NSRect(x: x, y: yOrigin, width: swatchSize, height: swatchSize))
+      btn.wantsLayer = true
+      btn.layer?.cornerRadius = swatchSize / 2
+      btn.layer?.backgroundColor = preset.color.cgColor
+      btn.isBordered = false
+      btn.title = ""
+      btn.tag = idx
+      btn.target = self
+      btn.action = action
+      btn.toolTip = preset.name
+
+      if preset.name == selected {
+        btn.layer?.borderWidth = 2
+        btn.layer?.borderColor = NSColor.controlAccentColor.cgColor
+      }
+
+      views.append(btn)
+      x += swatchSize + spacing
+    }
+
+    return views
+  }
+
+  @objc private func headingSwatchClicked(_ sender: NSButton) {
+    selectedHeadingColor = sender.tag == -1 ? nil : ScealPalette.colors[sender.tag].name
+    rebuildSwatches()
+  }
+
+  @objc private func bulletSwatchClicked(_ sender: NSButton) {
+    selectedBulletColor = sender.tag == -1 ? nil : ScealPalette.colors[sender.tag].name
+    rebuildSwatches()
+  }
+
+  @objc private func toggleChanged(_ sender: NSButton) {
+    useSectionColorToggle = sender.state == .on
+  }
+
+  @objc private func applyClicked(_ sender: NSButton) {
+    onApply(selectedHeadingColor, selectedBulletColor, useSectionColorToggle)
+  }
+
+  private func rebuildSwatches() {
+    // Rebuild view to update selection rings — simple and sufficient for a small popover.
+    guard isViewLoaded else { return }
+    let frame = view.frame
+    loadView()
+    view.frame = frame
   }
 }
