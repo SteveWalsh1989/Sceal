@@ -2,6 +2,8 @@
 //  ScealTheme.swift
 //
 
+// Theme model defining color tokens, modes, and 10 built-in light/dark themes.
+
 import AppKit
 import SwiftUI
 
@@ -19,6 +21,7 @@ struct ThemeColor: Codable, Equatable, Sendable {
     self.alpha = alpha
   }
 
+  // Converts an AppKit NSColor to stored RGBA components.
   init(nsColor: NSColor) {
     let converted = nsColor.usingColorSpace(.sRGB) ?? nsColor
     self.red = converted.redComponent
@@ -27,10 +30,12 @@ struct ThemeColor: Codable, Equatable, Sendable {
     self.alpha = converted.alphaComponent
   }
 
+  // Converts back to an AppKit NSColor.
   var nsColor: NSColor {
     NSColor(red: red, green: green, blue: blue, alpha: alpha)
   }
 
+  // Converts to a SwiftUI Color.
   var color: Color {
     Color(red: red, green: green, blue: blue, opacity: alpha)
   }
@@ -70,18 +75,22 @@ struct ScealTheme: Identifiable, Codable, Equatable, Sendable {
     defaultLight, paper, ivory, cloud, sand,
   ]
 
+  // Looks up a built-in theme by its string identifier.
   static func builtIn(id: String) -> ScealTheme? {
     allBuiltIn.first(where: { $0.id == id })
   }
 
+  // Returns the default theme for the given light/dark mode.
   static func defaultTheme(for mode: ThemeMode) -> ScealTheme {
     mode == .dark ? defaultDark : defaultLight
   }
 
+  // Returns all built-in dark themes.
   static func darkThemes() -> [ScealTheme] {
     allBuiltIn.filter { $0.mode == .dark }
   }
 
+  // Returns all built-in light themes.
   static func lightThemes() -> [ScealTheme] {
     allBuiltIn.filter { $0.mode == .light }
   }

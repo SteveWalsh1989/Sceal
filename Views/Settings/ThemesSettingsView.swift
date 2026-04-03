@@ -2,16 +2,20 @@
 //  ThemesSettingsView.swift
 //
 
+// Settings panel for choosing themes and customizing color tokens.
+
 import SwiftUI
 
 // Settings panel for choosing built-in themes and customizing individual color tokens.
 struct ThemesSettingsView: View {
   @ObservedObject var store: NoteStore
 
+  // Whether the user has customized colors beyond the base theme.
   private var hasOverrides: Bool {
     store.appearanceSettings.colorOverrides != nil
   }
 
+  // The effective color set, including any custom overrides.
   private var resolvedColors: ThemeColorSet {
     store.appearanceSettings.resolvedColors
   }

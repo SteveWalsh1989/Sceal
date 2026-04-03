@@ -2,6 +2,8 @@
 //  ExportSettingsView.swift
 //
 
+// Settings panel for exporting notes within a date range.
+
 import SwiftUI
 
 struct ExportSettingsView: View {

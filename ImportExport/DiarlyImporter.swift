@@ -3,6 +3,8 @@
 //
 //
 
+// Parses an unzipped Diarly export folder into DayNote objects.
+
 import Foundation
 import OSLog
 
@@ -159,11 +161,13 @@ enum DiarlyImporter {
     return (title, body)
   }
 
+  // Checks if a file URL points to a directory.
   private static func isDirectory(_ url: URL) -> Bool {
     var isDir: ObjCBool = false
     return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) && isDir.boolValue
   }
 
+  // Checks if a folder name is a 4-digit year.
   private static func isYearFolder(_ url: URL) -> Bool {
     guard let year = Int(url.lastPathComponent) else { return false }
     return (2000...2100).contains(year)

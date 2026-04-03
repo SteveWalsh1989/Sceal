@@ -2,6 +2,8 @@
 //  MarkdownTextViewCoordinator.swift
 //
 
+// NSTextViewDelegate handling text changes, Enter key, slash commands, and autoformat.
+
 import AppKit
 import SwiftUI
 
@@ -32,6 +34,7 @@ extension MarkdownTextView {
       toolbar.appearanceSettings = parent.appearanceSettings
     }
 
+    // Captures the pending edit context before AppKit applies the change.
     func textView(
       _: NSTextView,
       shouldChangeTextIn affectedCharRange: NSRange,
@@ -44,6 +47,7 @@ extension MarkdownTextView {
       return true
     }
 
+    // Updates toolbar visibility and syncs typing attributes on selection change.
     func textViewDidChangeSelection(_ notification: Notification) {
       guard let textView = notification.object as? NSTextView else { return }
       if let scealTextView = textView as? ScealTextView,
@@ -86,6 +90,7 @@ extension MarkdownTextView {
       }
     }
 
+    // Converts display text back to markdown and pushes to the SwiftUI binding.
     func textDidChange(_ notification: Notification) {
       guard !isUpdating else { return }
       guard let textView = notification.object as? NSTextView,
@@ -123,6 +128,7 @@ extension MarkdownTextView {
       }
     }
 
+    // Handles Enter, Tab, Backspace, and slash popup navigation.
     func textView(
       _ textView: NSTextView,
       doCommandBy commandSelector: Selector
@@ -401,6 +407,7 @@ extension MarkdownTextView {
       return lineText.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
+    // Checks if a line contains only a list marker with no content.
     private func isEmptyListItem(_ lineText: String) -> Bool {
       let trimmed = lineText.trimmingCharacters(in: .whitespaces)
       let emptyMarkers = [
@@ -458,6 +465,7 @@ extension MarkdownTextView {
       return true
     }
 
+    // Checks if a line carries the section divider attribute.
     private func lineHasSectionDivider(
       _ lineRange: NSRange,
       in textStorage: NSTextStorage,
@@ -478,10 +486,12 @@ extension MarkdownTextView {
         as? Bool == true
     }
 
+    // Deletes a list marker line when Enter cancels continuation.
     private func removeListMarker(in textStorage: NSTextStorage, lineRange: NSRange) {
       textStorage.replaceCharacters(in: lineRange, with: "")
     }
 
+    // Returns the display marker for continuing a list on the next line.
     private func continuationMarker(for listType: MarkdownListType, previousLineText: String)
       -> String
     {
@@ -499,6 +509,7 @@ extension MarkdownTextView {
       }
     }
 
+    // Builds a styled attributed string for a list continuation marker.
     private func continuationAttributedMarker(
       for listType: MarkdownListType, marker: String, appearance: NoteAppearanceSettings,
       indentLevel: Int = 0
@@ -615,6 +626,7 @@ extension MarkdownTextView {
 
     // MARK: - Slash Command Popup
 
+    // Filters and shows the slash command popup as the user types.
     private func checkSlashCommandTrigger(in textView: NSTextView) {
       let cursorLocation = textView.selectedRange().location
       guard cursorLocation > 0 else {
@@ -670,11 +682,13 @@ extension MarkdownTextView {
       }
     }
 
+    // Hides the slash command popup and clears the trigger location.
     private func dismissSlashPopup() {
       slashPopup.hide()
       slashTriggerLocation = nil
     }
 
+    // Calculates the line rect for positioning the slash popup.
     private func currentSlashCommandLineRect(in textView: NSTextView, cursorLocation: Int)
       -> NSRect?
     {
@@ -697,6 +711,7 @@ extension MarkdownTextView {
       return lineRect
     }
 
+    // Replaces a line's content in the text storage.
     private func replaceCurrentLine(
       in textStorage: NSTextStorage,
       lineRange: NSRange,
@@ -705,6 +720,7 @@ extension MarkdownTextView {
       textStorage.replaceCharacters(in: lineRange, with: attributedString)
     }
 
+    // Returns typing attributes for a heading at the given level.
     private func headingTypingAttributes(level: Int) -> [NSAttributedString.Key: Any] {
       [
         .font: parent.appearanceSettings.boldBodyFont(
@@ -715,6 +731,7 @@ extension MarkdownTextView {
       ]
     }
 
+    // Returns typing attributes for code block content.
     private func codeBlockTypingAttributes() -> [NSAttributedString.Key: Any] {
       [
         .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
@@ -881,6 +898,7 @@ extension MarkdownTextView {
       }
     }
 
+    // Computes the line ranges affected by a pending edit.
     private func affectedLineRanges(in nsString: NSString, editContext: PendingEditContext)
       -> [NSRange]
     {
@@ -905,6 +923,7 @@ extension MarkdownTextView {
       return lineRanges
     }
 
+    // Returns the trimmed line range containing the given location.
     private func trimmedLineRange(in nsString: NSString, containing location: Int) -> NSRange {
       let safeLocation = min(location, max(nsString.length - 1, 0))
       return trimmedLineRange(
@@ -913,6 +932,7 @@ extension MarkdownTextView {
       )
     }
 
+    // Strips the trailing newline from a line range.
     private func trimmedLineRange(from lineRange: NSRange, in nsString: NSString) -> NSRange {
       var trimmedRange = lineRange
       if trimmedRange.length > 0,
@@ -923,6 +943,7 @@ extension MarkdownTextView {
       return trimmedRange
     }
 
+    // Detects raw markdown list prefixes and their display-width equivalents.
     private func rawAutoformatPrefixMetrics(for lineText: String)
       -> (rawPrefixLength: Int, displayPrefixLength: Int)?
     {
@@ -947,6 +968,7 @@ extension MarkdownTextView {
       return nil
     }
 
+    // Remaps the selection after autoformat changes the line length.
     private func adjustedSelection(
       _ selection: NSRange,
       previousLineRange: NSRange,
@@ -980,12 +1002,14 @@ extension MarkdownTextView {
       return adjustedSelection
     }
 
+    // Constrains a range to valid bounds within text storage.
     private func clampedRange(_ range: NSRange, maxLength: Int) -> NSRange {
       let safeLocation = min(range.location, maxLength)
       let safeLength = min(range.length, max(maxLength - safeLocation, 0))
       return NSRange(location: safeLocation, length: safeLength)
     }
 
+    // Ensures typing attributes match the character context at the cursor.
     private func syncTypingAttributesToInsertionPoint(
       in textView: NSTextView,
       textStorage: NSTextStorage

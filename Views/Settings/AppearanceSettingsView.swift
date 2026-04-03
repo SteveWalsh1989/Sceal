@@ -2,6 +2,8 @@
 //  AppearanceSettingsView.swift
 //
 
+// Settings panel for font, layout, spacing, and sidebar preferences.
+
 import AppKit
 import SwiftUI
 

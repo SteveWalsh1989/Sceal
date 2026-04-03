@@ -2,6 +2,8 @@
 //  MarkdownAttributeKeys.swift
 //
 
+// Custom NSAttributedString keys for tracking markdown semantics in attributed strings.
+
 import AppKit
 
 // MARK: - Custom Attribute Keys

@@ -3,6 +3,8 @@
 //
 //
 
+// NSViewRepresentable bridge between SwiftUI and the AppKit markdown editor.
+
 import AppKit
 import SwiftUI
 
@@ -11,10 +13,12 @@ struct MarkdownTextView: NSViewRepresentable {
   @Binding var text: String
   let appearanceSettings: NoteAppearanceSettings
 
+  // Creates the coordinator that handles text view delegation and editing.
   func makeCoordinator() -> Coordinator {
     Coordinator(parent: self)
   }
 
+  // Builds the NSScrollView + ScealTextView with initial configuration.
   func makeNSView(context: Context) -> NSScrollView {
     let textView = ScealTextView()
     textView.appearanceSettings = appearanceSettings
@@ -74,6 +78,7 @@ struct MarkdownTextView: NSViewRepresentable {
     return scrollView
   }
 
+  // Syncs SwiftUI state changes into the AppKit text view.
   func updateNSView(_ scrollView: NSScrollView, context: Context) {
     guard !context.coordinator.isUpdating else { return }
     guard let textView = scrollView.documentView as? NSTextView else { return }
@@ -155,6 +160,7 @@ struct MarkdownTextView: NSViewRepresentable {
     context.coordinator.isUpdating = false
   }
 
+  // Constrains a text range to valid bounds.
   private func clampedRange(_ range: NSRange, maxLength: Int) -> NSRange {
     let safeLocation = min(range.location, maxLength)
     let safeLength = min(range.length, max(maxLength - safeLocation, 0))

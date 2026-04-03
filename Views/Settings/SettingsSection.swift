@@ -2,6 +2,8 @@
 //  SettingsSection.swift
 //
 
+// Defines sidebar sections for the settings navigation.
+
 // Sidebar sections for the settings window.
 enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
   case appearance

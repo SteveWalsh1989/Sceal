@@ -2,6 +2,8 @@
 //  ScealPalette.swift
 //
 
+// Shared muted color palette for headings, bullets, accents, and theme settings.
+
 import AppKit
 
 // Muted flat palette shared across headings, bullets, checkboxes, and appearance settings.
@@ -28,10 +30,12 @@ enum ScealPalette {
       }),
   ]
 
+  // Looks up a palette color by its string name.
   static func color(named name: String) -> NSColor? {
     colors.first(where: { $0.name == name })?.color
   }
 
+  // Returns the palette name for an NSColor, or nil if not found.
   static func name(for color: NSColor) -> String? {
     colors.first(where: { $0.color == color })?.name
   }

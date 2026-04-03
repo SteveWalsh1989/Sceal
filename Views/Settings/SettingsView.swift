@@ -2,6 +2,8 @@
 //  SettingsView.swift
 //
 
+// Root settings window with sidebar navigation and swappable detail panel.
+
 import SwiftUI
 
 // Root settings view with sidebar navigation and swappable detail panel.
@@ -23,6 +25,7 @@ struct SettingsView: View {
     .frame(width: 860, height: 730)
   }
 
+  // Returns the settings detail view for the current sidebar selection.
   @ViewBuilder
   private var detailView: some View {
     switch selectedSection {

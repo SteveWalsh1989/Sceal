@@ -3,6 +3,8 @@
 //
 //
 
+// Central state store for notes, appearance settings, and persistence.
+
 import AppKit
 import Combine
 import Foundation
@@ -18,6 +20,7 @@ struct NoteMonthSection: Identifiable, Equatable, Sendable {
     ScealDateFormatters.storageDate.string(from: monthStartDate)
   }
 
+  // Month header text, omitting the year for the current year.
   var title: String {
     let isCurrentYear =
       Calendar.current.component(.year, from: monthStartDate)
@@ -73,6 +76,7 @@ final class NoteStore: ObservableObject {
     self.hasLoaded = !previewNotes.isEmpty
   }
 
+  // Groups notes by month for sidebar section display.
   var monthSections: [NoteMonthSection] {
     let groupedNotes = Dictionary(grouping: notes) { note in
       calendar.date(from: calendar.dateComponents([.year, .month], from: note.date))
@@ -90,10 +94,12 @@ final class NoteStore: ObservableObject {
       .sorted(by: { $0.monthStartDate > $1.monthStartDate })
   }
 
+  // Whether a note already exists for today's date.
   var hasTodayNote: Bool {
     note(withID: dayID(for: .now)) != nil
   }
 
+  // The currently selected note, if any.
   var selectedNote: DayNote? {
     guard let selectedNoteID else {
       return nil
@@ -102,6 +108,7 @@ final class NoteStore: ObservableObject {
     return note(withID: selectedNoteID)
   }
 
+  // Loads notes from disk on first call, seeds starter notes if empty.
   func loadIfNeeded() {
     guard !hasLoaded else {
       return
@@ -131,6 +138,7 @@ final class NoteStore: ObservableObject {
     startPeriodicFlush()
   }
 
+  // Creates today's note if needed and selects it.
   func selectToday() {
     do {
       try ensureTodayNoteExists()
@@ -140,10 +148,12 @@ final class NoteStore: ObservableObject {
     }
   }
 
+  // Clears the current user-facing message banner.
   func dismissMessage() {
     userMessage = nil
   }
 
+  // Immediately writes all debounced saves to disk.
   func flushPendingSaves() {
     let noteIDs = Array(pendingSaveTasks.keys)
 
@@ -163,6 +173,7 @@ final class NoteStore: ObservableObject {
     }
   }
 
+  // Looks up a note by ID using the fast index, falling back to linear search.
   func note(withID noteID: DayNote.ID) -> DayNote? {
     if let index = noteIndex[noteID], notes.indices.contains(index), notes[index].id == noteID {
       return notes[index]
@@ -170,6 +181,7 @@ final class NoteStore: ObservableObject {
     return notes.first(where: { $0.id == noteID })
   }
 
+  // Sets the selected note ID.
   func select(noteID: DayNote.ID) {
     selectedNoteID = noteID
   }
@@ -192,6 +204,7 @@ final class NoteStore: ObservableObject {
     selectedNoteID = notes[currentIndex + 1].id
   }
 
+  // Persists the new-note default preference to UserDefaults.
   func updateNewNoteDefault(_ value: NewNoteDefault) {
     newNoteDefault = value
     userDefaults.set(value.rawValue, forKey: Self.newNoteDefaultKey)
@@ -243,6 +256,7 @@ final class NoteStore: ObservableObject {
     return (previousNoteID, nextNoteID)
   }
 
+  // Two-way binding for the note title, auto-saving on change.
   func titleBinding(for noteID: DayNote.ID) -> Binding<String> {
     Binding(
       get: { self.note(withID: noteID)?.title ?? "" },
@@ -250,6 +264,7 @@ final class NoteStore: ObservableObject {
     )
   }
 
+  // Two-way binding for the raw tags string, auto-saving on change.
   func tagsBinding(for noteID: DayNote.ID) -> Binding<String> {
     Binding(
       get: { self.note(withID: noteID)?.tags.joined(separator: ", ") ?? "" },
@@ -257,6 +272,7 @@ final class NoteStore: ObservableObject {
     )
   }
 
+  // Two-way binding for the note body, auto-saving on change.
   func bodyBinding(for noteID: DayNote.ID) -> Binding<String> {
     Binding(
       get: { self.note(withID: noteID)?.body ?? "" },
@@ -264,6 +280,7 @@ final class NoteStore: ObservableObject {
     )
   }
 
+  // Reads all .md files from the notes directory and seeds if empty.
   private func loadNotes() throws {
     let directoryURL = try notesDirectoryURL()
     let fileURLs = try fileManager.contentsOfDirectory(
@@ -300,6 +317,7 @@ final class NoteStore: ObservableObject {
     rebuildNoteIndex()
   }
 
+  // Creates today's note (blank or copy-previous) if it doesn't exist.
   private func ensureTodayNoteExists() throws {
     let todayID = dayID(for: .now)
     guard note(withID: todayID) == nil else {
@@ -318,29 +336,34 @@ final class NoteStore: ObservableObject {
     try save(todayNote)
   }
 
+  // Decodes a single note from a markdown file URL.
   private func loadNote(from fileURL: URL) throws -> DayNote {
     let contents = try String(contentsOf: fileURL, encoding: .utf8)
     return try MarkdownNoteFile.decode(contents: contents, sourceURL: fileURL)
   }
 
+  // Updates a note's title and schedules a save.
   private func updateTitle(_ title: String, for noteID: DayNote.ID) {
     update(noteID: noteID) { note in
       note.title = title
     }
   }
 
+  // Updates a note's tags (normalized) and schedules a save.
   private func updateTags(_ rawTags: String, for noteID: DayNote.ID) {
     update(noteID: noteID) { note in
       note.tags = normalizedTags(from: rawTags)
     }
   }
 
+  // Updates a note's body and schedules a save.
   private func updateBody(_ body: String, for noteID: DayNote.ID) {
     update(noteID: noteID) { note in
       note.body = body
     }
   }
 
+  // Applies a mutation to appearance settings, clamps, and persists.
   func updateAppearanceSettings(_ mutate: (inout NoteAppearanceSettings) -> Void) {
     var updatedSettings = appearanceSettings
     mutate(&updatedSettings)
@@ -348,6 +371,7 @@ final class NoteStore: ObservableObject {
     persistAppearanceSettings()
   }
 
+  // Applies a mutation to a note, rebuilds the index, and schedules a save.
   private func update(noteID: DayNote.ID, mutate: (inout DayNote) -> Void) {
     guard let index = notes.firstIndex(where: { $0.id == noteID }) else {
       return
@@ -360,6 +384,7 @@ final class NoteStore: ObservableObject {
     scheduleSave(for: noteID)
   }
 
+  // Debounces saves at 350ms to avoid excessive disk writes.
   private func scheduleSave(for noteID: DayNote.ID) {
     pendingSaveTasks[noteID]?.cancel()
     pendingSaveTasks[noteID] = Task { [weak self] in
@@ -372,6 +397,7 @@ final class NoteStore: ObservableObject {
     }
   }
 
+  // Writes a single pending note to disk.
   private func persistPendingSave(for noteID: DayNote.ID) {
     pendingSaveTasks[noteID] = nil
 
@@ -386,6 +412,7 @@ final class NoteStore: ObservableObject {
     }
   }
 
+  // Cancels debounce and immediately writes a single note.
   private func flushPendingSave(for noteID: DayNote.ID) {
     let hadPendingSave = pendingSaveTasks[noteID] != nil
     pendingSaveTasks[noteID]?.cancel()
@@ -402,12 +429,14 @@ final class NoteStore: ObservableObject {
     }
   }
 
+  // Encodes and writes a note to its markdown file.
   func save(_ note: DayNote) throws {
     let noteURL = try notesDirectoryURL().appendingPathComponent(note.fileName)
     let fileContents = try MarkdownNoteFile.encode(note)
     try fileContents.write(to: noteURL, atomically: true, encoding: .utf8)
   }
 
+  // Removes the markdown file for a note from disk.
   private func deleteFile(for note: DayNote) throws {
     let noteURL = try notesDirectoryURL().appendingPathComponent(note.fileName)
 
@@ -418,6 +447,7 @@ final class NoteStore: ObservableObject {
     try fileManager.removeItem(at: noteURL)
   }
 
+  // Encodes appearance settings to UserDefaults.
   func persistAppearanceSettings() {
     do {
       let data = try JSONEncoder().encode(appearanceSettings)
@@ -427,6 +457,7 @@ final class NoteStore: ObservableObject {
     }
   }
 
+  // Decodes appearance settings from UserDefaults with defaults.
   private static func loadAppearanceSettings(from userDefaults: UserDefaults)
     -> NoteAppearanceSettings
   {
@@ -440,6 +471,7 @@ final class NoteStore: ObservableObject {
     return settings.clamped
   }
 
+  // Reads the new-note default preference from UserDefaults.
   private static func loadNewNoteDefault(from userDefaults: UserDefaults) -> NewNoteDefault {
     guard
       let rawValue = userDefaults.string(forKey: newNoteDefaultKey),
@@ -451,6 +483,7 @@ final class NoteStore: ObservableObject {
     return value
   }
 
+  // Returns the notes directory, creating it if needed.
   private func notesDirectoryURL() throws -> URL {
     let appSupportURL = try fileManager.url(
       for: .applicationSupportDirectory,
@@ -472,10 +505,12 @@ final class NoteStore: ObservableObject {
     return notesDirectoryURL
   }
 
+  // Formats a date as the YYYY-MM-DD storage key.
   private func dayID(for date: Date) -> DayNote.ID {
     ScealDateFormatters.storageDate.string(from: calendar.startOfDay(for: date))
   }
 
+  // Splits, trims, and deduplicates a raw comma-separated tags string.
   private func normalizedTags(from rawTags: String) -> [String] {
     var seenTags = Set<String>()
     var normalizedTags: [String] = []
@@ -497,10 +532,12 @@ final class NoteStore: ObservableObject {
     return normalizedTags
   }
 
+  // Rebuilds the ID-to-array-index lookup dictionary.
   func rebuildNoteIndex() {
     noteIndex = Dictionary(uniqueKeysWithValues: notes.enumerated().map { ($1.id, $0) })
   }
 
+  // Logs an error and surfaces it as a user-facing message.
   func report(_ error: Error, context: String) {
     let message =
       error.localizedDescription.isEmpty ? String(describing: error) : error.localizedDescription

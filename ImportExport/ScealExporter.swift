@@ -2,6 +2,8 @@
 //  ScealExporter.swift
 //
 
+// Exports notes to a year-organized folder structure and zips the result.
+
 import Foundation
 import OSLog
 

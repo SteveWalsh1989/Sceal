@@ -2,6 +2,8 @@
 //  ScealTextView.swift
 //
 
+// Custom NSTextView subclass handling section card rendering, divider navigation, and checkboxes.
+
 import AppKit
 import SwiftUI
 
@@ -63,6 +65,7 @@ enum DividerResolutionPreference {
     effectiveAppearance.bestMatch(from: [.darkAqua, .vibrantDark]) != nil
   }
 
+  // Counts section dividers in the text storage.
   var sectionDividerCount: Int {
     guard let textStorage else { return 0 }
 
@@ -79,6 +82,7 @@ enum DividerResolutionPreference {
     return dividerCount
   }
 
+  // Forces layout recalculation and redraws section card backgrounds.
   func refreshSectionLayout() {
     let fullRange = NSRange(location: 0, length: textStorage?.length ?? 0)
     if fullRange.length > 0 {
@@ -88,6 +92,7 @@ enum DividerResolutionPreference {
     enclosingScrollView?.contentView.needsDisplay = true
   }
 
+  // Moves the cursor out of a section divider to the nearest editable position.
   @discardableResult
   func normalizeSelectionIfNeeded(prefer preference: DividerResolutionPreference = .nearest) -> Bool
   {
@@ -104,6 +109,7 @@ enum DividerResolutionPreference {
     return true
   }
 
+  // Finds a nearby non-divider location to source typing attributes from.
   func typingAttributeSourceLocation(forInsertionLocation location: Int) -> Int? {
     guard let textStorage, textStorage.length > 0 else { return nil }
 
@@ -131,6 +137,7 @@ enum DividerResolutionPreference {
 
   // MARK: - Section Card Backgrounds
 
+  // Draws section card backgrounds and palette icons instead of the default background.
   override func drawBackground(in rect: NSRect) {
     // Don't call super — we draw all backgrounds ourselves so there's
     // no default background bleeding through between cards.
@@ -249,6 +256,7 @@ enum DividerResolutionPreference {
     drawHorizontalRules(hrLineRanges, in: rect)
   }
 
+  // Draws a single full-height card when there are no section dividers.
   private func drawSingleCard(in rect: NSRect) {
     let fullHeight = max(bounds.height, enclosingScrollView?.contentSize.height ?? bounds.height)
     let cardRect = NSRect(
@@ -315,6 +323,7 @@ enum DividerResolutionPreference {
 
   // MARK: - Section Icon Hover Tracking
 
+  // Creates hover tracking areas over each section's palette icon.
   override func updateTrackingAreas() {
     super.updateTrackingAreas()
 
@@ -388,6 +397,7 @@ enum DividerResolutionPreference {
     }
   }
 
+  // Shows the pointing hand cursor when hovering a section icon.
   override func mouseEntered(with event: NSEvent) {
     if let location = event.trackingArea?.userInfo?["dividerLocation"] as? Int {
       hoveredSectionIconLocation = location
@@ -398,6 +408,7 @@ enum DividerResolutionPreference {
     super.mouseEntered(with: event)
   }
 
+  // Restores the default cursor when leaving a section icon.
   override func mouseExited(with event: NSEvent) {
     if event.trackingArea?.userInfo?["dividerLocation"] != nil {
       hoveredSectionIconLocation = nil
@@ -480,21 +491,25 @@ enum DividerResolutionPreference {
 
   // MARK: - Paste
 
+  // Skips section dividers when arrowing up.
   override func moveUp(_ sender: Any?) {
     super.moveUp(sender)
     skipSectionDividers(direction: .previous, sender: sender)
   }
 
+  // Skips section dividers when arrowing down.
   override func moveDown(_ sender: Any?) {
     super.moveDown(sender)
     skipSectionDividers(direction: .next, sender: sender)
   }
 
+  // Sanitizes the replacement range to avoid writing into dividers.
   override func insertText(_ insertString: Any, replacementRange: NSRange) {
     let targetRange = sanitizedReplacementRange(replacementRange)
     super.insertText(insertString, replacementRange: targetRange)
   }
 
+  // Pastes as plain text only, stripping any rich formatting.
   override func paste(_ sender: Any?) {
     guard let plainText = NSPasteboard.general.string(forType: .string) else { return }
     insertText(plainText, replacementRange: selectedRange())
@@ -502,6 +517,7 @@ enum DividerResolutionPreference {
 
   // MARK: - Keyboard Shortcuts
 
+  // Intercepts Cmd+B to toggle bold on the selection.
   override func performKeyEquivalent(with event: NSEvent) -> Bool {
     guard event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command else {
       return super.performKeyEquivalent(with: event)
@@ -550,6 +566,7 @@ enum DividerResolutionPreference {
 
   // MARK: - Checkbox Click
 
+  // Handles section icon clicks, checkbox toggles, and divider selection.
   override func mouseDown(with event: NSEvent) {
     // Always reclaim first-responder on click so the cursor is placeable after
     // focus was lost to a popover, sidebar interaction, or programmatic edit.
@@ -621,6 +638,7 @@ enum DividerResolutionPreference {
     toggleCheckbox(at: charIndex)
   }
 
+  // Toggles a checkbox between checked and unchecked states.
   private func toggleCheckbox(at charIndex: Int) {
     guard let textStorage = textStorage else { return }
     let nsString = textStorage.string as NSString
@@ -691,6 +709,7 @@ enum DividerResolutionPreference {
     }
   }
 
+  // Auto-advances past divider lines after arrow key navigation.
   private func skipSectionDividers(direction: DividerResolutionPreference, sender: Any?) {
     guard selectedRange().length == 0 else { return }
 
@@ -715,6 +734,7 @@ enum DividerResolutionPreference {
     _ = normalizeSelectionIfNeeded(prefer: direction)
   }
 
+  // Adjusts a replacement range so it doesn't cross into a divider.
   private func sanitizedReplacementRange(_ replacementRange: NSRange) -> NSRange {
     let baseRange = replacementRange.location == NSNotFound ? selectedRange() : replacementRange
     guard baseRange.length == 0 else { return baseRange }
@@ -726,6 +746,7 @@ enum DividerResolutionPreference {
     return NSRange(location: resolvedLocation, length: 0)
   }
 
+  // Detects when a click lands on a divider line.
   private func dividerSelectionLocation(
     for charIndex: Int,
     at textPoint: NSPoint,
@@ -759,6 +780,7 @@ enum DividerResolutionPreference {
     return nil
   }
 
+  // Resolves a divider-crossing cursor to the nearest editable location.
   private func resolvedInsertionLocation(
     for proposedLocation: Int,
     prefer preference: DividerResolutionPreference
@@ -792,6 +814,7 @@ enum DividerResolutionPreference {
     }
   }
 
+  // Finds the last editable position before a divider.
   private func previousEditableInsertionLocation(before dividerLineRange: NSRange) -> Int? {
     guard dividerLineRange.location > 0 else { return nil }
 
@@ -812,6 +835,7 @@ enum DividerResolutionPreference {
     return nil
   }
 
+  // Finds the first editable position after a divider.
   private func nextEditableInsertionLocation(after dividerLineRange: NSRange) -> Int? {
     let nsString = string as NSString
     var searchLocation = NSMaxRange(dividerLineRange)
@@ -827,6 +851,7 @@ enum DividerResolutionPreference {
     return nsString.length
   }
 
+  // Returns the line range of the divider at the given location, if any.
   private func sectionDividerLineRange(containingInsertionLocation location: Int) -> NSRange? {
     guard let textStorage, textStorage.length > 0 else { return nil }
 
@@ -838,10 +863,12 @@ enum DividerResolutionPreference {
     return lineHasSectionDivider(lineRange) ? lineRange : nil
   }
 
+  // Checks if a line range carries the section divider attribute.
   private func lineHasSectionDivider(_ lineRange: NSRange) -> Bool {
     lineHasAttribute(.markdownSectionDivider, in: lineRange)
   }
 
+  // Returns false for divider and horizontal rule positions.
   private func canUseTypingAttributes(at location: Int) -> Bool {
     guard let textStorage, location >= 0, location < textStorage.length else { return false }
 
@@ -850,6 +877,7 @@ enum DividerResolutionPreference {
       && attributes[.markdownHorizontalRule] as? Bool != true
   }
 
+  // Checks if the first character of a line has a given attribute.
   private func lineHasAttribute(_ key: NSAttributedString.Key, in lineRange: NSRange) -> Bool {
     guard let textStorage else { return false }
 
@@ -860,6 +888,7 @@ enum DividerResolutionPreference {
       == true
   }
 
+  // Strips the trailing newline from a line range.
   private func trimmedLineRange(from lineRange: NSRange, in nsString: NSString) -> NSRange {
     var trimmedRange = lineRange
     if trimmedRange.length > 0,
@@ -872,6 +901,7 @@ enum DividerResolutionPreference {
 
   // MARK: - Section Color Popover
 
+  // Presents the color picker popover for a section divider.
   private func showSectionColorPopover(for dividerRange: NSRange, at iconRect: NSRect) {
     guard let textStorage else { return }
     let attrs = textStorage.attributes(at: dividerRange.location, effectiveRange: nil)
@@ -1044,6 +1074,7 @@ enum DividerResolutionPreference {
 
 // MARK: - Section Color Popover
 
+// Popover for picking section heading and bullet colors.
 @MainActor private class SectionColorPopoverViewController: NSViewController {
 
   private let currentHeadingColorName: String?

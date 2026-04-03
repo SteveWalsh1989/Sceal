@@ -2,6 +2,8 @@
 //  ScealImporter.swift
 //
 
+// Imports notes from an unzipped Scéal export using the native markdown format.
+
 import Foundation
 
 // Imports notes from an unzipped Scéal export folder using the native markdown format.

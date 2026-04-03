@@ -2,12 +2,15 @@
 //  NoteStore+Appearance.swift
 //
 
+// NoteStore extension for appearance setting update methods.
+
 import Foundation
 
 // MARK: - Appearance Settings
 
 extension NoteStore {
 
+  // Each method below updates a single appearance property and persists the change.
   func updateBodyFontName(_ bodyFontName: String) {
     updateAppearanceSettings { settings in
       settings.bodyFontName = bodyFontName

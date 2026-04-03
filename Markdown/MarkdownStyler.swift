@@ -3,6 +3,8 @@
 //
 //
 
+// Bidirectional markdown <-> NSAttributedString conversion engine with live formatting.
+
 import AppKit
 
 // MARK: - Styler
@@ -36,30 +38,37 @@ enum MarkdownStyler {
   static let headingColorPresets: [(name: String, color: NSColor)] =
     ScealPalette.colors.map { ($0.name, $0.color) }
 
+  // Returns the NSColor for a named heading color preset.
   static func headingColor(named name: String) -> NSColor? {
     ScealPalette.color(named: name)
   }
 
+  // Returns the preset name matching an NSColor, or nil.
   static func headingColorName(for color: NSColor) -> String? {
     ScealPalette.name(for: color)
   }
 
+  // Resolves the accent NSColor from appearance settings.
   static func accentColor(for appearance: NoteAppearanceSettings) -> NSColor {
     appearance.accentColor
   }
 
+  // Accent color used for checked checkbox attachments.
   static func checkboxCheckedColor(for appearance: NoteAppearanceSettings) -> NSColor {
     accentColor(for: appearance)
   }
 
+  // Dimmed color used for unchecked checkbox attachments.
   static func checkboxUncheckedColor(for appearance: NoteAppearanceSettings) -> NSColor {
     accentColor(for: appearance)
   }
 
+  // Accent color used for bullet markers.
   static func bulletColor(for appearance: NoteAppearanceSettings) -> NSColor {
     accentColor(for: appearance)
   }
 
+  // Paragraph style for regular body text with configurable line height.
   static func bodyParagraphStyle(for appearance: NoteAppearanceSettings) -> NSMutableParagraphStyle
   {
     let style = NSMutableParagraphStyle()
@@ -67,6 +76,7 @@ enum MarkdownStyler {
     return style
   }
 
+  // Paragraph style for list items with indent-based leading margin.
   static func listParagraphStyle(for appearance: NoteAppearanceSettings, indentLevel: Int = 0)
     -> NSMutableParagraphStyle
   {
@@ -91,6 +101,7 @@ enum MarkdownStyler {
     return style
   }
 
+  // Default typing attributes applied to new text in the editor.
   static func baseTypingAttributes(for appearance: NoteAppearanceSettings)
     -> [NSAttributedString.Key: Any]
   {
@@ -103,6 +114,7 @@ enum MarkdownStyler {
 
   // MARK: - Checkbox Attachments
 
+  // Creates an SF Symbol checkbox attachment using the accent color.
   static func checkboxAttachment(checked: Bool, appearance: NoteAppearanceSettings)
     -> NSTextAttachment
   {
@@ -118,6 +130,7 @@ enum MarkdownStyler {
     return attachment
   }
 
+  // Wraps a checkbox attachment in an attributed string with list attributes.
   static func checkboxAttributedString(checked: Bool, appearance: NoteAppearanceSettings)
     -> NSAttributedString
   {
@@ -138,6 +151,7 @@ enum MarkdownStyler {
 
   // MARK: - Raw Markdown → Display Attributed String
 
+  // Converts raw markdown to a display-ready NSAttributedString with hidden delimiters.
   static func formatForDisplay(_ rawMarkdown: String, appearance: NoteAppearanceSettings)
     -> NSAttributedString
   {
@@ -292,6 +306,7 @@ enum MarkdownStyler {
 
   // MARK: - Live Line Formatting (called on Enter)
 
+  // Re-formats a single line in-place after Enter, returning the detected list type.
   @discardableResult
   static func formatCurrentLine(
     in textStorage: NSTextStorage, lineRange: NSRange, appearance: NoteAppearanceSettings

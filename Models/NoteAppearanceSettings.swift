@@ -2,6 +2,8 @@
 //  NoteAppearanceSettings.swift
 //
 
+// Shared editor and sidebar appearance settings with theme resolution and persistence.
+
 import AppKit
 import SwiftUI
 
@@ -70,6 +72,7 @@ struct NoteAppearanceSettings: Codable, Equatable, Sendable {
     self.colorOverrides = colorOverrides
   }
 
+  // Returns a copy with all numeric values clamped to their valid ranges.
   var clamped: NoteAppearanceSettings {
     NoteAppearanceSettings(
       bodyFontName: normalizedBodyFontName,
@@ -91,10 +94,12 @@ struct NoteAppearanceSettings: Codable, Equatable, Sendable {
     )
   }
 
+  // Resolved NSFont for the editor body text.
   var bodyFont: NSFont {
     resolvedFont(ofSize: bodyFontSize)
   }
 
+  // Human-readable font name for the settings UI.
   var bodyFontDisplayName: String {
     if normalizedBodyFontName == Self.systemFontToken {
       return "System"
@@ -103,6 +108,7 @@ struct NoteAppearanceSettings: Codable, Equatable, Sendable {
     return resolvedFont(ofSize: bodyFontSize).displayName ?? normalizedBodyFontName
   }
 
+  // Resolved accent NSColor from the palette.
   var accentColor: NSColor {
     ScealPalette.color(named: normalizedAccentColorName)
       ?? ScealPalette.color(named: Self.defaultAccentColorName)
@@ -122,6 +128,7 @@ struct NoteAppearanceSettings: Codable, Equatable, Sendable {
     return theme.mode == .dark ? .dark : .light
   }
 
+  // Resolves the named font at the given size, falling back to system font.
   func resolvedFont(ofSize size: CGFloat) -> NSFont {
     let clampedSize = size.clamped(to: Self.minimumBodyFontSize...Self.maximumBodyFontSize)
 
@@ -133,18 +140,22 @@ struct NoteAppearanceSettings: Codable, Equatable, Sendable {
       ?? NSFont.systemFont(ofSize: clampedSize)
   }
 
+  // Bold variant of the body font at the given size.
   func boldBodyFont(ofSize size: CGFloat) -> NSFont {
     NSFontManager.shared.convert(resolvedFont(ofSize: size), toHaveTrait: .boldFontMask)
   }
 
+  // Italic variant of the body font at the given size.
   func italicBodyFont(ofSize size: CGFloat) -> NSFont {
     NSFontManager.shared.convert(resolvedFont(ofSize: size), toHaveTrait: .italicFontMask)
   }
 
+  // Falls back to the system font token when the name is empty.
   private var normalizedBodyFontName: String {
     bodyFontName.isEmpty ? Self.systemFontToken : bodyFontName
   }
 
+  // Falls back to the default accent when the name isn't in the palette.
   private var normalizedAccentColorName: String {
     ScealPalette.colors.contains(where: { $0.name == accentColorName })
       ? accentColorName
@@ -166,6 +177,7 @@ struct NoteAppearanceSettings: Codable, Equatable, Sendable {
     case colorOverrides
   }
 
+  // Decodes with defaults for any missing keys to support forward compatibility.
   init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     self.init(
@@ -218,6 +230,7 @@ struct NoteAppearanceSettings: Codable, Equatable, Sendable {
 }
 
 extension CGFloat {
+  // Constrains a value to the given closed range.
   fileprivate func clamped(to range: ClosedRange<CGFloat>) -> CGFloat {
     Swift.min(Swift.max(self, range.lowerBound), range.upperBound)
   }

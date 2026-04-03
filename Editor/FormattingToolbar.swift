@@ -3,6 +3,8 @@
 //
 //
 
+// Floating AppKit toolbar for inline and block-level text formatting.
+
 import AppKit
 
 @MainActor class FormattingToolbar: NSView {
@@ -25,6 +27,7 @@ import AppKit
 
   // MARK: - Setup
 
+  // Builds the toolbar layout with formatting buttons, separators, and color swatches.
   private func setup() {
     wantsLayer = true
     layer?.backgroundColor = NSColor(white: 0.15, alpha: 0.95).cgColor
@@ -72,6 +75,7 @@ import AppKit
     }
   }
 
+  // Creates a text-labeled formatting button.
   private func addTextButton(
     _ title: String, action: Selector, tooltip: String,
     weight: NSFont.Weight = .semibold, size: CGFloat = 13
@@ -134,6 +138,7 @@ import AppKit
     stackView.addArrangedSubview(button)
   }
 
+  // Creates an SF Symbol formatting button.
   private func addSymbolButton(_ symbolName: String, action: Selector, tooltip: String) {
     let button = NSButton()
     let config = NSImage.SymbolConfiguration(pointSize: 12, weight: .medium)
@@ -154,6 +159,7 @@ import AppKit
     stackView.addArrangedSubview(button)
   }
 
+  // Inserts a thin vertical divider between button groups.
   @discardableResult
   private func addSeparator() -> NSView {
     let sep = NSView()
@@ -166,6 +172,7 @@ import AppKit
     return sep
   }
 
+  // Adds a clickable color circle for heading colors.
   @discardableResult
   private func addColorSwatch(color: NSColor, name: String, index: Int) -> NSButton {
     let button = NSButton()
@@ -222,6 +229,7 @@ import AppKit
 
   // MARK: - Positioning
 
+  // Positions and shows the toolbar relative to the current selection.
   func show(relativeTo selectionRect: NSRect, in parentView: NSView) {
     updateColorSwatchVisibility()
     // Force layout after visibility changes so fittingSize reflects the current state
@@ -257,12 +265,14 @@ import AppKit
     alphaValue = 1
   }
 
+  // Hides the toolbar.
   func hide() {
     isHidden = true
   }
 
   // MARK: - Inline Actions
 
+  // Toggles bold formatting on the selected text.
   @objc private func toggleBold() {
     guard let textView, let textStorage = textView.textStorage else { return }
     let range = textView.selectedRange()
@@ -368,6 +378,7 @@ import AppKit
     }
   }
 
+  // Toggles inline code formatting on the selected text.
   @objc private func toggleCode() {
     guard let textView, let textStorage = textView.textStorage else { return }
     let range = textView.selectedRange()
@@ -406,6 +417,7 @@ import AppKit
 
   // MARK: - Heading Color Action
 
+  // Applies a named heading color to the current line.
   @objc private func applyHeadingColor(_ sender: NSButton) {
     guard let textView, let textStorage = textView.textStorage else { return }
     let presetIndex = sender.tag
@@ -429,6 +441,7 @@ import AppKit
 
   // MARK: - Line-Level Actions
 
+  // Converts the current heading line back to a plain paragraph.
   @objc private func applyParagraph() {
     guard let textView else { return }
     let (lineRange, _) = currentLineRange()
@@ -446,6 +459,7 @@ import AppKit
   @objc private func applyH2() { applyHeading(level: 2) }
   @objc private func applyH3() { applyHeading(level: 3) }
 
+  // Applies heading formatting at the given level to the current line.
   private func applyHeading(level: Int) {
     guard let textView, let textStorage = textView.textStorage else { return }
     let (lineRange, _) = currentLineRange()
@@ -477,8 +491,11 @@ import AppKit
     refreshToolbarPresentation()
   }
 
+  // Toggles bullet list formatting on the current line.
   @objc private func toggleBullet() { toggleListType(.bullet) }
+  // Toggles numbered list formatting on the current line.
   @objc private func toggleNumbered() { toggleListType(.numbered) }
+  // Toggles checkbox formatting on the current line.
   @objc private func toggleCheckbox() { toggleListType(.checkboxUnchecked) }
 
   // MARK: - Link Popover
@@ -598,6 +615,7 @@ import AppKit
     }
   }
 
+  // Toggles a specific list type, removing it if already active.
   private func toggleListType(_ targetType: MarkdownListType) {
     guard let textView, let textStorage = textView.textStorage else { return }
     let nsString = textStorage.string as NSString
@@ -715,6 +733,7 @@ import AppKit
 
   // MARK: - Helpers
 
+  // Returns the range of the line containing the cursor.
   private func currentLineRange() -> (NSRange, String) {
     guard let textView else { return (NSRange(location: 0, length: 0), "") }
     let nsString = textView.string as NSString
@@ -728,6 +747,7 @@ import AppKit
     return (textRange, nsString.substring(with: textRange))
   }
 
+  // Computes the selection rect in scroll view coordinates.
   private func currentSelectionRect(in textView: NSTextView, scrollView: NSScrollView) -> NSRect? {
     let range = textView.selectedRange()
     guard
@@ -741,6 +761,7 @@ import AppKit
     return textView.convert(selectionRect, to: scrollView)
   }
 
+  // Strips list/heading attributes and resets to body paragraph style.
   private func applyParagraphAttributes(in textStorage: NSTextStorage, range: NSRange) {
     textStorage.removeAttribute(.markdownHeadingLevel, range: range)
     textStorage.removeAttribute(.markdownHeadingColor, range: range)
@@ -752,6 +773,7 @@ import AppKit
       range: range)
   }
 
+  // Removes the display bullet/checkbox/number prefix from a line.
   private func stripDisplayListPrefix(_ text: String, listType: MarkdownListType) -> String {
     switch listType {
     case .bullet:
@@ -767,6 +789,7 @@ import AppKit
     return text
   }
 
+  // Applies the correct color and font to a list marker character.
   private func styleListMarker(in attrStr: NSMutableAttributedString, listType: MarkdownListType) {
     guard attrStr.length > 0 else { return }
     switch listType {

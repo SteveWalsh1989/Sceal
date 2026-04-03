@@ -2,6 +2,8 @@
 //  ImportSettingsView.swift
 //
 
+// Settings panel for importing notes from Diarly or a previous Scéal export.
+
 import SwiftUI
 
 struct ImportSettingsView: View {

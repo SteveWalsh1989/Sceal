@@ -3,6 +3,8 @@
 //
 //
 
+// Root NavigationSplitView combining the sidebar and note editor.
+
 import SwiftUI
 
 struct ContentView: View {
@@ -82,6 +84,7 @@ struct ContentView: View {
     )
   }
 
+  // Resolves the editor background from the active theme.
   private var editorBackgroundColor: Color {
     store.appearanceSettings.resolvedColors.editorBackground.color
   }

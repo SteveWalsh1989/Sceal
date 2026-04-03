@@ -2,6 +2,8 @@
 //  LinkPopoverViewController.swift
 //
 
+// Popover view controller for creating and editing markdown links.
+
 import AppKit
 
 // Compact form for creating or editing a markdown link (text + URL).

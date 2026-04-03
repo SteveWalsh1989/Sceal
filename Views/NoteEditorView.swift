@@ -2,6 +2,8 @@
 //  NoteEditorView.swift
 //
 
+// SwiftUI editor container with header controls, title field, and markdown body.
+
 import AppKit
 import SwiftUI
 
@@ -15,6 +17,7 @@ struct NoteEditorView: View {
   @State private var isShowingAppearancePopover = false
   private let fontPanelController = FontPanelController()
 
+  // Previous/next note IDs for the header navigation arrows.
   private var adjacentNoteIDs: (previous: DayNote.ID?, next: DayNote.ID?) {
     store.adjacentNoteIDs(for: noteID)
   }
@@ -132,20 +135,24 @@ struct NoteEditorView: View {
     }
   }
 
+  // Opens the system font picker to change the editor body font.
   private func openFontPanel() {
     fontPanelController.present(using: store.appearanceSettings) { selectedFontName in
       store.updateBodyFontName(selectedFontName)
     }
   }
 
+  // Resolved color set from the active theme.
   private var themeColors: ThemeColorSet {
     store.appearanceSettings.resolvedColors
   }
 
+  // Background color for the note body container.
   private var noteBodyShellColor: Color {
     themeColors.editorBackground.color
   }
 
+  // Border color for the note body container.
   private var noteBodyBorderColor: Color {
     themeColors.noteBodyBorder.color
   }

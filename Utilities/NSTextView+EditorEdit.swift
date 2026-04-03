@@ -2,6 +2,8 @@
 //  NSTextView+EditorEdit.swift
 //
 
+// NSTextView extension for coordinated text editing with undo support.
+
 import AppKit
 
 extension NSTextView {
@@ -40,6 +42,7 @@ extension NSTextView {
     return true
   }
 
+  // Constrains a range to valid bounds within the text storage.
   private func clampedEditorRange(_ range: NSRange, maxLength: Int) -> NSRange {
     let safeLocation = min(range.location, maxLength)
     let safeLength = min(range.length, max(maxLength - safeLocation, 0))

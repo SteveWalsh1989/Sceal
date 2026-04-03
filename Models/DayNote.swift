@@ -3,6 +3,8 @@
 //
 //
 
+// Core data model representing a single day's note with date, title, tags, and body.
+
 import Foundation
 
 struct DayNote: Identifiable, Equatable, Sendable {
@@ -30,35 +32,43 @@ struct DayNote: Identifiable, Equatable, Sendable {
     self.body = body
   }
 
+  // Markdown filename derived from the date-based ID.
   var fileName: String {
     "\(id).md"
   }
 
+  // Falls back to 'Untitled note' when the title is blank.
   var displayTitle: String {
     let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
     return trimmedTitle.isEmpty ? "Untitled note" : trimmedTitle
   }
 
+  // Two-digit day number for sidebar card display.
   var dayNumberText: String {
     ScealDateFormatters.dayNumber.string(from: date)
   }
 
+  // Short weekday name (e.g. 'Mon') for sidebar cards.
   var weekdayText: String {
     ScealDateFormatters.weekday.string(from: date)
   }
 
+  // Full date string shown in the editor header.
   var editorDateText: String {
     ScealDateFormatters.editorDate.string(from: date)
   }
 
+  // Formats the date using the user's chosen sidebar date format.
   func sidebarDateText(using format: SidebarDateFormat) -> String {
     format.string(from: date)
   }
 
+  // Comma-separated tag string for sidebar card display.
   var sidebarTagsText: String {
     tags.joined(separator: ", ")
   }
 
+  // Creates a blank note for the given date.
   static func empty(for date: Date, calendar: Calendar = .current) -> DayNote {
     DayNote(
       date: calendar.startOfDay(for: date),
@@ -173,6 +183,7 @@ extension DayNote {
       .sorted(by: { $0.date > $1.date })
   }
 
+  // Static preview data for SwiftUI previews and testing.
   static let previewNotes: [DayNote] = {
     let previewDate = ScealDateFormatters.storageDate.date(from: "2026-04-01") ?? .now
     return sampleSeedNotes(relativeTo: previewDate)

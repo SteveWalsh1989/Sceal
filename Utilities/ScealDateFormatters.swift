@@ -3,6 +3,8 @@
 //
 //
 
+// Centralized DateFormatter instances shared across the app to avoid repeated allocation.
+
 import Foundation
 
 enum ScealDateFormatters {

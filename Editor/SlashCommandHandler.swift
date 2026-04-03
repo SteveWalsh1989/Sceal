@@ -3,6 +3,8 @@
 //
 //
 
+// Defines available slash commands and handles detection in the editor.
+
 import AppKit
 
 struct SlashCommandEntry {

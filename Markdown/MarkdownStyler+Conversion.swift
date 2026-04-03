@@ -2,12 +2,15 @@
 //  MarkdownStyler+Conversion.swift
 //
 
+// Converts display NSAttributedString back to raw markdown for persistence.
+
 import AppKit
 
 // MARK: - Display → Raw Markdown
 
 extension MarkdownStyler {
 
+  // Walks the attributed string line-by-line and reconstructs raw markdown.
   static func convertToMarkdown(from attributedString: NSAttributedString) -> String {
     let nsString = attributedString.string as NSString
     guard nsString.length > 0 else { return "" }
@@ -57,6 +60,7 @@ extension MarkdownStyler {
     return normalized.joined(separator: "\n")
   }
 
+  // Rebuilds a single markdown line from its display attributes.
   private static func reconstructLine(
     from attributedString: NSAttributedString, textRange: NSRange
   ) -> String {
@@ -151,6 +155,7 @@ extension MarkdownStyler {
     return prefix + inlineMarkdown
   }
 
+  // Restores inline delimiters (bold, italic, links, etc.) from attributes.
   private static func reconstructInlineMarkdown(
     from attributedString: NSAttributedString, range: NSRange
   ) -> String {

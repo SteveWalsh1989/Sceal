@@ -2,6 +2,8 @@
 //  SidebarDateFormat.swift
 //
 
+// User-configurable date display formats for sidebar note cards.
+
 import Foundation
 
 enum SidebarDateFormat: String, CaseIterable, Codable, Sendable {
@@ -12,6 +14,7 @@ enum SidebarDateFormat: String, CaseIterable, Codable, Sendable {
   case monthDayYearSlashes
   case dayShortMonthContextual
 
+  // Example format string shown in the settings picker.
   var displayName: String {
     switch self {
     case .yearMonthDay:

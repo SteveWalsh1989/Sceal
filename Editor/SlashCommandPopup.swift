@@ -3,6 +3,8 @@
 //
 //
 
+// Floating popup that shows filtered slash command options as the user types.
+
 import AppKit
 
 // Floating popup that shows available slash commands as the user types `/`.
@@ -28,6 +30,7 @@ import AppKit
 
   // MARK: - Setup
 
+  // Builds the popup's visual shell and shadow.
   private func setup() {
     wantsLayer = true
     layer?.backgroundColor = NSColor(white: 0.15, alpha: 0.95).cgColor
@@ -54,12 +57,14 @@ import AppKit
 
   // MARK: - Public API
 
+  // Filters commands matching the typed prefix and rebuilds rows.
   func updateFilter(_ prefix: String) {
     filteredCommands = SlashCommandHandler.filteredCommands(for: prefix)
     selectedIndex = 0
     rebuildRows()
   }
 
+  // Positions and displays the popup below the current line.
   func show(relativeTo cursorRect: NSRect, in parentView: NSView) {
     guard !filteredCommands.isEmpty else {
       hide()
@@ -97,6 +102,7 @@ import AppKit
     alphaValue = 1
   }
 
+  // Removes the popup from its parent view.
   func hide() {
     isHidden = true
     removeFromSuperview()
@@ -104,18 +110,21 @@ import AppKit
     selectedIndex = 0
   }
 
+  // Moves the highlight to the previous command.
   func moveSelectionUp() {
     guard !filteredCommands.isEmpty else { return }
     selectedIndex = max(selectedIndex - 1, 0)
     updateHighlight()
   }
 
+  // Moves the highlight to the next command.
   func moveSelectionDown() {
     guard !filteredCommands.isEmpty else { return }
     selectedIndex = min(selectedIndex + 1, filteredCommands.count - 1)
     updateHighlight()
   }
 
+  // Triggers the callback with the currently highlighted command.
   func confirmSelection() {
     guard selectedIndex < filteredCommands.count else { return }
     let entry = filteredCommands[selectedIndex]
@@ -124,6 +133,7 @@ import AppKit
 
   // MARK: - Row Management
 
+  // Rebuilds the row subviews from the filtered command list.
   private func rebuildRows() {
     rowViews.forEach { $0.removeFromSuperview() }
     rowViews.removeAll()
@@ -138,6 +148,7 @@ import AppKit
     }
   }
 
+  // Updates the visual highlight to the current selection index.
   private func updateHighlight() {
     for (index, row) in rowViews.enumerated() {
       row.setSelected(index == selectedIndex)

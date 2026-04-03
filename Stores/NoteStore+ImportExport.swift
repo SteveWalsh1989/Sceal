@@ -2,6 +2,8 @@
 //  NoteStore+ImportExport.swift
 //
 
+// NoteStore extension for importing and exporting notes.
+
 import AppKit
 import UniformTypeIdentifiers
 

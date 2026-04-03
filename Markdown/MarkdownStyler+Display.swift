@@ -2,6 +2,8 @@
 //  MarkdownStyler+Display.swift
 //
 
+// Builds display-ready attributed strings from raw markdown lines.
+
 import AppKit
 
 // MARK: - Display Line Building & Inline Formatting
@@ -10,6 +12,7 @@ extension MarkdownStyler {
 
   // MARK: - Build Display Line (single raw markdown line → attributed string)
 
+  // Converts a single raw markdown line into a styled NSAttributedString.
   static func buildDisplayLine(_ rawLine: String, appearance: NoteAppearanceSettings)
     -> NSAttributedString
   {
@@ -309,6 +312,7 @@ extension MarkdownStyler {
 
   // MARK: - Styled Special Lines (kept as raw text, just styled)
 
+  // Styles a code fence delimiter (```) as dimmed monospace text.
   static func styledCodeFenceLine(_ line: String) -> NSAttributedString {
     NSAttributedString(
       string: line,
@@ -319,6 +323,7 @@ extension MarkdownStyler {
       ])
   }
 
+  // Styles a code block line with monospace font and background.
   static func styledCodeBlockLine(_ line: String) -> NSAttributedString {
     NSAttributedString(
       string: line,
@@ -330,6 +335,7 @@ extension MarkdownStyler {
       ])
   }
 
+  // Creates an invisible marker that ScealTextView renders as a card gap.
   static func styledSectionDivider(
     appearance: NoteAppearanceSettings = .default,
     headingColorName: String? = nil,
@@ -466,6 +472,7 @@ extension MarkdownStyler {
     return String(line[swiftRange])
   }
 
+  // Returns the display font size for heading levels 1-3.
   static func headingFontSize(for level: Int) -> CGFloat {
     switch level {
     case 1:

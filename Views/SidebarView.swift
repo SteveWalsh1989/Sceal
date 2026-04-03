@@ -3,6 +3,8 @@
 //
 //
 
+// Monthly-grouped note list with keyboard navigation and empty state.
+
 import SwiftUI
 
 struct SidebarView: View {
@@ -66,10 +68,12 @@ struct SidebarView: View {
     }
   }
 
+  // Resolved color set from the active theme.
   private var themeColors: ThemeColorSet {
     store.appearanceSettings.resolvedColors
   }
 
+  // Background color from the active theme.
   private var sidebarBackgroundColor: Color {
     themeColors.sidebarBackground.color
   }
