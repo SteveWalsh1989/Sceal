@@ -16,6 +16,11 @@ enum DividerResolutionPreference {
 }
 
 @MainActor class ScealTextView: NSTextView {
+  private struct SectionLayoutSnapshot {
+    let dividerLineRanges: [NSRange]
+    let sections: [NSRange]
+    let dividerMidYs: [CGFloat]
+  }
 
   // Accept clicks even when the window is not key (e.g. after popover dismissal).
   override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -132,51 +137,29 @@ enum DividerResolutionPreference {
     return nil
   }
 
-  // MARK: - Section Card Backgrounds
-
-  // Draws section card backgrounds and palette icons instead of the default background.
-  override func drawBackground(in rect: NSRect) {
-    // Don't call super — we draw all backgrounds ourselves so there's
-    // no default background bleeding through between cards.
-
-    guard let textStorage = textStorage, let layoutManager = layoutManager,
-      let textContainer = textContainer, textStorage.length > 0
-    else {
-      // Empty: draw one full-height card
-      drawSingleCard(in: rect)
-      return
-    }
-
-    // Find section divider positions
+  // Finds line ranges for a markdown display attribute like dividers or horizontal rules.
+  private func lineRanges(
+    forAttribute key: NSAttributedString.Key,
+    in textStorage: NSTextStorage
+  ) -> [NSRange] {
     let fullRange = NSRange(location: 0, length: textStorage.length)
-    var dividerLineRanges: [NSRange] = []
+    var lineRanges: [NSRange] = []
 
-    textStorage.enumerateAttribute(.markdownSectionDivider, in: fullRange, options: []) {
-      value, range, _ in
+    textStorage.enumerateAttribute(key, in: fullRange, options: []) { value, range, _ in
       if value as? Bool == true {
         let nsString = textStorage.string as NSString
-        dividerLineRanges.append(nsString.lineRange(for: range))
+        lineRanges.append(nsString.lineRange(for: range))
       }
     }
 
-    // Find horizontal rule positions (visible lines, not card-splitting)
-    var hrLineRanges: [NSRange] = []
-    textStorage.enumerateAttribute(.markdownHorizontalRule, in: fullRange, options: []) {
-      value, range, _ in
-      if value as? Bool == true {
-        let nsString = textStorage.string as NSString
-        hrLineRanges.append(nsString.lineRange(for: range))
-      }
-    }
+    return lineRanges
+  }
 
-    // No section dividers → one card covering everything
-    if dividerLineRanges.isEmpty {
-      drawSingleCard(in: rect)
-      drawHorizontalRules(hrLineRanges, in: rect)
-      return
-    }
-
-    // Build section content ranges (between dividers)
+  // Builds the content ranges that sit between section divider lines.
+  private func sectionRanges(
+    between dividerLineRanges: [NSRange],
+    textLength: Int
+  ) -> [NSRange] {
     var sections: [NSRange] = []
     var currentStart = 0
 
@@ -186,43 +169,80 @@ enum DividerResolutionPreference {
       }
       currentStart = NSMaxRange(divRange)
     }
-    if currentStart < textStorage.length {
-      sections.append(NSRange(location: currentStart, length: textStorage.length - currentStart))
+
+    if currentStart < textLength {
+      sections.append(NSRange(location: currentStart, length: textLength - currentStart))
     }
 
-    // Calculate divider midpoints — these define where one card ends and the next begins
-    var dividerMidYs: [CGFloat] = []
-    for divRange in dividerLineRanges {
-      let divGlyphs = layoutManager.glyphRange(
-        forCharacterRange: divRange, actualCharacterRange: nil)
-      let divRect = layoutManager.boundingRect(forGlyphRange: divGlyphs, in: textContainer)
-      let midY = divRect.midY + textContainerOrigin.y
-      dividerMidYs.append(midY)
+    return sections
+  }
+
+  // Captures the divider line ranges, section ranges, and divider midpoints for card layout.
+  private func sectionLayoutSnapshot() -> SectionLayoutSnapshot? {
+    guard let textStorage, textStorage.length > 0 else { return nil }
+
+    let dividerLineRanges = lineRanges(forAttribute: .markdownSectionDivider, in: textStorage)
+    guard !dividerLineRanges.isEmpty else { return nil }
+
+    let sections = sectionRanges(between: dividerLineRanges, textLength: textStorage.length)
+    let dividerMidYs = dividerLineRanges.compactMap {
+      editorMidYInViewCoordinates(forCharacterRange: $0)
+    }
+    guard dividerMidYs.count == dividerLineRanges.count else { return nil }
+
+    return SectionLayoutSnapshot(
+      dividerLineRanges: dividerLineRanges,
+      sections: sections,
+      dividerMidYs: dividerMidYs
+    )
+  }
+
+  // MARK: - Section Card Backgrounds
+
+  // Draws section card backgrounds and palette icons instead of the default background.
+  override func drawBackground(in rect: NSRect) {
+    // Don't call super — we draw all backgrounds ourselves so there's
+    // no default background bleeding through between cards.
+
+    guard let textStorage = textStorage, textStorage.length > 0
+    else {
+      // Empty: draw one full-height card
+      drawSingleCard(in: rect)
+      return
+    }
+
+    let hrLineRanges = lineRanges(forAttribute: .markdownHorizontalRule, in: textStorage)
+
+    // No section dividers → one card covering everything
+    guard let layoutSnapshot = sectionLayoutSnapshot() else {
+      drawSingleCard(in: rect)
+      drawHorizontalRules(hrLineRanges, in: rect)
+      return
     }
 
     let viewBottom = max(bounds.height, enclosingScrollView?.contentSize.height ?? bounds.height)
 
     // Draw a card for each section, bounded by divider midpoints
-    for (index, sectionRange) in sections.enumerated() {
-      let glyphRange = layoutManager.glyphRange(
-        forCharacterRange: sectionRange, actualCharacterRange: nil)
-      let isLastSection = (index == sections.count - 1)
-      guard glyphRange.length > 0 || isLastSection else { continue }
+    for (index, sectionRange) in layoutSnapshot.sections.enumerated() {
+      let isLastSection = (index == layoutSnapshot.sections.count - 1)
+      guard editorHasVisibleGlyphs(forCharacterRange: sectionRange) || isLastSection else {
+        continue
+      }
 
       let cardTop: CGFloat
       if index == 0 {
         cardTop = 0
       } else {
-        let divIndex = min(index - 1, dividerMidYs.count - 1)
-        cardTop = dividerMidYs[divIndex] + sectionCardGapOffset
+        let divIndex = min(index - 1, layoutSnapshot.dividerMidYs.count - 1)
+        cardTop = layoutSnapshot.dividerMidYs[divIndex] + sectionCardGapOffset
       }
 
       let cardBottom: CGFloat
-      if index == sections.count - 1 {
+      if index == layoutSnapshot.sections.count - 1 {
         cardBottom = viewBottom
       } else {
-        let divIndex = min(index, dividerMidYs.count - 1)
-        cardBottom = dividerMidYs[divIndex] - sectionCardGapOffset
+        let divIndex = min(index, layoutSnapshot.dividerMidYs.count - 1)
+        cardBottom = layoutSnapshot.dividerMidYs[divIndex] - sectionCardGapOffset
       }
 
       let cardRect = NSRect(
@@ -239,14 +259,15 @@ enum DividerResolutionPreference {
       path.fill()
 
       // Draw palette icon for divider-defined sections (index >= 1).
-      if index > 0, index - 1 < dividerLineRanges.count {
+      if index > 0, index - 1 < layoutSnapshot.dividerLineRanges.count {
         let iconRect = NSRect(
           x: cardRect.maxX - sectionIconSize - sectionIconPadding,
           y: cardRect.minY + sectionIconPadding,
           width: sectionIconSize,
           height: sectionIconSize
         )
-        let isHovered = hoveredSectionIconLocation == dividerLineRanges[index - 1].location
+        let isHovered =
+          hoveredSectionIconLocation == layoutSnapshot.dividerLineRanges[index - 1].location
         drawSectionIcon(in: iconRect, hovered: isHovered)
       }
     }
@@ -266,9 +287,7 @@ enum DividerResolutionPreference {
 
   // Draws a thin visible line for each standard markdown horizontal rule (`---`).
   private func drawHorizontalRules(_ ranges: [NSRange], in rect: NSRect) {
-    guard let layoutManager = layoutManager, let textContainer = textContainer,
-      !ranges.isEmpty
-    else { return }
+    guard !ranges.isEmpty else { return }
 
     let lineInset: CGFloat = 24
     let dividerColor =
@@ -277,10 +296,7 @@ enum DividerResolutionPreference {
     dividerColor.setFill()
 
     for range in ranges {
-      let glyphRange = layoutManager.glyphRange(
-        forCharacterRange: range, actualCharacterRange: nil)
-      let lineRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
-      let midY = lineRect.midY + textContainerOrigin.y
+      guard let midY = editorMidYInViewCoordinates(forCharacterRange: range) else { continue }
 
       let hrRect = NSRect(
         x: lineInset,
@@ -330,49 +346,17 @@ enum DividerResolutionPreference {
     }
     sectionIconTrackingAreas.removeAll()
 
-    guard let textStorage, let layoutManager, let textContainer,
-      textStorage.length > 0
-    else { return }
+    guard let layoutSnapshot = sectionLayoutSnapshot() else { return }
 
-    let fullRange = NSRange(location: 0, length: textStorage.length)
-    var dividerLineRanges: [NSRange] = []
-    textStorage.enumerateAttribute(.markdownSectionDivider, in: fullRange, options: []) {
-      value, range, _ in
-      if value as? Bool == true {
-        dividerLineRanges.append((textStorage.string as NSString).lineRange(for: range))
+    for (index, sectionRange) in layoutSnapshot.sections.enumerated() {
+      guard index > 0, index - 1 < layoutSnapshot.dividerLineRanges.count else { continue }
+      let isLastSection = (index == layoutSnapshot.sections.count - 1)
+      guard editorHasVisibleGlyphs(forCharacterRange: sectionRange) || isLastSection else {
+        continue
       }
-    }
-    guard !dividerLineRanges.isEmpty else { return }
 
-    var sections: [NSRange] = []
-    var currentStart = 0
-    for divRange in dividerLineRanges {
-      if divRange.location > currentStart {
-        sections.append(NSRange(location: currentStart, length: divRange.location - currentStart))
-      }
-      currentStart = NSMaxRange(divRange)
-    }
-    if currentStart < textStorage.length {
-      sections.append(NSRange(location: currentStart, length: textStorage.length - currentStart))
-    }
-
-    var dividerMidYs: [CGFloat] = []
-    for divRange in dividerLineRanges {
-      let glyphs = layoutManager.glyphRange(
-        forCharacterRange: divRange, actualCharacterRange: nil)
-      let rect = layoutManager.boundingRect(forGlyphRange: glyphs, in: textContainer)
-      dividerMidYs.append(rect.midY + textContainerOrigin.y)
-    }
-
-    for (index, sectionRange) in sections.enumerated() {
-      guard index > 0, index - 1 < dividerLineRanges.count else { continue }
-      let glyphRange = layoutManager.glyphRange(
-        forCharacterRange: sectionRange, actualCharacterRange: nil)
-      let isLastSection = (index == sections.count - 1)
-      guard glyphRange.length > 0 || isLastSection else { continue }
-
-      let divIndex = min(index - 1, dividerMidYs.count - 1)
-      let cardTop = dividerMidYs[divIndex] + sectionCardGapOffset
+      let divIndex = min(index - 1, layoutSnapshot.dividerMidYs.count - 1)
+      let cardTop = layoutSnapshot.dividerMidYs[divIndex] + sectionCardGapOffset
       let cardWidth = bounds.width - (cardHInset * 2)
 
       let iconRect = NSRect(
@@ -387,7 +371,7 @@ enum DividerResolutionPreference {
         rect: trackRect,
         options: [.mouseEnteredAndExited, .activeInActiveApp],
         owner: self,
-        userInfo: ["dividerLocation": dividerLineRanges[index - 1].location]
+        userInfo: ["dividerLocation": layoutSnapshot.dividerLineRanges[index - 1].location]
       )
       addTrackingArea(area)
       sectionIconTrackingAreas.append(area)
@@ -420,53 +404,18 @@ enum DividerResolutionPreference {
 
   // Computes fresh icon rects on every call so hit testing never relies on stale cache.
   private func sectionIconHitTest(at point: NSPoint) -> NSRange? {
-    guard let textStorage, let layoutManager, let textContainer,
-      textStorage.length > 0
-    else { return nil }
-
-    let fullRange = NSRange(location: 0, length: textStorage.length)
-    var dividerLineRanges: [NSRange] = []
-    textStorage.enumerateAttribute(.markdownSectionDivider, in: fullRange, options: []) {
-      value, range, _ in
-      if value as? Bool == true {
-        let nsString = textStorage.string as NSString
-        dividerLineRanges.append(nsString.lineRange(for: range))
-      }
-    }
-    guard !dividerLineRanges.isEmpty else { return nil }
-
-    // Build section ranges (content between dividers).
-    var sections: [NSRange] = []
-    var currentStart = 0
-    for divRange in dividerLineRanges {
-      if divRange.location > currentStart {
-        sections.append(NSRange(location: currentStart, length: divRange.location - currentStart))
-      }
-      currentStart = NSMaxRange(divRange)
-    }
-    if currentStart < textStorage.length {
-      sections.append(NSRange(location: currentStart, length: textStorage.length - currentStart))
-    }
-
-    // Calculate divider midpoints.
-    var dividerMidYs: [CGFloat] = []
-    for divRange in dividerLineRanges {
-      let divGlyphs = layoutManager.glyphRange(
-        forCharacterRange: divRange, actualCharacterRange: nil)
-      let divRect = layoutManager.boundingRect(forGlyphRange: divGlyphs, in: textContainer)
-      dividerMidYs.append(divRect.midY + textContainerOrigin.y)
-    }
+    guard let layoutSnapshot = sectionLayoutSnapshot() else { return nil }
 
     // Check each divider-defined section (index >= 1) for an icon hit.
-    for (index, sectionRange) in sections.enumerated() {
-      guard index > 0, index - 1 < dividerLineRanges.count else { continue }
-      let glyphRange = layoutManager.glyphRange(
-        forCharacterRange: sectionRange, actualCharacterRange: nil)
-      let isLastSection = (index == sections.count - 1)
-      guard glyphRange.length > 0 || isLastSection else { continue }
+    for (index, sectionRange) in layoutSnapshot.sections.enumerated() {
+      guard index > 0, index - 1 < layoutSnapshot.dividerLineRanges.count else { continue }
+      let isLastSection = (index == layoutSnapshot.sections.count - 1)
+      guard editorHasVisibleGlyphs(forCharacterRange: sectionRange) || isLastSection else {
+        continue
+      }
 
-      let divIndex = min(index - 1, dividerMidYs.count - 1)
-      let cardTop = dividerMidYs[divIndex] + sectionCardGapOffset
+      let divIndex = min(index - 1, layoutSnapshot.dividerMidYs.count - 1)
+      let cardTop = layoutSnapshot.dividerMidYs[divIndex] + sectionCardGapOffset
 
       let cardWidth = bounds.width - (cardHInset * 2)
       let iconRect = NSRect(
@@ -479,7 +428,7 @@ enum DividerResolutionPreference {
       // Use a padded rect for a more forgiving click target.
       let hitRect = iconRect.insetBy(dx: -sectionIconHitPadding, dy: -sectionIconHitPadding)
       if hitRect.contains(point) {
-        return dividerLineRanges[index - 1]
+        return layoutSnapshot.dividerLineRanges[index - 1]
       }
     }
 
@@ -571,9 +520,7 @@ enum DividerResolutionPreference {
       window?.makeFirstResponder(self)
     }
 
-    guard let textStorage = textStorage, let layoutManager = layoutManager,
-      let textContainer = textContainer
-    else {
+    guard let textStorage = textStorage else {
       super.mouseDown(with: event)
       return
     }
@@ -596,15 +543,14 @@ enum DividerResolutionPreference {
     let textPoint = NSPoint(
       x: point.x - textContainerInset.width,
       y: point.y - textContainerInset.height)
-    let charIndex = layoutManager.characterIndex(
-      for: textPoint, in: textContainer,
-      fractionOfDistanceBetweenInsertionPoints: nil)
+    guard let charIndex = editorCharacterIndex(forTextContainerPoint: textPoint) else {
+      super.mouseDown(with: event)
+      return
+    }
 
     if let dividerSelectionLocation = dividerSelectionLocation(
       for: charIndex,
-      at: textPoint,
-      layoutManager: layoutManager,
-      textContainer: textContainer
+      at: textPoint
     ) {
       super.setSelectedRange(NSRange(location: dividerSelectionLocation, length: 0))
       scrollRangeToVisible(NSRange(location: dividerSelectionLocation, length: 0))
@@ -746,9 +692,7 @@ enum DividerResolutionPreference {
   // Detects when a click lands on a divider line.
   private func dividerSelectionLocation(
     for charIndex: Int,
-    at textPoint: NSPoint,
-    layoutManager: NSLayoutManager,
-    textContainer: NSTextContainer
+    at textPoint: NSPoint
   ) -> Int? {
     guard let textStorage, textStorage.length > 0 else { return nil }
 
@@ -760,11 +704,7 @@ enum DividerResolutionPreference {
         for: NSRange(location: candidateIndex, length: 0))
       guard lineHasSectionDivider(lineRange) else { continue }
 
-      let glyphRange = layoutManager.glyphRange(
-        forCharacterRange: lineRange,
-        actualCharacterRange: nil
-      )
-      let dividerRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+      guard let dividerRect = editorRect(forCharacterRange: lineRange) else { continue }
       guard dividerRect.insetBy(dx: -textContainerInset.width, dy: -6).contains(textPoint) else {
         continue
       }
