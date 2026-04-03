@@ -292,7 +292,11 @@ import AppKit
     ) { textStorage in
       if allBold {
         textStorage.removeAttribute(.markdownBold, range: range)
-        textStorage.addAttribute(.font, value: appearanceSettings.bodyFont, range: range)
+        textStorage.enumerateAttribute(.font, in: range, options: []) { value, attrRange, _ in
+          let font = value as? NSFont ?? appearanceSettings.bodyFont
+          let unboldFont = NSFontManager.shared.convert(font, toNotHaveTrait: .boldFontMask)
+          textStorage.addAttribute(.font, value: unboldFont, range: attrRange)
+        }
       } else {
         let currentFont =
           textStorage.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont
