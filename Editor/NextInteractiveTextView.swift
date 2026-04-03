@@ -55,6 +55,40 @@ final class NextInteractiveTextView: NSTextView {
     return count
   }
 
+  // Finds a nearby non-divider location to source typing attributes from.
+  func typingAttributeSourceLocation(forInsertionLocation location: Int) -> Int? {
+    guard let textStorage, textStorage.length > 0 else { return nil }
+
+    let clampedLocation = min(max(location, 0), textStorage.length)
+
+    if clampedLocation > 0 {
+      let backwardRange = stride(
+        from: min(clampedLocation - 1, textStorage.length - 1),
+        through: 0,
+        by: -1
+      )
+      for candidate in backwardRange where canUseTypingAttributes(at: candidate) {
+        return candidate
+      }
+    }
+
+    guard clampedLocation < textStorage.length else { return nil }
+    for candidate in clampedLocation..<textStorage.length
+    where canUseTypingAttributes(at: candidate) {
+      return candidate
+    }
+
+    return nil
+  }
+
+  // Returns false for divider and horizontal rule positions.
+  private func canUseTypingAttributes(at location: Int) -> Bool {
+    guard let textStorage, location >= 0, location < textStorage.length else { return false }
+    let attributes = textStorage.attributes(at: location, effectiveRange: nil)
+    return attributes[.markdownSectionDivider] as? Bool != true
+      && attributes[.markdownHorizontalRule] as? Bool != true
+  }
+
   // Forces layout recalculation and redraws section card backgrounds.
   func refreshSectionLayout() {
     ensureEditorLayoutForEntireDocument()
