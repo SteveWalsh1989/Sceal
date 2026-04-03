@@ -72,9 +72,10 @@ extension MarkdownTextView {
         let glyphRange =
           textView.layoutManager?.glyphRange(
             forCharacterRange: range, actualCharacterRange: nil) ?? range
+        guard let textContainer = textView.textContainer else { return }
         let selectionRect =
           textView.layoutManager?.boundingRect(
-            forGlyphRange: glyphRange, in: textView.textContainer!) ?? .zero
+            forGlyphRange: glyphRange, in: textContainer) ?? .zero
         let rectInScrollView = textView.convert(selectionRect, to: scrollView)
 
         toolbar.textView = textView

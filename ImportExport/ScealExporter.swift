@@ -9,7 +9,7 @@ import OSLog
 
 // Exports notes to a year-organized zip archive using the native markdown format.
 enum ScealExporter {
-  private static let logger = Logger(subsystem: "com.sceal.app", category: "import")
+  private static let logger = Logger(subsystem: "com.sceal.app", category: "export")
 
   // Writes the given notes into a temp directory and zips it, returning the zip URL.
   static func exportNotes(_ notes: [DayNote]) throws -> URL {
