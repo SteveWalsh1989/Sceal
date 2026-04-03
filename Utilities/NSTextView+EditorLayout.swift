@@ -28,6 +28,22 @@ extension NSTextView {
     textLayoutManager.ensureLayout(for: textRange)
   }
 
+  // Invalidates layout and rendering state for a specific character range.
+  func invalidateEditorLayout(forCharacterRange range: NSRange) {
+    if let layoutManager {
+      layoutManager.invalidateDisplay(forCharacterRange: range)
+      return
+    }
+
+    guard
+      let textLayoutManager,
+      let textRange = editorTextRange(forCharacterRange: range)
+    else { return }
+
+    textLayoutManager.invalidateLayout(for: textRange)
+    textLayoutManager.invalidateRenderingAttributes(for: textRange)
+  }
+
   // Resolves the visual rect for a character range in text view coordinates.
   func editorRect(forCharacterRange range: NSRange) -> NSRect? {
     guard range.length > 0 else { return nil }
@@ -117,6 +133,13 @@ extension NSTextView {
       in: textContainer,
       fractionOfDistanceBetweenInsertionPoints: nil
     )
+  }
+
+  // Resolves a character index for a point in text-view coordinates.
+  func editorCharacterIndex(forViewPoint point: NSPoint) -> Int? {
+    let characterIndex = characterIndexForInsertion(at: point)
+    guard characterIndex != NSNotFound else { return nil }
+    return min(max(characterIndex, 0), string.utf16.count)
   }
 
   private func editorTextRange(forCharacterRange range: NSRange) -> NSTextRange? {

@@ -28,9 +28,16 @@ extension NSTextView {
     textStorage.endEditing()
     didChangeText()
 
+    let invalidationRange =
+      targetRange.length > 0
+      ? targetRange
+      : NSRange(location: 0, length: textStorage.length)
+
     // Layout must reflect the final text storage before AppKit recomputes the insertion rect.
+    invalidateEditorLayout(forCharacterRange: invalidationRange)
     ensureEditorLayoutForEntireDocument()
     setSelectedRange(clampedEditorRange(desiredSelection, maxLength: textStorage.length))
+    setNeedsDisplay(bounds)
 
     if let actionName {
       undoManager?.setActionName(actionName)

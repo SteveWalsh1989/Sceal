@@ -14,6 +14,7 @@ import AppKit
   private let stackView = NSStackView()
   private var colorSeparator: NSView?
   private var colorSwatches: [NSView] = []
+  private var lastKnownSelectionRange = NSRange(location: NSNotFound, length: 0)
 
   override init(frame frameRect: NSRect) {
     super.init(frame: frameRect)
@@ -232,13 +233,16 @@ import AppKit
   // Positions and shows the toolbar relative to the current selection.
   func show(relativeTo selectionRect: NSRect, in parentView: NSView) {
     updateColorSwatchVisibility()
+    if let textView {
+      lastKnownSelectionRange = textView.selectedRange()
+    }
     // Force layout after visibility changes so fittingSize reflects the current state
     // and the autoresizing mask constraint doesn't conflict with the stack view.
     stackView.layoutSubtreeIfNeeded()
     let size = fittingSize
     let toolbarHeight = max(size.height, 34)
     let toolbarWidth = max(size.width, 100)
-    let gap: CGFloat = 10
+    let gap: CGFloat = 5
 
     // In flipped coordinates: minY is top, maxY is bottom.
     // Place toolbar above the selection.
@@ -274,9 +278,8 @@ import AppKit
 
   // Toggles bold formatting on the selected text.
   @objc private func toggleBold() {
-    guard let textView, let textStorage = textView.textStorage else { return }
-    let range = textView.selectedRange()
-    guard range.length > 0 else { return }
+    guard let (textView, textStorage, range) = preparedEditorContext(requireSelectedText: true)
+    else { return }
 
     var allBold = true
     textStorage.enumerateAttribute(.markdownBold, in: range, options: []) { value, _, stop in
@@ -311,9 +314,8 @@ import AppKit
 
   // Toggles italic trait and markdownItalic attribute on the selected text
   @objc private func toggleItalic() {
-    guard let textView, let textStorage = textView.textStorage else { return }
-    let range = textView.selectedRange()
-    guard range.length > 0 else { return }
+    guard let (textView, textStorage, range) = preparedEditorContext(requireSelectedText: true)
+    else { return }
 
     var allItalic = true
     textStorage.enumerateAttribute(.markdownItalic, in: range, options: []) { value, _, stop in
@@ -349,9 +351,8 @@ import AppKit
 
   // Toggles strikethrough style and markdownStrikethrough attribute on the selected text
   @objc private func toggleStrikethrough() {
-    guard let textView, let textStorage = textView.textStorage else { return }
-    let range = textView.selectedRange()
-    guard range.length > 0 else { return }
+    guard let (textView, textStorage, range) = preparedEditorContext(requireSelectedText: true)
+    else { return }
 
     var allStrike = true
     textStorage.enumerateAttribute(.markdownStrikethrough, in: range, options: []) {
@@ -384,9 +385,8 @@ import AppKit
 
   // Toggles inline code formatting on the selected text.
   @objc private func toggleCode() {
-    guard let textView, let textStorage = textView.textStorage else { return }
-    let range = textView.selectedRange()
-    guard range.length > 0 else { return }
+    guard let (textView, textStorage, range) = preparedEditorContext(requireSelectedText: true)
+    else { return }
     let inlineCodeFont = NSFont.monospacedSystemFont(
       ofSize: appearanceSettings.bodyFont.pointSize,
       weight: .regular
@@ -510,9 +510,8 @@ import AppKit
 
   // Opens a popover to create or edit a markdown link on the selected text
   @objc private func showLinkPopover(_ sender: NSButton) {
-    guard let textView, let textStorage = textView.textStorage else { return }
-    let range = textView.selectedRange()
-    guard range.length > 0 else { return }
+    guard let (_, textStorage, range) = preparedEditorContext(requireSelectedText: true)
+    else { return }
 
     let selectedText = (textStorage.string as NSString).substring(with: range)
     let existingURL =
@@ -747,8 +746,11 @@ import AppKit
   // Returns the range of the line containing the cursor.
   private func currentLineRange() -> (NSRange, String) {
     guard let textView else { return (NSRange(location: 0, length: 0), "") }
+    let selectionRange = resolvedSelectionRange(requireSelectedText: false)
     let nsString = textView.string as NSString
-    let fullRange = nsString.lineRange(for: textView.selectedRange())
+    let fullRange = nsString.lineRange(
+      for: selectionRange ?? textView.selectedRange()
+    )
     var textRange = fullRange
     if textRange.length > 0
       && nsString.character(at: textRange.location + textRange.length - 1) == 0x0A
@@ -756,6 +758,43 @@ import AppKit
       textRange.length -= 1
     }
     return (textRange, nsString.substring(with: textRange))
+  }
+
+  // Restores the active editor selection before toolbar actions mutate the text view.
+  private func preparedEditorContext(
+    requireSelectedText: Bool
+  ) -> (textView: NSTextView, textStorage: NSTextStorage, range: NSRange)? {
+    guard
+      let textView,
+      let textStorage = textView.textStorage,
+      let range = resolvedSelectionRange(requireSelectedText: requireSelectedText)
+    else { return nil }
+
+    return (textView, textStorage, range)
+  }
+
+  // Resolves the selection range the toolbar should operate on, restoring the previous selection
+  // if clicking the toolbar caused the text view to resign first responder.
+  private func resolvedSelectionRange(requireSelectedText: Bool) -> NSRange? {
+    guard let textView else { return nil }
+
+    if textView.window?.firstResponder !== textView {
+      textView.window?.makeFirstResponder(textView)
+    }
+
+    var selectionRange = textView.selectedRange()
+    let shouldRestoreStoredSelection =
+      (requireSelectedText && selectionRange.length == 0 && lastKnownSelectionRange.length > 0)
+      || selectionRange.location == NSNotFound
+
+    if shouldRestoreStoredSelection, lastKnownSelectionRange.location != NSNotFound {
+      textView.setSelectedRange(lastKnownSelectionRange)
+      selectionRange = textView.selectedRange()
+    }
+
+    lastKnownSelectionRange = selectionRange
+    guard !requireSelectedText || selectionRange.length > 0 else { return nil }
+    return selectionRange
   }
 
   // Computes the selection rect in scroll view coordinates.

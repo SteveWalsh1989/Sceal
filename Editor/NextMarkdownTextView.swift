@@ -19,7 +19,7 @@ struct NextMarkdownTextView: NSViewRepresentable {
   }
 
   func makeNSView(context: Context) -> NSScrollView {
-    let textView = NSTextView(usingTextLayoutManager: true)
+    let textView = NextInteractiveTextView(usingTextLayoutManager: true)
     configure(textView, coordinator: context.coordinator)
 
     let scrollView = NSScrollView()
@@ -98,10 +98,12 @@ struct NextMarkdownTextView: NSViewRepresentable {
   }
 
   private func configure(_ textView: NSTextView, coordinator: Coordinator) {
+    if let interactiveTextView = textView as? NextInteractiveTextView {
+      interactiveTextView.appearanceSettings = appearanceSettings
+    }
     textView.isRichText = true
     textView.isEditable = true
     textView.isSelectable = true
-    textView.font = appearanceSettings.bodyFont
     textView.drawsBackground = false
     textView.allowsUndo = true
     textView.isAutomaticQuoteSubstitutionEnabled = false
@@ -154,6 +156,7 @@ extension NextMarkdownTextView {
 
     init(parent: NextMarkdownTextView) {
       self.parent = parent
+      super.init()
       toolbar.appearanceSettings = parent.appearanceSettings
     }
 
