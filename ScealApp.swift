@@ -3,6 +3,8 @@
 //
 //
 
+// App entry point — owns the NoteStore and configures the main window and settings scene.
+
 import SwiftUI
 
 @main
