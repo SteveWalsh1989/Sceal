@@ -11,6 +11,20 @@ import AppKit
 
 enum MarkdownStyler {
 
+  private struct BodyParagraphStyleKey: Hashable {
+    let lineHeight: CGFloat
+  }
+
+  private struct ListParagraphStyleKey: Hashable {
+    let lineHeight: CGFloat
+    let itemSpacing: CGFloat
+    let indentLevel: Int
+  }
+
+  private struct BlockquoteParagraphStyleKey: Hashable {
+    let lineHeight: CGFloat
+  }
+
   static let bulletMarker = "•"
   static let uncheckedMarker = "\u{FFFC}"
   static let checkedMarker = "\u{FFFC}"
@@ -32,6 +46,11 @@ enum MarkdownStyler {
   static let inlineCodeRegex = try! NSRegularExpression(pattern: #"`([^`]+)`"#)
   static let linkRegex = try! NSRegularExpression(
     pattern: #"\[([^\]]+)\]\(([^\)]+)\)"#)
+  private static let paragraphStyleCacheLock = NSLock()
+  private static var bodyParagraphStyles: [BodyParagraphStyleKey: NSParagraphStyle] = [:]
+  private static var listParagraphStyles: [ListParagraphStyleKey: NSParagraphStyle] = [:]
+  private static var blockquoteParagraphStyles: [BlockquoteParagraphStyleKey: NSParagraphStyle] =
+    [:]
 
   // MARK: - Heading Color Presets (backed by the shared palette)
 
@@ -69,36 +88,66 @@ enum MarkdownStyler {
   }
 
   // Paragraph style for regular body text with configurable line height.
-  static func bodyParagraphStyle(for appearance: NoteAppearanceSettings) -> NSMutableParagraphStyle
-  {
+  static func bodyParagraphStyle(for appearance: NoteAppearanceSettings) -> NSParagraphStyle {
+    let key = BodyParagraphStyleKey(lineHeight: appearance.lineHeight)
+    paragraphStyleCacheLock.lock()
+    defer { paragraphStyleCacheLock.unlock() }
+    if let cachedStyle = bodyParagraphStyles[key] {
+      return cachedStyle
+    }
+
     let style = NSMutableParagraphStyle()
     style.lineHeightMultiple = appearance.lineHeight
-    return style
+    let cachedStyle = style.copy() as! NSParagraphStyle
+    bodyParagraphStyles[key] = cachedStyle
+    return cachedStyle
   }
 
   // Paragraph style for list items with indent-based leading margin.
   static func listParagraphStyle(for appearance: NoteAppearanceSettings, indentLevel: Int = 0)
-    -> NSMutableParagraphStyle
+    -> NSParagraphStyle
   {
+    let key = ListParagraphStyleKey(
+      lineHeight: appearance.lineHeight,
+      itemSpacing: appearance.listItemSpacing,
+      indentLevel: indentLevel
+    )
+    paragraphStyleCacheLock.lock()
+    defer { paragraphStyleCacheLock.unlock() }
+    if let cachedStyle = listParagraphStyles[key] {
+      return cachedStyle
+    }
+
     let style = NSMutableParagraphStyle()
     let indent = CGFloat(indentLevel) * 20
     style.firstLineHeadIndent = 8 + indent
     style.headIndent = 28 + indent
     style.paragraphSpacing = appearance.listItemSpacing
     style.lineHeightMultiple = appearance.lineHeight
-    return style
+    let cachedStyle = style.copy() as! NSParagraphStyle
+    listParagraphStyles[key] = cachedStyle
+    return cachedStyle
   }
 
   // Indented style for blockquote lines with a left border feel.
   static func blockquoteParagraphStyle(for appearance: NoteAppearanceSettings)
-    -> NSMutableParagraphStyle
+    -> NSParagraphStyle
   {
+    let key = BlockquoteParagraphStyleKey(lineHeight: appearance.lineHeight)
+    paragraphStyleCacheLock.lock()
+    defer { paragraphStyleCacheLock.unlock() }
+    if let cachedStyle = blockquoteParagraphStyles[key] {
+      return cachedStyle
+    }
+
     let style = NSMutableParagraphStyle()
     style.firstLineHeadIndent = 20
     style.headIndent = 20
     style.paragraphSpacing = 2
     style.lineHeightMultiple = appearance.lineHeight
-    return style
+    let cachedStyle = style.copy() as! NSParagraphStyle
+    blockquoteParagraphStyles[key] = cachedStyle
+    return cachedStyle
   }
 
   // Default typing attributes applied to new text in the editor.

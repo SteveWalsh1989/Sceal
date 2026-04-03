@@ -39,7 +39,11 @@ enum UserMessageKind {
 
 @MainActor
 final class NoteStore: ObservableObject {
-  @Published var notes: [DayNote]
+  @Published var notes: [DayNote] {
+    didSet {
+      cachedMonthSections = nil
+    }
+  }
   @Published private(set) var appearanceSettings: NoteAppearanceSettings
   @Published private(set) var newNoteDefault: NewNoteDefault
   @Published var selectedNoteID: DayNote.ID?
@@ -51,6 +55,7 @@ final class NoteStore: ObservableObject {
   private let userDefaults: UserDefaults
   private var hasLoaded = false
   private var noteIndex: [DayNote.ID: Int] = [:]
+  private var cachedMonthSections: [NoteMonthSection]?
   private var pendingSaveTasks: [DayNote.ID: Task<Void, Never>] = [:]
   private var periodicFlushTask: Task<Void, Never>?
 
@@ -78,12 +83,16 @@ final class NoteStore: ObservableObject {
 
   // Groups notes by month for sidebar section display.
   var monthSections: [NoteMonthSection] {
+    if let cachedMonthSections {
+      return cachedMonthSections
+    }
+
     let groupedNotes = Dictionary(grouping: notes) { note in
       calendar.date(from: calendar.dateComponents([.year, .month], from: note.date))
         ?? calendar.startOfDay(for: note.date)
     }
 
-    return
+    let builtSections =
       groupedNotes
       .map { key, value in
         NoteMonthSection(
@@ -92,6 +101,8 @@ final class NoteStore: ObservableObject {
         )
       }
       .sorted(by: { $0.monthStartDate > $1.monthStartDate })
+    cachedMonthSections = builtSections
+    return builtSections
   }
 
   // Whether a note already exists for today's date.
@@ -545,4 +556,3 @@ final class NoteStore: ObservableObject {
     userMessage = (text: "\(context). \(message)", kind: .error)
   }
 }
-

@@ -12,8 +12,10 @@ struct SidebarView: View {
   let requestDelete: (DayNote.ID) -> Void
 
   var body: some View {
+    let monthSections = store.monthSections
+
     Group {
-      if store.monthSections.isEmpty {
+      if monthSections.isEmpty {
         SidebarEmptyStateView {
           store.selectToday()
         }
@@ -26,7 +28,7 @@ struct SidebarView: View {
               }
             }
 
-            ForEach(store.monthSections) { section in
+            ForEach(monthSections) { section in
               MonthDividerView(title: section.title, dividerColor: themeColors.divider.color)
 
               ForEach(section.notes) { note in

@@ -99,6 +99,12 @@ struct MarkdownTextView: NSViewRepresentable {
     let noteChanged = noteID != context.coordinator.lastNoteID
     let textChanged = text != context.coordinator.lastPushedMarkdown
     let appearanceChanged = appearanceSettings != context.coordinator.lastAppliedAppearance
+    let editorFormattingAppearanceChanged =
+      appearanceChanged
+      && appearanceImpactsEditorFormatting(
+        from: context.coordinator.lastAppliedAppearance,
+        to: appearanceSettings
+      )
     guard noteChanged || textChanged || appearanceChanged else { return }
 
     context.coordinator.isUpdating = true
@@ -114,9 +120,9 @@ struct MarkdownTextView: NSViewRepresentable {
     textView.typingAttributes = MarkdownStyler.baseTypingAttributes(for: appearanceSettings)
 
     let contentChanged = noteChanged || textChanged
-    let displayString = MarkdownStyler.formatForDisplay(text, appearance: appearanceSettings)
 
     if contentChanged {
+      let displayString = MarkdownStyler.formatForDisplay(text, appearance: appearanceSettings)
       // Full replacement — note switched or text changed externally
       let selectedRange =
         noteChanged
@@ -126,7 +132,8 @@ struct MarkdownTextView: NSViewRepresentable {
       context.coordinator.lastPushedMarkdown = text
       textView.setSelectedRange(
         clampedRange(selectedRange, maxLength: textView.string.utf16.count))
-    } else if appearanceChanged, let textStorage = textView.textStorage {
+    } else if editorFormattingAppearanceChanged, let textStorage = textView.textStorage {
+      let displayString = MarkdownStyler.formatForDisplay(text, appearance: appearanceSettings)
       // Appearance-only change — re-apply attributes in place to preserve undo stack.
       let fullRange = NSRange(location: 0, length: textStorage.length)
       if textStorage.string == displayString.string {
@@ -170,5 +177,19 @@ struct MarkdownTextView: NSViewRepresentable {
     let safeLocation = min(range.location, maxLength)
     let safeLength = min(range.length, max(maxLength - safeLocation, 0))
     return NSRange(location: safeLocation, length: safeLength)
+  }
+
+  // Determines whether an appearance update changes attributed editor formatting.
+  private func appearanceImpactsEditorFormatting(
+    from previous: NoteAppearanceSettings,
+    to current: NoteAppearanceSettings
+  ) -> Bool {
+    previous.bodyFontName != current.bodyFontName
+      || previous.bodyFontSize != current.bodyFontSize
+      || previous.lineHeight != current.lineHeight
+      || previous.listItemSpacing != current.listItemSpacing
+      || previous.bulletSize != current.bulletSize
+      || previous.sectionDividerGapScale != current.sectionDividerGapScale
+      || previous.accentColorName != current.accentColorName
   }
 }
