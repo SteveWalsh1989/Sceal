@@ -5,7 +5,7 @@
 // Sidebar sections for the settings window.
 enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
   case appearance
-  case templates
+  case themes
   case importData
   case exportData
 
@@ -14,7 +14,7 @@ enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
   var title: String {
     switch self {
     case .appearance: return "Appearance"
-    case .templates: return "Templates"
+    case .themes: return "Themes"
     case .importData: return "Import"
     case .exportData: return "Export"
     }
@@ -23,7 +23,7 @@ enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
   var systemImage: String {
     switch self {
     case .appearance: return "paintbrush"
-    case .templates: return "doc.text"
+    case .themes: return "paintpalette"
     case .importData: return "square.and.arrow.down"
     case .exportData: return "square.and.arrow.up"
     }

@@ -28,8 +28,8 @@ struct SettingsView: View {
     switch selectedSection {
     case .appearance:
       AppearanceSettingsView(store: store)
-    case .templates:
-      TemplatesSettingsView()
+    case .themes:
+      ThemesSettingsView(store: store)
     case .importData:
       ImportSettingsView(store: store)
     case .exportData:

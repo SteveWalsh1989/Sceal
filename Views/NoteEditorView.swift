@@ -1,17 +1,15 @@
 //
 //  NoteEditorView.swift
 //
-//
 
 import AppKit
 import SwiftUI
 
 struct NoteEditorView: View {
-  @Environment(\.colorScheme) private var colorScheme
   @Environment(\.openSettings) private var openSettings
   @ObservedObject var store: NoteStore
   let noteID: DayNote.ID
-  var sidebarCollapsed: Bool = false
+  var sidebarCollapsed: Bool
   let requestDelete: (DayNote.ID) -> Void
 
   @State private var isShowingAppearancePopover = false
@@ -33,7 +31,8 @@ struct NoteEditorView: View {
             if let previousNoteID = adjacentNoteIDs.previous {
               HeaderNavigationButton(
                 systemImage: "chevron.left",
-                accessibilityLabel: "Open older note"
+                accessibilityLabel: "Open older note",
+                controlColor: themeColors.controlBackground.color
               ) {
                 store.select(noteID: previousNoteID)
               }
@@ -42,7 +41,8 @@ struct NoteEditorView: View {
             if let nextNoteID = adjacentNoteIDs.next {
               HeaderNavigationButton(
                 systemImage: "chevron.right",
-                accessibilityLabel: "Open newer note"
+                accessibilityLabel: "Open newer note",
+                controlColor: themeColors.controlBackground.color
               ) {
                 store.select(noteID: nextNoteID)
               }
@@ -66,7 +66,8 @@ struct NoteEditorView: View {
 
           HeaderIconButton(
             systemImage: "slider.vertical.3",
-            accessibilityLabel: "Open note appearance settings"
+            accessibilityLabel: "Open note appearance settings",
+            controlColor: themeColors.controlBackground.color
           ) {
             isShowingAppearancePopover.toggle()
           }
@@ -97,6 +98,7 @@ struct NoteEditorView: View {
               .foregroundStyle(.secondary)
               .padding(.horizontal, 34)
               .padding(.vertical, 30)
+              .allowsHitTesting(false)
           }
 
           MarkdownTextView(
@@ -136,24 +138,24 @@ struct NoteEditorView: View {
     }
   }
 
+  private var themeColors: ThemeColorSet {
+    store.appearanceSettings.resolvedColors
+  }
+
   private var noteBodyShellColor: Color {
-    colorScheme == .dark
-      ? Color(red: 0.09, green: 0.09, blue: 0.105)
-      : Color(red: 0.955, green: 0.955, blue: 0.97)
+    themeColors.editorBackground.color
   }
 
   private var noteBodyBorderColor: Color {
-    colorScheme == .dark
-      ? Color.clear
-      : Color.black.opacity(0.08)
+    themeColors.noteBodyBorder.color
   }
 }
 
 // Keeps header note-jump actions compact and visually aligned with the date.
 private struct HeaderNavigationButton: View {
-  @Environment(\.colorScheme) private var colorScheme
   let systemImage: String
   let accessibilityLabel: String
+  let controlColor: Color
   let action: () -> Void
 
   var body: some View {
@@ -162,24 +164,18 @@ private struct HeaderNavigationButton: View {
         .font(.system(size: 11, weight: .semibold))
         .foregroundStyle(.secondary)
         .frame(width: 24, height: 24)
-        .background(controlBackgroundColor, in: RoundedRectangle(cornerRadius: 8))
+        .background(controlColor, in: RoundedRectangle(cornerRadius: 8))
     }
     .buttonStyle(.plain)
     .accessibilityLabel(accessibilityLabel)
-  }
-
-  private var controlBackgroundColor: Color {
-    colorScheme == .dark
-      ? Color.white.opacity(0.08)
-      : Color.black.opacity(0.05)
   }
 }
 
 // Keeps header utility actions visually aligned with the navigation buttons.
 private struct HeaderIconButton: View {
-  @Environment(\.colorScheme) private var colorScheme
   let systemImage: String
   let accessibilityLabel: String
+  let controlColor: Color
   let action: () -> Void
 
   var body: some View {
@@ -188,25 +184,23 @@ private struct HeaderIconButton: View {
         .font(.system(size: 12, weight: .semibold))
         .foregroundStyle(.secondary)
         .frame(width: 28, height: 28)
-        .background(controlBackgroundColor, in: RoundedRectangle(cornerRadius: 8))
+        .background(controlColor, in: RoundedRectangle(cornerRadius: 8))
     }
     .buttonStyle(.plain)
     .accessibilityLabel(accessibilityLabel)
   }
-
-  private var controlBackgroundColor: Color {
-    colorScheme == .dark
-      ? Color.white.opacity(0.08)
-      : Color.black.opacity(0.05)
-  }
 }
 
 private struct QuickAppearancePopover: View {
-  @Environment(\.colorScheme) private var colorScheme
   @ObservedObject var store: NoteStore
   let openSettings: () -> Void
   let openFontPanel: () -> Void
   let confirmDelete: () -> Void
+
+  private var controlBackgroundColor: Color {
+    store.appearanceSettings.resolvedColors
+      .controlBackground.color
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 18) {
@@ -327,11 +321,6 @@ private struct QuickAppearancePopover: View {
     .frame(width: 332)
   }
 
-  private var controlBackgroundColor: Color {
-    colorScheme == .dark
-      ? Color.white.opacity(0.08)
-      : Color.black.opacity(0.05)
-  }
 }
 
 private struct QuickAppearanceFontRow: View {
