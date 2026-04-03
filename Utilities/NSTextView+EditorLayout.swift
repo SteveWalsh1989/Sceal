@@ -2,7 +2,7 @@
 //  NSTextView+EditorLayout.swift
 //
 
-// Shared legacy layout helpers used to centralize TextKit 1 geometry queries.
+// Shared layout helpers bridging TextKit 1 and TextKit 2 geometry queries.
 
 import AppKit
 
@@ -101,37 +101,110 @@ extension NSTextView {
 
   // Resolves the used line fragment rect containing the given character location.
   func editorLineFragmentRect(forCharacterLocation location: Int) -> NSRect? {
-    guard
-      let layoutManager,
-      let textContainer
-    else { return nil }
-
-    layoutManager.ensureLayout(for: textContainer)
     let clampedLocation = min(max(location, 0), string.utf16.count)
-    let glyphCharacterLocation = max(clampedLocation - 1, 0)
-    let glyphIndex = layoutManager.glyphIndexForCharacter(at: glyphCharacterLocation)
-    var lineRect = layoutManager.lineFragmentUsedRect(forGlyphAt: glyphIndex, effectiveRange: nil)
-    lineRect.origin.x += textContainerOrigin.x
-    lineRect.origin.y += textContainerOrigin.y
 
-    if lineRect.width < 1 {
-      lineRect.size.width = 1
+    if let layoutManager, let textContainer {
+      layoutManager.ensureLayout(for: textContainer)
+      let glyphCharacterLocation = max(clampedLocation - 1, 0)
+      let glyphIndex = layoutManager.glyphIndexForCharacter(at: glyphCharacterLocation)
+      var lineRect = layoutManager.lineFragmentUsedRect(
+        forGlyphAt: glyphIndex, effectiveRange: nil
+      )
+      lineRect.origin.x += textContainerOrigin.x
+      lineRect.origin.y += textContainerOrigin.y
+      if lineRect.width < 1 { lineRect.size.width = 1 }
+      return lineRect
     }
 
-    return lineRect
+    guard
+      let textLayoutManager,
+      let textContentManager = textLayoutManager.textContentManager
+    else { return nil }
+
+    let charOffset = max(clampedLocation - 1, 0)
+    guard
+      let targetLocation = textContentManager.location(
+        textContentManager.documentRange.location,
+        offsetBy: charOffset
+      ),
+      let fragment = textLayoutManager.textLayoutFragment(for: targetLocation)
+    else { return nil }
+
+    let fragmentOriginY = fragment.layoutFragmentFrame.origin.y
+    let fragmentCharStart = textContentManager.offset(
+      from: textContentManager.documentRange.location,
+      to: fragment.rangeInElement.location
+    )
+    let relativeOffset = charOffset - fragmentCharStart
+    if let lineFragment = fragment.textLineFragments.first(where: { line in
+      relativeOffset >= line.characterRange.location
+        && relativeOffset < line.characterRange.location + line.characterRange.length
+    }) ?? fragment.textLineFragments.first {
+      var lineRect = NSRect(
+        x: fragment.layoutFragmentFrame.origin.x + lineFragment.typographicBounds.origin.x,
+        y: fragmentOriginY + lineFragment.typographicBounds.origin.y,
+        width: lineFragment.typographicBounds.width,
+        height: lineFragment.typographicBounds.height
+      )
+      lineRect.origin.x += textContainerOrigin.x
+      lineRect.origin.y += textContainerOrigin.y
+      if lineRect.width < 1 { lineRect.size.width = 1 }
+      return lineRect
+    }
+
+    return nil
   }
 
   // Resolves a character index for a point already converted into text-container coordinates.
   func editorCharacterIndex(forTextContainerPoint point: NSPoint) -> Int? {
+    if let layoutManager, let textContainer {
+      return layoutManager.characterIndex(
+        for: point,
+        in: textContainer,
+        fractionOfDistanceBetweenInsertionPoints: nil
+      )
+    }
+
     guard
-      let layoutManager,
-      let textContainer
+      let textLayoutManager,
+      let textContentManager = textLayoutManager.textContentManager
     else { return nil }
 
-    return layoutManager.characterIndex(
-      for: point,
-      in: textContainer,
-      fractionOfDistanceBetweenInsertionPoints: nil
+    // Find the layout fragment containing the point by enumerating all fragments.
+    var matchedFragment: NSTextLayoutFragment?
+    textLayoutManager.enumerateTextLayoutFragments(
+      from: textContentManager.documentRange.location,
+      options: [.ensuresLayout]
+    ) { fragment in
+      if fragment.layoutFragmentFrame.contains(point) {
+        matchedFragment = fragment
+        return false
+      }
+      return fragment.layoutFragmentFrame.origin.y <= point.y
+    }
+
+    guard let fragment = matchedFragment else { return nil }
+
+    let localPoint = NSPoint(
+      x: point.x - fragment.layoutFragmentFrame.origin.x,
+      y: point.y - fragment.layoutFragmentFrame.origin.y
+    )
+
+    let resolvedLocation: NSTextLocation
+    if let lineFragment = fragment.textLineFragments.first(where: {
+      $0.typographicBounds.contains(localPoint)
+    }) {
+      let charOffset = lineFragment.characterIndex(for: localPoint)
+      resolvedLocation =
+        textContentManager.location(fragment.rangeInElement.location, offsetBy: charOffset)
+        ?? fragment.rangeInElement.location
+    } else {
+      resolvedLocation = fragment.rangeInElement.location
+    }
+
+    return textContentManager.offset(
+      from: textContentManager.documentRange.location,
+      to: resolvedLocation
     )
   }
 
