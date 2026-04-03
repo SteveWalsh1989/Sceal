@@ -234,7 +234,8 @@ private struct QuickAppearancePopover: View {
         openFontPanel: openFontPanel
       )
 
-      QuickAppearanceSliderRow(
+      AppearanceSliderRow(
+        style: .compact,
         title: "Font size",
         valueLabel: "\(Int(store.appearanceSettings.bodyFontSize))",
         value: Binding(
@@ -247,7 +248,8 @@ private struct QuickAppearancePopover: View {
         step: 1
       )
 
-      QuickAppearanceSliderRow(
+      AppearanceSliderRow(
+        style: .compact,
         title: "Sidebar size",
         valueLabel: "\(Int(store.appearanceSettings.sidebarFontSize))",
         value: Binding(
@@ -260,7 +262,8 @@ private struct QuickAppearancePopover: View {
         step: 1
       )
 
-      QuickAppearanceSliderRow(
+      AppearanceSliderRow(
+        style: .compact,
         title: "Line height",
         valueLabel: String(format: "%.1fx", store.appearanceSettings.lineHeight),
         value: Binding(
@@ -273,7 +276,8 @@ private struct QuickAppearancePopover: View {
         step: 0.1
       )
 
-      QuickAppearanceSliderRow(
+      AppearanceSliderRow(
+        style: .compact,
         title: "List spacing",
         valueLabel: String(format: "%.1f", store.appearanceSettings.listItemSpacing),
         value: Binding(
@@ -286,7 +290,8 @@ private struct QuickAppearancePopover: View {
         step: 0.5
       )
 
-      QuickAppearanceSliderRow(
+      AppearanceSliderRow(
+        style: .compact,
         title: "Bullet size",
         valueLabel: "\(Int(store.appearanceSettings.bulletSize))",
         value: Binding(
@@ -299,7 +304,8 @@ private struct QuickAppearancePopover: View {
         step: 2
       )
 
-      QuickAppearanceColorRow(
+      AppearanceAccentColorRow(
+        style: .compact,
         selectedColorName: store.appearanceSettings.accentColorName,
         onSelect: store.updateAccentColorName
       )
@@ -351,86 +357,6 @@ private struct QuickAppearanceFontRow: View {
         .buttonStyle(.bordered)
         .controlSize(.small)
     }
-  }
-}
-
-private struct QuickAppearanceSliderRow: View {
-  let title: String
-  let valueLabel: String
-  @Binding var value: Double
-  let range: ClosedRange<Double>
-  let step: Double
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      HStack(alignment: .firstTextBaseline) {
-        Text(title)
-          .font(.system(size: 12, weight: .medium))
-
-        Spacer()
-
-        Text(valueLabel)
-          .font(.system(size: 12))
-          .foregroundStyle(.secondary)
-      }
-
-      Slider(value: $value, in: range, step: step)
-        .controlSize(.small)
-        .tint(.accentColor)
-    }
-  }
-}
-
-private struct QuickAppearanceColorRow: View {
-  let selectedColorName: String
-  let onSelect: (String) -> Void
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      HStack(alignment: .firstTextBaseline) {
-        Text("Default color")
-          .font(.system(size: 12, weight: .medium))
-
-        Spacer()
-
-        Text(selectedColorName.capitalized)
-          .font(.system(size: 12))
-          .foregroundStyle(.secondary)
-      }
-
-      HStack(spacing: 10) {
-        ForEach(ScealPalette.colors, id: \.name) { entry in
-          Button {
-            onSelect(entry.name)
-          } label: {
-            Circle()
-              .fill(Color(nsColor: entry.color))
-              .frame(width: 18, height: 18)
-              .overlay {
-                Circle()
-                  .strokeBorder(
-                    borderColor(for: entry.name),
-                    lineWidth: entry.name == selectedColorName ? 2 : 1
-                  )
-              }
-          }
-          .buttonStyle(.plain)
-          .accessibilityLabel("Use \(entry.name) accent color")
-        }
-      }
-    }
-  }
-
-  private func borderColor(for colorName: String) -> Color {
-    if colorName == selectedColorName {
-      return Color.primary
-    }
-
-    if colorName == "white" {
-      return Color.primary.opacity(0.2)
-    }
-
-    return Color.clear
   }
 }
 

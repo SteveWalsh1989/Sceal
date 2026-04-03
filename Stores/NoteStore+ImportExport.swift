@@ -13,45 +13,23 @@ extension NoteStore {
 
   // Opens a folder picker and imports notes from an unzipped Diarly export.
   func importFromDiarly() {
-    let panel = NSOpenPanel()
-    panel.title = "Select Diarly Export Folder"
-    panel.message = "Choose the unzipped Diarly export folder (e.g. Export)"
-    panel.canChooseDirectories = true
-    panel.canChooseFiles = false
-    panel.allowsMultipleSelection = false
-
-    guard panel.runModal() == .OK, let folderURL = panel.url else { return }
-
-    let existingIDs = Set(notes.map(\.id))
-
-    do {
+    importFromFolder(
+      panelTitle: "Select Diarly Export Folder",
+      panelMessage: "Choose the unzipped Diarly export folder (e.g. Export)",
+      context: "Importing from Diarly failed",
+      emptyMessage: "No Diarly notes found in the selected folder."
+    ) { folderURL, existingIDs in
       let result = try DiarlyImporter.importNotes(
-        from: folderURL, existingNoteIDs: existingIDs, calendar: calendar)
+        from: folderURL,
+        existingNoteIDs: existingIDs,
+        calendar: calendar
+      )
 
-      for note in result.imported {
-        try save(note)
-      }
-
-      notes = (notes + result.imported).sorted(by: { $0.date > $1.date })
-      rebuildNoteIndex()
-
-      if result.imported.isEmpty && result.skipped > 0 {
-        userMessage = (
-          text: "No new notes imported. \(result.skipped) dates already exist in Scéal.",
-          kind: .info
-        )
-      } else if result.imported.isEmpty {
-        userMessage = (text: "No Diarly notes found in the selected folder.", kind: .info)
-      } else {
-        var details: [String] = []
-        if result.skipped > 0 { details.append("\(result.skipped) skipped") }
-        if result.merged > 0 { details.append("\(result.merged) same-day entries merged") }
-        let suffix = details.isEmpty ? "" : " (\(details.joined(separator: ", ")))"
-        userMessage = (text: "Imported \(result.imported.count) notes.\(suffix)", kind: .info)
-        selectedNoteID = result.imported.first?.id
-      }
-    } catch {
-      report(error, context: "Importing from Diarly failed")
+      return ImportOutcome(
+        imported: result.imported,
+        skipped: result.skipped,
+        extraDetail: result.merged > 0 ? "\(result.merged) same-day entries merged" : nil
+      )
     }
   }
 
@@ -99,45 +77,102 @@ extension NoteStore {
 
   // Opens a folder picker and imports notes from an unzipped Scéal export.
   func importFromSceal() {
-    let panel = NSOpenPanel()
-    panel.title = "Select Scéal Export Folder"
-    panel.message = "Choose the unzipped Scéal export folder"
-    panel.canChooseDirectories = true
-    panel.canChooseFiles = false
-    panel.allowsMultipleSelection = false
+    importFromFolder(
+      panelTitle: "Select Scéal Export Folder",
+      panelMessage: "Choose the unzipped Scéal export folder",
+      context: "Importing from Scéal failed",
+      emptyMessage: "No Scéal notes found in the selected folder."
+    ) { folderURL, existingIDs in
+      let result = try ScealImporter.importNotes(
+        from: folderURL,
+        existingNoteIDs: existingIDs
+      )
 
-    guard panel.runModal() == .OK, let folderURL = panel.url else { return }
+      return ImportOutcome(
+        imported: result.imported,
+        skipped: result.skipped,
+        extraDetail: result.failed > 0 ? "\(result.failed) failed to parse" : nil
+      )
+    }
+  }
+
+  // Shared import payload used by both Diarly and Scéal folder import flows.
+  private struct ImportOutcome {
+    let imported: [DayNote]
+    let skipped: Int
+    let extraDetail: String?
+  }
+
+  // Runs a folder-import flow with shared panel, persistence, and user-message handling.
+  private func importFromFolder(
+    panelTitle: String,
+    panelMessage: String,
+    context: String,
+    emptyMessage: String,
+    importBlock: (_ folderURL: URL, _ existingNoteIDs: Set<DayNote.ID>) throws -> ImportOutcome
+  ) {
+    guard let folderURL = selectImportFolder(title: panelTitle, message: panelMessage) else {
+      return
+    }
 
     let existingIDs = Set(notes.map(\.id))
 
     do {
-      let result = try ScealImporter.importNotes(
-        from: folderURL, existingNoteIDs: existingIDs)
-
-      for note in result.imported {
-        try save(note)
-      }
-
-      notes = (notes + result.imported).sorted(by: { $0.date > $1.date })
-      rebuildNoteIndex()
-
-      if result.imported.isEmpty && result.skipped > 0 {
-        userMessage = (
-          text: "No new notes imported. \(result.skipped) dates already exist in Scéal.",
-          kind: .info
-        )
-      } else if result.imported.isEmpty {
-        userMessage = (text: "No Scéal notes found in the selected folder.", kind: .info)
-      } else {
-        var details: [String] = []
-        if result.skipped > 0 { details.append("\(result.skipped) skipped") }
-        if result.failed > 0 { details.append("\(result.failed) failed to parse") }
-        let suffix = details.isEmpty ? "" : " (\(details.joined(separator: ", ")))"
-        userMessage = (text: "Imported \(result.imported.count) notes.\(suffix)", kind: .info)
-        selectedNoteID = result.imported.first?.id
-      }
+      let outcome = try importBlock(folderURL, existingIDs)
+      try persistImportedNotes(outcome.imported)
+      showImportMessage(outcome, emptyMessage: emptyMessage)
     } catch {
-      report(error, context: "Importing from Scéal failed")
+      report(error, context: context)
     }
+  }
+
+  // Opens a folder picker configured for import flows.
+  private func selectImportFolder(title: String, message: String) -> URL? {
+    let panel = NSOpenPanel()
+    panel.title = title
+    panel.message = message
+    panel.canChooseDirectories = true
+    panel.canChooseFiles = false
+    panel.allowsMultipleSelection = false
+
+    guard panel.runModal() == .OK else {
+      return nil
+    }
+
+    return panel.url
+  }
+
+  // Persists imported notes, then updates in-memory state and index in one place.
+  private func persistImportedNotes(_ imported: [DayNote]) throws {
+    for note in imported {
+      try save(note)
+    }
+
+    notes = (notes + imported).sorted(by: { $0.date > $1.date })
+    rebuildNoteIndex()
+  }
+
+  // Shows the user-facing import result message with consistent formatting across importers.
+  private func showImportMessage(_ outcome: ImportOutcome, emptyMessage: String) {
+    if outcome.imported.isEmpty && outcome.skipped > 0 {
+      userMessage = (
+        text: "No new notes imported. \(outcome.skipped) dates already exist in Scéal.",
+        kind: .info
+      )
+      return
+    }
+
+    guard !outcome.imported.isEmpty else {
+      userMessage = (text: emptyMessage, kind: .info)
+      return
+    }
+
+    var details: [String] = []
+    if outcome.skipped > 0 { details.append("\(outcome.skipped) skipped") }
+    if let extraDetail = outcome.extraDetail { details.append(extraDetail) }
+
+    let suffix = details.isEmpty ? "" : " (\(details.joined(separator: ", ")))"
+    userMessage = (text: "Imported \(outcome.imported.count) notes.\(suffix)", kind: .info)
+    selectedNoteID = outcome.imported.first?.id
   }
 }

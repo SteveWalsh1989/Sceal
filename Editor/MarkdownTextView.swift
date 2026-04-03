@@ -9,6 +9,8 @@ import AppKit
 import SwiftUI
 
 struct MarkdownTextView: NSViewRepresentable {
+  private static let minimumBottomPadding: CGFloat = 300
+
   let noteID: DayNote.ID
   @Binding var text: String
   let appearanceSettings: NoteAppearanceSettings
@@ -73,7 +75,10 @@ struct MarkdownTextView: NSViewRepresentable {
 
     // Ensure text view fills at least the visible area plus bottom padding so clicks
     // anywhere in the editor land on the text view rather than dead scroll-view space.
-    textView.minSize = NSSize(width: 0, height: scrollView.contentSize.height + 300)
+    textView.minSize = NSSize(
+      width: 0,
+      height: scrollView.contentSize.height + Self.minimumBottomPadding
+    )
 
     return scrollView
   }
@@ -86,7 +91,7 @@ struct MarkdownTextView: NSViewRepresentable {
     context.coordinator.toolbar.appearanceSettings = appearanceSettings
 
     // Keep text view filling the visible area plus bottom padding
-    let minH = scrollView.contentSize.height + 300
+    let minH = scrollView.contentSize.height + Self.minimumBottomPadding
     if textView.minSize.height != minH {
       textView.minSize = NSSize(width: 0, height: minH)
     }

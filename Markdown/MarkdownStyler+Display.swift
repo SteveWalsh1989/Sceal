@@ -267,7 +267,7 @@ extension MarkdownStyler {
       range.length -= absRange.length - newRange.length
       attrStr.addAttributes(
         [
-          .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
+          .font: NSFont.monospacedSystemFont(ofSize: defaultFont.pointSize, weight: .regular),
           .backgroundColor: NSColor.quaternaryLabelColor,
           .markdownInlineCode: true,
         ], range: newRange)

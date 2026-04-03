@@ -387,6 +387,10 @@ import AppKit
     guard let textView, let textStorage = textView.textStorage else { return }
     let range = textView.selectedRange()
     guard range.length > 0 else { return }
+    let inlineCodeFont = NSFont.monospacedSystemFont(
+      ofSize: appearanceSettings.bodyFont.pointSize,
+      weight: .regular
+    )
 
     var allCode = true
     textStorage.enumerateAttribute(.markdownInlineCode, in: range, options: []) {
@@ -408,7 +412,7 @@ import AppKit
       } else {
         textStorage.addAttributes(
           [
-            .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
+            .font: inlineCodeFont,
             .backgroundColor: NSColor.quaternaryLabelColor,
             .markdownInlineCode: true,
           ],
@@ -570,7 +574,9 @@ import AppKit
   @objc private func toggleBlockquote() {
     guard let textView, let textStorage = textView.textStorage else { return }
     let (lineRange, lineText) = currentLineRange()
-    guard lineRange.length >= 0 else { return }
+    guard lineRange.location != NSNotFound, NSMaxRange(lineRange) <= textStorage.length else {
+      return
+    }
 
     let isBlockquote =
       lineRange.length > 0
@@ -655,7 +661,8 @@ import AppKit
           ) as? String : nil
         let currentType = currentTypeRaw.flatMap { MarkdownListType(rawValue: $0) }
         // Preserve indent level when converting between list types
-        let indentLevel: Int = line.range.length > 0
+        let indentLevel: Int =
+          line.range.length > 0
           ? textStorage.attribute(
             .markdownIndentLevel, at: line.range.location, effectiveRange: nil
           ) as? Int ?? 0 : 0

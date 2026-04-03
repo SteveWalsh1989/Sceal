@@ -25,7 +25,8 @@ struct AppearanceSettingsView: View {
           }
         }
 
-        SliderRow(
+        AppearanceSliderRow(
+          style: .settings,
           title: "Body size",
           valueLabel: "\(Int(store.appearanceSettings.bodyFontSize))",
           value: Binding(
@@ -38,7 +39,8 @@ struct AppearanceSettingsView: View {
           step: 1
         )
 
-        SliderRow(
+        AppearanceSliderRow(
+          style: .settings,
           title: "Sidebar size",
           valueLabel: "\(Int(store.appearanceSettings.sidebarFontSize))",
           value: Binding(
@@ -53,7 +55,8 @@ struct AppearanceSettingsView: View {
       }
 
       Section("Layout") {
-        SliderRow(
+        AppearanceSliderRow(
+          style: .settings,
           title: "Line height",
           valueLabel: String(format: "%.2fx", store.appearanceSettings.lineHeight),
           value: Binding(
@@ -66,7 +69,8 @@ struct AppearanceSettingsView: View {
           step: 0.05
         )
 
-        SliderRow(
+        AppearanceSliderRow(
+          style: .settings,
           title: "List spacing",
           valueLabel: String(format: "%.1f", store.appearanceSettings.listItemSpacing),
           value: Binding(
@@ -79,7 +83,8 @@ struct AppearanceSettingsView: View {
           step: 0.25
         )
 
-        SliderRow(
+        AppearanceSliderRow(
+          style: .settings,
           title: "Section gap",
           valueLabel: String(format: "%.2fx", store.appearanceSettings.sectionDividerGapScale),
           value: Binding(
@@ -92,7 +97,8 @@ struct AppearanceSettingsView: View {
           step: 0.25
         )
 
-        SliderRow(
+        AppearanceSliderRow(
+          style: .settings,
           title: "Bullet size",
           valueLabel: "\(Int(store.appearanceSettings.bulletSize))",
           value: Binding(
@@ -107,7 +113,8 @@ struct AppearanceSettingsView: View {
       }
 
       Section("Accent color") {
-        AccentColorRow(
+        AppearanceAccentColorRow(
+          style: .settings,
           selectedColorName: store.appearanceSettings.accentColorName,
           onSelect: store.updateAccentColorName
         )
@@ -158,9 +165,14 @@ struct AppearanceSettingsView: View {
   }
 }
 
-// MARK: - Private sub-views
+// Shared styling variants for appearance controls used in both settings and quick popovers.
+enum AppearanceControlRowStyle {
+  case settings
+  case compact
+}
 
-private struct SliderRow: View {
+struct AppearanceSliderRow: View {
+  let style: AppearanceControlRowStyle
   let title: String
   let valueLabel: String
   @Binding var value: Double
@@ -168,42 +180,88 @@ private struct SliderRow: View {
   let step: Double
 
   var body: some View {
-    LabeledContent(title) {
-      HStack(spacing: 4) {
-        Text(valueLabel)
-          .monospacedDigit()
-          .foregroundStyle(.secondary)
-          .frame(width: 42, alignment: .trailing)
+    switch style {
+    case .settings:
+      LabeledContent(title) {
+        HStack(spacing: 4) {
+          Text(valueLabel)
+            .monospacedDigit()
+            .foregroundStyle(.secondary)
+            .frame(width: 42, alignment: .trailing)
+          Slider(value: $value, in: range, step: step)
+        }
+      }
+    case .compact:
+      VStack(alignment: .leading, spacing: 10) {
+        HStack(alignment: .firstTextBaseline) {
+          Text(title)
+            .font(.system(size: 12, weight: .medium))
+
+          Spacer()
+
+          Text(valueLabel)
+            .font(.system(size: 12))
+            .foregroundStyle(.secondary)
+        }
+
         Slider(value: $value, in: range, step: step)
+          .controlSize(.small)
+          .tint(.accentColor)
       }
     }
   }
 }
 
-private struct AccentColorRow: View {
+struct AppearanceAccentColorRow: View {
+  let style: AppearanceControlRowStyle
   let selectedColorName: String
   let onSelect: (String) -> Void
 
   var body: some View {
-    HStack(spacing: 8) {
-      ForEach(ScealPalette.colors, id: \.name) { entry in
-        Button {
-          onSelect(entry.name)
-        } label: {
-          Circle()
-            .fill(Color(nsColor: entry.color))
-            .frame(width: 20, height: 20)
-            .overlay {
-              Circle()
-                .strokeBorder(
-                  borderColor(for: entry.name),
-                  lineWidth: entry.name == selectedColorName ? 2 : 1
-                )
-            }
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Use \(entry.name) accent color")
+    switch style {
+    case .settings:
+      HStack(spacing: 8) {
+        colorSwatches(circleSize: 20)
       }
+    case .compact:
+      VStack(alignment: .leading, spacing: 10) {
+        HStack(alignment: .firstTextBaseline) {
+          Text("Default color")
+            .font(.system(size: 12, weight: .medium))
+
+          Spacer()
+
+          Text(selectedColorName.capitalized)
+            .font(.system(size: 12))
+            .foregroundStyle(.secondary)
+        }
+
+        HStack(spacing: 10) {
+          colorSwatches(circleSize: 18)
+        }
+      }
+    }
+  }
+
+  @ViewBuilder
+  private func colorSwatches(circleSize: CGFloat) -> some View {
+    ForEach(ScealPalette.colors, id: \.name) { entry in
+      Button {
+        onSelect(entry.name)
+      } label: {
+        Circle()
+          .fill(Color(nsColor: entry.color))
+          .frame(width: circleSize, height: circleSize)
+          .overlay {
+            Circle()
+              .strokeBorder(
+                borderColor(for: entry.name),
+                lineWidth: entry.name == selectedColorName ? 2 : 1
+              )
+          }
+      }
+      .buttonStyle(.plain)
+      .accessibilityLabel("Use \(entry.name) accent color")
     }
   }
 
