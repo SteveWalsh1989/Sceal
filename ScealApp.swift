@@ -13,6 +13,7 @@ struct ScealApp: App {
   var body: some Scene {
     WindowGroup {
       ContentView(store: noteStore)
+        .preferredColorScheme(noteStore.appearanceSettings.preferredColorScheme)
     }
     .windowStyle(.hiddenTitleBar)
     .commands {
@@ -30,6 +31,7 @@ struct ScealApp: App {
 
     Settings {
       SettingsView(store: noteStore)
+        .preferredColorScheme(noteStore.appearanceSettings.preferredColorScheme)
     }
   }
 }

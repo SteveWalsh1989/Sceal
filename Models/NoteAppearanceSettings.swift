@@ -3,6 +3,7 @@
 //
 
 import AppKit
+import SwiftUI
 
 struct NoteAppearanceSettings: Codable, Equatable, Sendable {
   static let systemFontToken = "__system__"
@@ -25,6 +26,7 @@ struct NoteAppearanceSettings: Codable, Equatable, Sendable {
   static let maximumSidebarFontSize: CGFloat = 18
   static let defaultSidebarFontSize: CGFloat = 14
   static let defaultAccentColorName = "pink"
+  static let defaultThemeID = "default-dark"
   static let `default` = NoteAppearanceSettings()
 
   var bodyFontName: String
@@ -37,6 +39,8 @@ struct NoteAppearanceSettings: Codable, Equatable, Sendable {
   var accentColorName: String
   var sidebarShowsTags: Bool
   var sidebarDateFormat: SidebarDateFormat
+  var themeID: String
+  var colorOverrides: ThemeColorSet?
 
   init(
     bodyFontName: String = Self.systemFontToken,
@@ -48,7 +52,9 @@ struct NoteAppearanceSettings: Codable, Equatable, Sendable {
     sidebarFontSize: CGFloat = Self.defaultSidebarFontSize,
     accentColorName: String = Self.defaultAccentColorName,
     sidebarShowsTags: Bool = false,
-    sidebarDateFormat: SidebarDateFormat = .yearMonthDay
+    sidebarDateFormat: SidebarDateFormat = .yearMonthDay,
+    themeID: String = Self.defaultThemeID,
+    colorOverrides: ThemeColorSet? = nil
   ) {
     self.bodyFontName = bodyFontName
     self.bodyFontSize = bodyFontSize
@@ -60,6 +66,8 @@ struct NoteAppearanceSettings: Codable, Equatable, Sendable {
     self.accentColorName = accentColorName
     self.sidebarShowsTags = sidebarShowsTags
     self.sidebarDateFormat = sidebarDateFormat
+    self.themeID = themeID
+    self.colorOverrides = colorOverrides
   }
 
   var clamped: NoteAppearanceSettings {
@@ -77,7 +85,9 @@ struct NoteAppearanceSettings: Codable, Equatable, Sendable {
         to: Self.minimumSidebarFontSize...Self.maximumSidebarFontSize),
       accentColorName: normalizedAccentColorName,
       sidebarShowsTags: sidebarShowsTags,
-      sidebarDateFormat: sidebarDateFormat
+      sidebarDateFormat: sidebarDateFormat,
+      themeID: themeID,
+      colorOverrides: colorOverrides
     )
   }
 
@@ -97,6 +107,19 @@ struct NoteAppearanceSettings: Codable, Equatable, Sendable {
     ScealPalette.color(named: normalizedAccentColorName)
       ?? ScealPalette.color(named: Self.defaultAccentColorName)
       ?? .systemPink
+  }
+
+  // Resolves the effective color set for the active theme.
+  var resolvedColors: ThemeColorSet {
+    if let colorOverrides { return colorOverrides }
+    return ScealTheme.builtIn(id: themeID)?.colors
+      ?? ScealTheme.defaultDark.colors
+  }
+
+  // The color scheme the active theme requires.
+  var preferredColorScheme: ColorScheme? {
+    let theme = ScealTheme.builtIn(id: themeID) ?? ScealTheme.defaultDark
+    return theme.mode == .dark ? .dark : .light
   }
 
   func resolvedFont(ofSize size: CGFloat) -> NSFont {
@@ -139,6 +162,8 @@ struct NoteAppearanceSettings: Codable, Equatable, Sendable {
     case accentColorName
     case sidebarShowsTags
     case sidebarDateFormat
+    case themeID
+    case colorOverrides
   }
 
   init(from decoder: Decoder) throws {
@@ -167,7 +192,11 @@ struct NoteAppearanceSettings: Codable, Equatable, Sendable {
       sidebarDateFormat: try container.decodeIfPresent(
         SidebarDateFormat.self,
         forKey: .sidebarDateFormat
-      ) ?? .yearMonthDay
+      ) ?? .yearMonthDay,
+      themeID: try container.decodeIfPresent(String.self, forKey: .themeID)
+        ?? Self.defaultThemeID,
+      colorOverrides: try container.decodeIfPresent(
+        ThemeColorSet.self, forKey: .colorOverrides)
     )
   }
 
@@ -183,6 +212,8 @@ struct NoteAppearanceSettings: Codable, Equatable, Sendable {
     try container.encode(accentColorName, forKey: .accentColorName)
     try container.encode(sidebarShowsTags, forKey: .sidebarShowsTags)
     try container.encode(sidebarDateFormat, forKey: .sidebarDateFormat)
+    try container.encode(themeID, forKey: .themeID)
+    try container.encodeIfPresent(colorOverrides, forKey: .colorOverrides)
   }
 }
 

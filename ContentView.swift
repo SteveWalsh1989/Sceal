@@ -6,7 +6,6 @@
 import SwiftUI
 
 struct ContentView: View {
-  @Environment(\.colorScheme) private var colorScheme
   @ObservedObject var store: NoteStore
   @State private var notePendingDeletionID: DayNote.ID?
   @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
@@ -84,9 +83,7 @@ struct ContentView: View {
   }
 
   private var editorBackgroundColor: Color {
-    colorScheme == .dark
-      ? Color(red: 0.09, green: 0.09, blue: 0.105)
-      : Color(red: 0.955, green: 0.955, blue: 0.97)
+    store.appearanceSettings.resolvedColors.editorBackground.color
   }
 }
 

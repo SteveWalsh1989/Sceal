@@ -252,6 +252,30 @@ final class NoteStore: ObservableObject {
     }
   }
 
+  // Selects a built-in theme and clears any custom overrides.
+  func updateThemeID(_ id: String) {
+    updateAppearanceSettings { settings in
+      settings.themeID = id
+      settings.colorOverrides = nil
+    }
+  }
+
+  // Applies a custom color override, copying from the built-in theme on first edit.
+  func updateColorOverride(mutate: (inout ThemeColorSet) -> Void) {
+    updateAppearanceSettings { settings in
+      var colors = settings.resolvedColors
+      mutate(&colors)
+      settings.colorOverrides = colors
+    }
+  }
+
+  // Resets custom color overrides so the built-in theme colors apply again.
+  func resetColorOverrides() {
+    updateAppearanceSettings { settings in
+      settings.colorOverrides = nil
+    }
+  }
+
   func updateNewNoteDefault(_ value: NewNoteDefault) {
     newNoteDefault = value
     userDefaults.set(value.rawValue, forKey: Self.newNoteDefaultKey)
@@ -328,14 +352,16 @@ final class NoteStore: ObservableObject {
     // Run the heavy export (file staging + ditto zip) off the main actor.
     Task.detached { [weak self] in
       do {
-        let zipURL = try ScealExporter.exportNotes(filtered)
+        let zipURL = try await MainActor.run { try ScealExporter.exportNotes(filtered) }
 
         if fm.fileExists(atPath: saveURL.path) {
           try fm.removeItem(at: saveURL)
         }
         try fm.moveItem(at: zipURL, to: saveURL)
 
-        ScealExporter.cleanUp(zipURL: zipURL)
+        await MainActor.run {
+          ScealExporter.cleanUp(zipURL: zipURL)
+        }
         await MainActor.run {
           self?.userMessage = (text: "Exported \(noteCount) notes.", kind: .info)
         }
@@ -702,3 +728,4 @@ final class NoteStore: ObservableObject {
     userMessage = (text: "\(context). \(message)", kind: .error)
   }
 }
+

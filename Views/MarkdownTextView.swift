@@ -101,6 +101,10 @@ struct MarkdownTextView: NSViewRepresentable {
 
     context.coordinator.isUpdating = true
     let visibleOrigin = scrollView.contentView.bounds.origin
+
+    // Capture first-responder status so we can restore it after programmatic edits.
+    let wasFirstResponder = textView.window?.firstResponder === textView
+
     if let scealTextView = textView as? ScealTextView {
       scealTextView.appearanceSettings = appearanceSettings
     }
@@ -150,6 +154,10 @@ struct MarkdownTextView: NSViewRepresentable {
       textView.window?.makeFirstResponder(nil)
     } else {
       scrollView.contentView.scroll(to: visibleOrigin)
+      // Restore first-responder if programmatic text storage edits caused it to resign.
+      if wasFirstResponder, textView.window?.firstResponder !== textView {
+        textView.window?.makeFirstResponder(textView)
+      }
     }
     scrollView.reflectScrolledClipView(scrollView.contentView)
     context.coordinator.isUpdating = false
@@ -1177,15 +1185,16 @@ private enum DividerResolutionPreference {
 
 @MainActor private class ScealTextView: NSTextView {
 
+  // Accept clicks even when the window is not key (e.g. after popover dismissal).
+  override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
   var appearanceSettings = NoteAppearanceSettings.default
   private let sectionCardBaseGapOffset: CGFloat = 4
   private var sectionCardGapOffset: CGFloat {
     sectionCardBaseGapOffset * appearanceSettings.sectionDividerGapScale
   }
   private var cardColor: NSColor {
-    isDarkAppearance
-      ? NSColor(red: 0.13, green: 0.13, blue: 0.15, alpha: 1)
-      : NSColor(red: 0.985, green: 0.985, blue: 0.992, alpha: 1)
+    appearanceSettings.resolvedColors.sectionCardFill.nsColor
   }
   private let cardRadius: CGFloat = 24
   private let cardHInset: CGFloat = 0
@@ -1427,7 +1436,10 @@ private enum DividerResolutionPreference {
     else { return }
 
     let lineInset: CGFloat = 24
-    NSColor.separatorColor.setFill()
+    let dividerColor =
+      MarkdownStyler.accentColor(for: appearanceSettings).withAlphaComponent(
+        isDarkAppearance ? 0.52 : 0.44)
+    dividerColor.setFill()
 
     for range in ranges {
       let glyphRange = layoutManager.glyphRange(
@@ -1709,6 +1721,12 @@ private enum DividerResolutionPreference {
   // MARK: - Checkbox Click
 
   override func mouseDown(with event: NSEvent) {
+    // Always reclaim first-responder on click so the cursor is placeable after
+    // focus was lost to a popover, sidebar interaction, or programmatic edit.
+    if window?.firstResponder !== self {
+      window?.makeFirstResponder(self)
+    }
+
     guard let textStorage = textStorage, let layoutManager = layoutManager,
       let textContainer = textContainer
     else {

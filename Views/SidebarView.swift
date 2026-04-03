@@ -6,7 +6,6 @@
 import SwiftUI
 
 struct SidebarView: View {
-  @Environment(\.colorScheme) private var colorScheme
   @ObservedObject var store: NoteStore
   let requestDelete: (DayNote.ID) -> Void
 
@@ -26,13 +25,15 @@ struct SidebarView: View {
             }
 
             ForEach(store.monthSections) { section in
-              MonthDividerView(title: section.title)
+              MonthDividerView(title: section.title, dividerColor: themeColors.divider.color)
 
               ForEach(section.notes) { note in
                 DayNoteCardView(
                   note: note,
                   appearanceSettings: store.appearanceSettings,
-                  isSelected: store.selectedNoteID == note.id
+                  isSelected: store.selectedNoteID == note.id,
+                  selectedCardColor: themeColors.selectedCard.color,
+                  unselectedCardColor: themeColors.unselectedCard.color
                 )
                 .onTapGesture {
                   store.select(noteID: note.id)
@@ -64,10 +65,12 @@ struct SidebarView: View {
     }
   }
 
+  private var themeColors: ThemeColorSet {
+    store.appearanceSettings.resolvedColors
+  }
+
   private var sidebarBackgroundColor: Color {
-    colorScheme == .dark
-      ? Color(red: 0.105, green: 0.105, blue: 0.12)
-      : Color(red: 0.94, green: 0.94, blue: 0.955)
+    themeColors.sidebarBackground.color
   }
 }
 
@@ -176,8 +179,8 @@ private struct AddTodayButton: View {
 }
 
 private struct MonthDividerView: View {
-  @Environment(\.colorScheme) private var colorScheme
   let title: String
+  let dividerColor: Color
 
   var body: some View {
     HStack(spacing: 10) {
@@ -196,19 +199,14 @@ private struct MonthDividerView: View {
     }
     .padding(.top, 4)
   }
-
-  private var dividerColor: Color {
-    colorScheme == .dark
-      ? Color.white.opacity(0.16)
-      : Color.black.opacity(0.12)
-  }
 }
 
 private struct DayNoteCardView: View {
-  @Environment(\.colorScheme) private var colorScheme
   let note: DayNote
   let appearanceSettings: NoteAppearanceSettings
   let isSelected: Bool
+  let selectedCardColor: Color
+  let unselectedCardColor: Color
 
   var body: some View {
     HStack(alignment: .top, spacing: 10) {
@@ -280,15 +278,7 @@ private struct DayNoteCardView: View {
   }
 
   private var cardBackground: Color {
-    if isSelected {
-      return colorScheme == .dark
-        ? Color(red: 0.175, green: 0.175, blue: 0.2)
-        : Color.black.opacity(0.08)
-    }
-
-    return colorScheme == .dark
-      ? Color(red: 0.13, green: 0.13, blue: 0.15)
-      : Color.black.opacity(0.04)
+    isSelected ? selectedCardColor : unselectedCardColor
   }
 
 }
