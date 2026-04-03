@@ -79,8 +79,7 @@ extension NoteStore {
 
     let fm = fileManager
     let noteCount = filtered.count
-    // Run the heavy export (file staging + ditto zip) off the main actor.
-    Task.detached { [weak self] in
+    Task { [weak self] in
       do {
         let zipURL = try ScealExporter.exportNotes(filtered)
 
@@ -91,13 +90,9 @@ extension NoteStore {
 
         ScealExporter.cleanUp(zipURL: zipURL)
 
-        await MainActor.run {
-          self?.userMessage = (text: "Exported \(noteCount) notes.", kind: .info)
-        }
+        self?.userMessage = (text: "Exported \(noteCount) notes.", kind: .info)
       } catch {
-        await MainActor.run {
-          self?.report(error, context: "Exporting notes failed")
-        }
+        self?.report(error, context: "Exporting notes failed")
       }
     }
   }
