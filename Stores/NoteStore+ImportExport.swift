@@ -82,16 +82,15 @@ extension NoteStore {
     // Run the heavy export (file staging + ditto zip) off the main actor.
     Task.detached { [weak self] in
       do {
-        let zipURL = try await MainActor.run { try ScealExporter.exportNotes(filtered) }
+        let zipURL = try ScealExporter.exportNotes(filtered)
 
         if fm.fileExists(atPath: saveURL.path) {
           try fm.removeItem(at: saveURL)
         }
         try fm.moveItem(at: zipURL, to: saveURL)
 
-        await MainActor.run {
-          ScealExporter.cleanUp(zipURL: zipURL)
-        }
+        ScealExporter.cleanUp(zipURL: zipURL)
+
         await MainActor.run {
           self?.userMessage = (text: "Exported \(noteCount) notes.", kind: .info)
         }
