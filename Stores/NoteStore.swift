@@ -36,15 +36,15 @@ enum UserMessageKind {
 
 @MainActor
 final class NoteStore: ObservableObject {
-  @Published private(set) var notes: [DayNote]
+  @Published var notes: [DayNote]
   @Published private(set) var appearanceSettings: NoteAppearanceSettings
   @Published private(set) var newNoteDefault: NewNoteDefault
   @Published var selectedNoteID: DayNote.ID?
   @Published private(set) var isLoading = false
   @Published var userMessage: (text: String, kind: UserMessageKind)?
 
-  private let fileManager: FileManager
-  private let calendar: Calendar
+  let fileManager: FileManager
+  let calendar: Calendar
   private let userDefaults: UserDefaults
   private var hasLoaded = false
   private var noteIndex: [DayNote.ID: Int] = [:]
@@ -192,229 +192,9 @@ final class NoteStore: ObservableObject {
     selectedNoteID = notes[currentIndex + 1].id
   }
 
-  func updateBodyFontName(_ bodyFontName: String) {
-    updateAppearanceSettings { settings in
-      settings.bodyFontName = bodyFontName
-    }
-  }
-
-  func updateBodyFontSize(_ bodyFontSize: CGFloat) {
-    updateAppearanceSettings { settings in
-      settings.bodyFontSize = bodyFontSize
-    }
-  }
-
-  func updateLineHeight(_ lineHeight: CGFloat) {
-    updateAppearanceSettings { settings in
-      settings.lineHeight = lineHeight
-    }
-  }
-
-  func updateListItemSpacing(_ listItemSpacing: CGFloat) {
-    updateAppearanceSettings { settings in
-      settings.listItemSpacing = listItemSpacing
-    }
-  }
-
-  func updateBulletSize(_ bulletSize: CGFloat) {
-    updateAppearanceSettings { settings in
-      settings.bulletSize = bulletSize
-    }
-  }
-
-  func updateSectionDividerGapScale(_ sectionDividerGapScale: CGFloat) {
-    updateAppearanceSettings { settings in
-      settings.sectionDividerGapScale = sectionDividerGapScale
-    }
-  }
-
-  func updateSidebarFontSize(_ sidebarFontSize: CGFloat) {
-    updateAppearanceSettings { settings in
-      settings.sidebarFontSize = sidebarFontSize
-    }
-  }
-
-  func updateAccentColorName(_ accentColorName: String) {
-    updateAppearanceSettings { settings in
-      settings.accentColorName = accentColorName
-    }
-  }
-
-  func updateSidebarShowsTags(_ sidebarShowsTags: Bool) {
-    updateAppearanceSettings { settings in
-      settings.sidebarShowsTags = sidebarShowsTags
-    }
-  }
-
-  func updateSidebarDateFormat(_ sidebarDateFormat: SidebarDateFormat) {
-    updateAppearanceSettings { settings in
-      settings.sidebarDateFormat = sidebarDateFormat
-    }
-  }
-
-  // Selects a built-in theme and clears any custom overrides.
-  func updateThemeID(_ id: String) {
-    updateAppearanceSettings { settings in
-      settings.themeID = id
-      settings.colorOverrides = nil
-    }
-  }
-
-  // Applies a custom color override, copying from the built-in theme on first edit.
-  func updateColorOverride(mutate: (inout ThemeColorSet) -> Void) {
-    updateAppearanceSettings { settings in
-      var colors = settings.resolvedColors
-      mutate(&colors)
-      settings.colorOverrides = colors
-    }
-  }
-
-  // Resets custom color overrides so the built-in theme colors apply again.
-  func resetColorOverrides() {
-    updateAppearanceSettings { settings in
-      settings.colorOverrides = nil
-    }
-  }
-
   func updateNewNoteDefault(_ value: NewNoteDefault) {
     newNoteDefault = value
     userDefaults.set(value.rawValue, forKey: Self.newNoteDefaultKey)
-  }
-
-  // Opens a folder picker and imports notes from an unzipped Diarly export.
-  func importFromDiarly() {
-    let panel = NSOpenPanel()
-    panel.title = "Select Diarly Export Folder"
-    panel.message = "Choose the unzipped Diarly export folder (e.g. Export)"
-    panel.canChooseDirectories = true
-    panel.canChooseFiles = false
-    panel.allowsMultipleSelection = false
-
-    guard panel.runModal() == .OK, let folderURL = panel.url else { return }
-
-    let existingIDs = Set(notes.map(\.id))
-
-    do {
-      let result = try DiarlyImporter.importNotes(
-        from: folderURL, existingNoteIDs: existingIDs, calendar: calendar)
-
-      for note in result.imported {
-        try save(note)
-      }
-
-      notes = (notes + result.imported).sorted(by: { $0.date > $1.date })
-      rebuildNoteIndex()
-
-      if result.imported.isEmpty && result.skipped > 0 {
-        userMessage = (
-          text: "No new notes imported. \(result.skipped) dates already exist in Scéal.",
-          kind: .info
-        )
-      } else if result.imported.isEmpty {
-        userMessage = (text: "No Diarly notes found in the selected folder.", kind: .info)
-      } else {
-        var details: [String] = []
-        if result.skipped > 0 { details.append("\(result.skipped) skipped") }
-        if result.merged > 0 { details.append("\(result.merged) same-day entries merged") }
-        let suffix = details.isEmpty ? "" : " (\(details.joined(separator: ", ")))"
-        userMessage = (text: "Imported \(result.imported.count) notes.\(suffix)", kind: .info)
-        selectedNoteID = result.imported.first?.id
-      }
-    } catch {
-      report(error, context: "Importing from Diarly failed")
-    }
-  }
-
-  // Exports notes within a date range to a zip file at a user-chosen location.
-  func exportNotes(startDate: Date, endDate: Date) {
-    flushPendingSaves()
-
-    let filtered = notes.filter { note in
-      let noteDay = calendar.startOfDay(for: note.date)
-      return noteDay >= calendar.startOfDay(for: startDate)
-        && noteDay <= calendar.startOfDay(for: endDate)
-    }
-
-    guard !filtered.isEmpty else {
-      userMessage = (text: "No notes found in the selected date range.", kind: .info)
-      return
-    }
-
-    let panel = NSSavePanel()
-    panel.title = "Export Notes"
-    panel.nameFieldStringValue = "sceal-export.zip"
-    panel.allowedContentTypes = [.zip]
-
-    guard panel.runModal() == .OK, let saveURL = panel.url else { return }
-
-    let fm = fileManager
-    let noteCount = filtered.count
-    // Run the heavy export (file staging + ditto zip) off the main actor.
-    Task.detached { [weak self] in
-      do {
-        let zipURL = try await MainActor.run { try ScealExporter.exportNotes(filtered) }
-
-        if fm.fileExists(atPath: saveURL.path) {
-          try fm.removeItem(at: saveURL)
-        }
-        try fm.moveItem(at: zipURL, to: saveURL)
-
-        await MainActor.run {
-          ScealExporter.cleanUp(zipURL: zipURL)
-        }
-        await MainActor.run {
-          self?.userMessage = (text: "Exported \(noteCount) notes.", kind: .info)
-        }
-      } catch {
-        await MainActor.run {
-          self?.report(error, context: "Exporting notes failed")
-        }
-      }
-    }
-  }
-
-  // Opens a folder picker and imports notes from an unzipped Scéal export.
-  func importFromSceal() {
-    let panel = NSOpenPanel()
-    panel.title = "Select Scéal Export Folder"
-    panel.message = "Choose the unzipped Scéal export folder"
-    panel.canChooseDirectories = true
-    panel.canChooseFiles = false
-    panel.allowsMultipleSelection = false
-
-    guard panel.runModal() == .OK, let folderURL = panel.url else { return }
-
-    let existingIDs = Set(notes.map(\.id))
-
-    do {
-      let result = try ScealImporter.importNotes(
-        from: folderURL, existingNoteIDs: existingIDs)
-
-      for note in result.imported {
-        try save(note)
-      }
-
-      notes = (notes + result.imported).sorted(by: { $0.date > $1.date })
-      rebuildNoteIndex()
-
-      if result.imported.isEmpty && result.skipped > 0 {
-        userMessage = (
-          text: "No new notes imported. \(result.skipped) dates already exist in Scéal.",
-          kind: .info
-        )
-      } else if result.imported.isEmpty {
-        userMessage = (text: "No Scéal notes found in the selected folder.", kind: .info)
-      } else {
-        var details: [String] = []
-        if result.skipped > 0 { details.append("\(result.skipped) skipped") }
-        if result.failed > 0 { details.append("\(result.failed) failed to parse") }
-        let suffix = details.isEmpty ? "" : " (\(details.joined(separator: ", ")))"
-        userMessage = (text: "Imported \(result.imported.count) notes.\(suffix)", kind: .info)
-        selectedNoteID = result.imported.first?.id
-      }
-    } catch {
-      report(error, context: "Importing from Scéal failed")
-    }
   }
 
   // Deletes the requested note so shared UI flows can confirm destructive actions centrally.
@@ -561,7 +341,7 @@ final class NoteStore: ObservableObject {
     }
   }
 
-  private func updateAppearanceSettings(_ mutate: (inout NoteAppearanceSettings) -> Void) {
+  func updateAppearanceSettings(_ mutate: (inout NoteAppearanceSettings) -> Void) {
     var updatedSettings = appearanceSettings
     mutate(&updatedSettings)
     appearanceSettings = updatedSettings.clamped
@@ -622,7 +402,7 @@ final class NoteStore: ObservableObject {
     }
   }
 
-  private func save(_ note: DayNote) throws {
+  func save(_ note: DayNote) throws {
     let noteURL = try notesDirectoryURL().appendingPathComponent(note.fileName)
     let fileContents = try MarkdownNoteFile.encode(note)
     try fileContents.write(to: noteURL, atomically: true, encoding: .utf8)
@@ -638,7 +418,7 @@ final class NoteStore: ObservableObject {
     try fileManager.removeItem(at: noteURL)
   }
 
-  private func persistAppearanceSettings() {
+  func persistAppearanceSettings() {
     do {
       let data = try JSONEncoder().encode(appearanceSettings)
       userDefaults.set(data, forKey: Self.appearanceSettingsDefaultsKey)
@@ -717,11 +497,11 @@ final class NoteStore: ObservableObject {
     return normalizedTags
   }
 
-  private func rebuildNoteIndex() {
+  func rebuildNoteIndex() {
     noteIndex = Dictionary(uniqueKeysWithValues: notes.enumerated().map { ($1.id, $0) })
   }
 
-  private func report(_ error: Error, context: String) {
+  func report(_ error: Error, context: String) {
     let message =
       error.localizedDescription.isEmpty ? String(describing: error) : error.localizedDescription
     Self.logger.error("\(context): \(message)")
