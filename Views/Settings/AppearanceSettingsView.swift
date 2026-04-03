@@ -9,7 +9,7 @@ import SwiftUI
 
 struct AppearanceSettingsView: View {
   @ObservedObject var store: NoteStore
-  private let fontPanelController = FontPanelController()
+  @State private var fontPanelController = FontPanelController()
 
   var body: some View {
     Form {

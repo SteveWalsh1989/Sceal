@@ -15,7 +15,7 @@ struct NoteEditorView: View {
   let requestDelete: (DayNote.ID) -> Void
 
   @State private var isShowingAppearancePopover = false
-  private let fontPanelController = FontPanelController()
+  @State private var fontPanelController = FontPanelController()
 
   // Previous/next note IDs for the header navigation arrows.
   private var adjacentNoteIDs: (previous: DayNote.ID?, next: DayNote.ID?) {
