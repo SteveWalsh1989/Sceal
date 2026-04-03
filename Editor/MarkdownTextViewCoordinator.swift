@@ -69,13 +69,7 @@ extension MarkdownTextView {
       }
 
       if range.length > 0, let scrollView = textView.enclosingScrollView {
-        let glyphRange =
-          textView.layoutManager?.glyphRange(
-            forCharacterRange: range, actualCharacterRange: nil) ?? range
-        guard let textContainer = textView.textContainer else { return }
-        let selectionRect =
-          textView.layoutManager?.boundingRect(
-            forGlyphRange: glyphRange, in: textContainer) ?? .zero
+        let selectionRect = textView.editorRect(forCharacterRange: range) ?? .zero
         let rectInScrollView = textView.convert(selectionRect, to: scrollView)
 
         toolbar.textView = textView
@@ -241,8 +235,7 @@ extension MarkdownTextView {
             _ = scealTextView.normalizeSelectionIfNeeded(prefer: .next)
             scealTextView.refreshSectionLayout()
           } else {
-            textView.layoutManager?.ensureLayout(
-              forCharacterRange: NSRange(location: 0, length: textStorage.length))
+            textView.ensureEditorLayoutForEntireDocument()
             textView.setNeedsDisplay(textView.bounds)
           }
 
@@ -384,8 +377,7 @@ extension MarkdownTextView {
       if let scealTextView = textView as? ScealTextView {
         scealTextView.refreshSectionLayout()
       } else {
-        textView.layoutManager?.ensureLayout(
-          forCharacterRange: NSRange(location: 0, length: textStorage.length))
+        textView.ensureEditorLayoutForEntireDocument()
         textView.setNeedsDisplay(textView.bounds)
       }
 
@@ -693,23 +685,7 @@ extension MarkdownTextView {
     private func currentSlashCommandLineRect(in textView: NSTextView, cursorLocation: Int)
       -> NSRect?
     {
-      guard
-        let layoutManager = textView.layoutManager,
-        let textContainer = textView.textContainer
-      else { return nil }
-
-      layoutManager.ensureLayout(for: textContainer)
-      let glyphCharacterLocation = max(cursorLocation - 1, 0)
-      let glyphIndex = layoutManager.glyphIndexForCharacter(at: glyphCharacterLocation)
-      var lineRect = layoutManager.lineFragmentUsedRect(forGlyphAt: glyphIndex, effectiveRange: nil)
-      lineRect.origin.x += textView.textContainerOrigin.x
-      lineRect.origin.y += textView.textContainerOrigin.y
-
-      if lineRect.width < 1 {
-        lineRect.size.width = 1
-      }
-
-      return lineRect
+      textView.editorLineFragmentRect(forCharacterLocation: cursorLocation)
     }
 
     // Replaces a line's content in the text storage.

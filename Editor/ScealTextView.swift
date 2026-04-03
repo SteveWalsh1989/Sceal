@@ -84,10 +84,7 @@ enum DividerResolutionPreference {
 
   // Forces layout recalculation and redraws section card backgrounds.
   func refreshSectionLayout() {
-    let fullRange = NSRange(location: 0, length: textStorage?.length ?? 0)
-    if fullRange.length > 0 {
-      layoutManager?.ensureLayout(forCharacterRange: fullRange)
-    }
+    ensureEditorLayoutForEntireDocument()
     setNeedsDisplay(bounds)
     enclosingScrollView?.contentView.needsDisplay = true
   }
@@ -1163,7 +1160,8 @@ enum DividerResolutionPreference {
     applyBtn.keyEquivalent = "\r"
     applyBtn.sizeToFit()
     let swatchRowTrailingX =
-      16 + 36 + 4 + CGFloat(ScealPalette.colors.count) * 20 + CGFloat(max(ScealPalette.colors.count - 1, 0)) * 4
+      16 + 36 + 4 + CGFloat(ScealPalette.colors.count) * 20 + CGFloat(
+        max(ScealPalette.colors.count - 1, 0)) * 4
     applyBtn.frame.origin = NSPoint(x: swatchRowTrailingX - applyBtn.frame.width, y: 8)
     container.addSubview(applyBtn)
 

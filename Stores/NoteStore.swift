@@ -44,6 +44,7 @@ final class NoteStore: ObservableObject {
       cachedMonthSections = nil
     }
   }
+  @Published private(set) var editorVersion: EditorVersion
   @Published private(set) var appearanceSettings: NoteAppearanceSettings
   @Published private(set) var newNoteDefault: NewNoteDefault
   @Published var selectedNoteID: DayNote.ID?
@@ -60,6 +61,7 @@ final class NoteStore: ObservableObject {
   private var periodicFlushTask: Task<Void, Never>?
 
   private static let logger = Logger(subsystem: "com.sceal.app", category: "store")
+  private static let editorVersionKey = "sceal.editorVersion"
   private static let appearanceSettingsDefaultsKey = "sceal.noteAppearanceSettings"
   private static let newNoteDefaultKey = "sceal.newNoteDefault"
 
@@ -75,6 +77,7 @@ final class NoteStore: ObservableObject {
     let sortedNotes = previewNotes.sorted(by: { $0.date > $1.date })
     self.notes = sortedNotes
     self.noteIndex = Dictionary(uniqueKeysWithValues: sortedNotes.enumerated().map { ($1.id, $0) })
+    self.editorVersion = Self.loadEditorVersion(from: userDefaults)
     self.appearanceSettings = Self.loadAppearanceSettings(from: userDefaults)
     self.newNoteDefault = Self.loadNewNoteDefault(from: userDefaults)
     self.selectedNoteID = sortedNotes.first?.id
@@ -219,6 +222,12 @@ final class NoteStore: ObservableObject {
   func updateNewNoteDefault(_ value: NewNoteDefault) {
     newNoteDefault = value
     userDefaults.set(value.rawValue, forKey: Self.newNoteDefaultKey)
+  }
+
+  // Persists the selected editor engine for the dual-editor migration flow.
+  func updateEditorVersion(_ value: EditorVersion) {
+    editorVersion = value
+    userDefaults.set(value.rawValue, forKey: Self.editorVersionKey)
   }
 
   // Deletes the requested note so shared UI flows can confirm destructive actions centrally.
@@ -489,6 +498,18 @@ final class NoteStore: ObservableObject {
       let value = NewNoteDefault(rawValue: rawValue)
     else {
       return .blank
+    }
+
+    return value
+  }
+
+  // Reads the current editor engine preference from UserDefaults.
+  private static func loadEditorVersion(from userDefaults: UserDefaults) -> EditorVersion {
+    guard
+      let rawValue = userDefaults.string(forKey: editorVersionKey),
+      let value = EditorVersion(rawValue: rawValue)
+    else {
+      return .legacy
     }
 
     return value

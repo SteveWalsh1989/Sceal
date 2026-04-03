@@ -104,10 +104,11 @@ struct NoteEditorView: View {
               .allowsHitTesting(false)
           }
 
-          MarkdownTextView(
+          NoteBodyEditorHost(
             noteID: noteID,
             text: store.bodyBinding(for: noteID),
-            appearanceSettings: store.appearanceSettings
+            appearanceSettings: store.appearanceSettings,
+            editorVersion: store.editorVersion
           )
         }
         .background(

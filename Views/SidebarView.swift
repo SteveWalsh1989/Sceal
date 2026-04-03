@@ -10,56 +10,80 @@ import SwiftUI
 struct SidebarView: View {
   @ObservedObject var store: NoteStore
   let requestDelete: (DayNote.ID) -> Void
+  @State private var selectedEditorVersion: EditorVersion = .legacy
 
   var body: some View {
     let monthSections = store.monthSections
 
-    Group {
-      if monthSections.isEmpty {
-        SidebarEmptyStateView {
-          store.selectToday()
-        }
-      } else {
-        ScrollView {
-          LazyVStack(alignment: .leading, spacing: 10) {
-            if !store.hasTodayNote {
-              AddTodayButton {
-                store.selectToday()
-              }
-            }
-
-            ForEach(monthSections) { section in
-              MonthDividerView(title: section.title, dividerColor: themeColors.divider.color)
-
-              ForEach(section.notes) { note in
-                Button {
-                  store.select(noteID: note.id)
-                } label: {
-                  DayNoteCardView(
-                    note: note,
-                    appearanceSettings: store.appearanceSettings,
-                    isSelected: store.selectedNoteID == note.id,
-                    selectedCardColor: themeColors.selectedCard.color,
-                    unselectedCardColor: themeColors.unselectedCard.color
-                  )
+    VStack(alignment: .leading, spacing: 12) {
+      Group {
+        if monthSections.isEmpty {
+          SidebarEmptyStateView {
+            store.selectToday()
+          }
+        } else {
+          ScrollView {
+            LazyVStack(alignment: .leading, spacing: 10) {
+              if !store.hasTodayNote {
+                AddTodayButton {
+                  store.selectToday()
                 }
-                .buttonStyle(.plain)
-                .contextMenu {
-                  Button(role: .destructive) {
-                    requestDelete(note.id)
+              }
+
+              ForEach(monthSections) { section in
+                MonthDividerView(title: section.title, dividerColor: themeColors.divider.color)
+
+                ForEach(section.notes) { note in
+                  Button {
+                    store.select(noteID: note.id)
                   } label: {
-                    Label("Delete note…", systemImage: "trash")
+                    DayNoteCardView(
+                      note: note,
+                      appearanceSettings: store.appearanceSettings,
+                      isSelected: store.selectedNoteID == note.id,
+                      selectedCardColor: themeColors.selectedCard.color,
+                      unselectedCardColor: themeColors.unselectedCard.color
+                    )
+                  }
+                  .buttonStyle(.plain)
+                  .contextMenu {
+                    Button(role: .destructive) {
+                      requestDelete(note.id)
+                    } label: {
+                      Label("Delete note…", systemImage: "trash")
+                    }
                   }
                 }
               }
             }
+            .padding(.bottom, 20)
           }
-          .padding(.bottom, 20)
         }
       }
+      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+
+      SidebarEditorVersionFooter(
+        editorVersion: $selectedEditorVersion,
+        currentEngineLabel: selectedEditorVersion.engineLabel,
+        controlColor: themeColors.controlBackground.color
+      )
     }
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     .padding(.horizontal, 16)
     .padding(.vertical, 14)
+    .onAppear {
+      selectedEditorVersion = store.editorVersion
+    }
+    .onChange(of: store.editorVersion) { _, newValue in
+      guard newValue != selectedEditorVersion else { return }
+      selectedEditorVersion = newValue
+    }
+    .onChange(of: selectedEditorVersion) { _, newValue in
+      guard newValue != store.editorVersion else { return }
+      DispatchQueue.main.async {
+        store.updateEditorVersion(newValue)
+      }
+    }
     .background(sidebarBackgroundColor)
     .background {
       // Captures arrow keys at the AppKit level when the editor isn't first responder.
@@ -78,6 +102,44 @@ struct SidebarView: View {
   // Background color from the active theme.
   private var sidebarBackgroundColor: Color {
     themeColors.sidebarBackground.color
+  }
+}
+
+private struct SidebarEditorVersionFooter: View {
+  @Binding var editorVersion: EditorVersion
+  let currentEngineLabel: String
+  let controlColor: Color
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      HStack(alignment: .firstTextBaseline, spacing: 8) {
+        Text("Editor")
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(.secondary)
+
+        Spacer()
+
+        Text(currentEngineLabel)
+          .font(.caption2.weight(.medium))
+          .foregroundStyle(.tertiary)
+      }
+
+      Picker("Editor version", selection: $editorVersion) {
+        ForEach(EditorVersion.allCases, id: \.rawValue) { version in
+          Text(version.title)
+            .tag(version)
+        }
+      }
+      .labelsHidden()
+      .pickerStyle(.segmented)
+      .controlSize(.small)
+    }
+    .padding(.horizontal, 12)
+    .padding(.vertical, 10)
+    .background(
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .fill(controlColor)
+    )
   }
 }
 

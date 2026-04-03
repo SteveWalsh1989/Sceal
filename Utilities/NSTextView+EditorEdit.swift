@@ -29,10 +29,7 @@ extension NSTextView {
     didChangeText()
 
     // Layout must reflect the final text storage before AppKit recomputes the insertion rect.
-    if let layoutManager, textStorage.length > 0 {
-      layoutManager.ensureLayout(
-        forCharacterRange: NSRange(location: 0, length: textStorage.length))
-    }
+    ensureEditorLayoutForEntireDocument()
     setSelectedRange(clampedEditorRange(desiredSelection, maxLength: textStorage.length))
 
     if let actionName {

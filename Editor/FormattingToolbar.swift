@@ -761,14 +761,7 @@ import AppKit
   // Computes the selection rect in scroll view coordinates.
   private func currentSelectionRect(in textView: NSTextView, scrollView: NSScrollView) -> NSRect? {
     let range = textView.selectedRange()
-    guard
-      range.length > 0,
-      let layoutManager = textView.layoutManager,
-      let textContainer = textView.textContainer
-    else { return nil }
-
-    let glyphRange = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
-    let selectionRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+    guard let selectionRect = textView.editorRect(forCharacterRange: range) else { return nil }
     return textView.convert(selectionRect, to: scrollView)
   }
 
