@@ -59,6 +59,12 @@ struct NotesEditorView: View {
             .font(.system(size: 12, weight: .medium))
             .foregroundStyle(.secondary)
 
+          EditorSearchBar(
+            searchText: $store.searchText,
+            isExpanded: $store.isSearchBarExpanded,
+            controlColor: themeColors.controlBackground.color
+          )
+
           Button {
             store.selectToday()
           } label: {
@@ -155,6 +161,72 @@ struct NotesEditorView: View {
   // Border color for the note body container.
   private var noteBodyBorderColor: Color {
     themeColors.noteBodyBorder.color
+  }
+}
+
+// Expandable search bar — shows as a magnifying glass icon, expands into a text field on tap.
+// The x button is always visible when expanded so the user can collapse without typing.
+private struct EditorSearchBar: View {
+  @Binding var searchText: String
+  @Binding var isExpanded: Bool
+  let controlColor: Color
+
+  @FocusState private var isFieldFocused: Bool
+
+  var body: some View {
+    if isExpanded {
+      HStack(spacing: 6) {
+        Image(systemName: "magnifyingglass")
+          .font(.system(size: 11, weight: .medium))
+          .foregroundStyle(.secondary)
+
+        TextField("Search", text: $searchText)
+          .textFieldStyle(.plain)
+          .font(.system(size: 12, weight: .medium))
+          .frame(width: 120)
+          .focused($isFieldFocused)
+          .onExitCommand { collapse() }
+
+        Button { collapse() } label: {
+          Image(systemName: "xmark.circle.fill")
+            .font(.system(size: 12))
+            .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+      }
+      .padding(.horizontal, 8)
+      .padding(.vertical, 5)
+      .background(controlColor, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+      .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .trailing)))
+    } else {
+      Button { expand() } label: {
+        Image(systemName: "magnifyingglass")
+          .font(.system(size: 12, weight: .medium))
+          .foregroundStyle(.secondary)
+          .frame(width: 28, height: 28)
+          .background(controlColor, in: RoundedRectangle(cornerRadius: 8))
+      }
+      .buttonStyle(.plain)
+      .accessibilityLabel("Search notes")
+      .transition(.opacity)
+    }
+  }
+
+  private func expand() {
+    withAnimation(.easeInOut(duration: 0.2)) {
+      isExpanded = true
+    }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+      isFieldFocused = true
+    }
+  }
+
+  private func collapse() {
+    withAnimation(.easeInOut(duration: 0.2)) {
+      searchText = ""
+      isExpanded = false
+    }
+    isFieldFocused = false
   }
 }
 

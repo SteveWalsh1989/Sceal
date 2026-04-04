@@ -47,6 +47,10 @@ final class NotesStore: ObservableObject {
   @Published private(set) var appearanceSettings: NoteAppearanceSettings
   @Published private(set) var newNoteDefault: NewNoteDefault
   @Published var selectedNoteID: DayNote.ID?
+  @Published var searchText: String = "" {
+    didSet { cachedMonthSections = nil }
+  }
+  @Published var isSearchBarExpanded = false
   @Published private(set) var isLoading = false
   @Published var userMessage: (text: String, kind: UserMessageKind)?
 
@@ -81,13 +85,32 @@ final class NotesStore: ObservableObject {
     self.hasLoaded = !previewNotes.isEmpty
   }
 
+  var isSearchActive: Bool {
+    !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  }
+
+  func clearSearch() {
+    searchText = ""
+    isSearchBarExpanded = false
+  }
+
+  private var filteredNotes: [DayNote] {
+    let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !query.isEmpty else { return notes }
+    return notes.filter { note in
+      note.title.localizedCaseInsensitiveContains(query)
+        || note.tags.contains(where: { $0.localizedCaseInsensitiveContains(query) })
+        || note.body.localizedCaseInsensitiveContains(query)
+    }
+  }
+
   // Groups notes by month for sidebar section display.
   var monthSections: [NoteMonthSection] {
     if let cachedMonthSections {
       return cachedMonthSections
     }
 
-    let groupedNotes = Dictionary(grouping: notes) { note in
+    let groupedNotes = Dictionary(grouping: filteredNotes) { note in
       calendar.date(from: calendar.dateComponents([.year, .month], from: note.date))
         ?? calendar.startOfDay(for: note.date)
     }

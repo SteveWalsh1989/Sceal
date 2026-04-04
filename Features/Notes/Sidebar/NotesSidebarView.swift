@@ -16,14 +16,23 @@ struct NotesSidebarView: View {
 
     VStack(alignment: .leading, spacing: 12) {
       Group {
-        if monthSections.isEmpty {
+        if monthSections.isEmpty, store.isSearchActive {
+          VStack {
+            Spacer()
+            Text("No matching notes")
+              .font(.subheadline.weight(.medium))
+              .foregroundStyle(.secondary)
+            Spacer()
+          }
+          .frame(maxWidth: .infinity)
+        } else if monthSections.isEmpty {
           SidebarEmptyStateView {
             store.selectToday()
           }
         } else {
           ScrollView {
             LazyVStack(alignment: .leading, spacing: 10) {
-              if !store.hasTodayNote {
+              if !store.hasTodayNote, !store.isSearchActive {
                 AddTodayButton(accentColor: sidebarAccentColor) {
                   store.selectToday()
                 }
