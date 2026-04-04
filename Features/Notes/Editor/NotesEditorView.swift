@@ -166,7 +166,8 @@ struct NotesEditorView: View {
 }
 
 // Expandable search bar — shows as a magnifying glass icon, expands into a text field on tap.
-// The x button is always visible when expanded so the user can collapse without typing.
+// The icon always occupies its natural 28pt in the HStack so nothing around it ever shifts.
+// When expanded, the full bar appears as a trailing-aligned overlay growing leftward.
 private struct EditorSearchBar: View {
   @Binding var searchText: String
   @Binding var isExpanded: Bool
@@ -174,42 +175,48 @@ private struct EditorSearchBar: View {
 
   @FocusState private var isFieldFocused: Bool
 
+  private let expandedWidth: CGFloat = 168
+
   var body: some View {
-    if isExpanded {
-      HStack(spacing: 6) {
-        Image(systemName: "magnifyingglass")
-          .font(.system(size: 11, weight: .medium))
-          .foregroundStyle(.secondary)
-
-        TextField("Search", text: $searchText)
-          .textFieldStyle(.plain)
-          .font(.system(size: 12, weight: .medium))
-          .frame(width: 120)
-          .focused($isFieldFocused)
-          .onExitCommand { collapse() }
-
-        Button { collapse() } label: {
-          Image(systemName: "xmark.circle.fill")
-            .font(.system(size: 12))
+    // The icon button is always in the layout at 28pt — hidden but present when expanded
+    // so the HStack never reflowing.
+    Button { expand() } label: {
+      Image(systemName: "magnifyingglass")
+        .font(.system(size: 12, weight: .medium))
+        .foregroundStyle(.secondary)
+        .frame(width: 28, height: 28)
+        .background(controlColor, in: RoundedRectangle(cornerRadius: 8))
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel("Search notes")
+    .opacity(isExpanded ? 0 : 1)
+    .allowsHitTesting(!isExpanded)
+    .overlay(alignment: .trailing) {
+      if isExpanded {
+        HStack(spacing: 6) {
+          Image(systemName: "magnifyingglass")
+            .font(.system(size: 11, weight: .medium))
             .foregroundStyle(.secondary)
+
+          TextField("Search", text: $searchText)
+            .textFieldStyle(.plain)
+            .font(.system(size: 12, weight: .medium))
+            .focused($isFieldFocused)
+            .onExitCommand { collapse() }
+
+          Button { collapse() } label: {
+            Image(systemName: "xmark.circle.fill")
+              .font(.system(size: 12))
+              .foregroundStyle(.secondary)
+          }
+          .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .frame(width: expandedWidth)
+        .background(controlColor, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .transition(.opacity)
       }
-      .padding(.horizontal, 8)
-      .padding(.vertical, 5)
-      .background(controlColor, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-      .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .trailing)))
-    } else {
-      Button { expand() } label: {
-        Image(systemName: "magnifyingglass")
-          .font(.system(size: 12, weight: .medium))
-          .foregroundStyle(.secondary)
-          .frame(width: 28, height: 28)
-          .background(controlColor, in: RoundedRectangle(cornerRadius: 8))
-      }
-      .buttonStyle(.plain)
-      .accessibilityLabel("Search notes")
-      .transition(.opacity)
     }
   }
 
