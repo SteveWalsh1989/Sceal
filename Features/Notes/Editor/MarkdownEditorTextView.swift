@@ -524,8 +524,21 @@ final class MarkdownEditorTextView: NSTextView {
       return
     }
 
-    // Checkbox toggle — only on the first character of the line.
-    let attrs = textStorage.attributes(at: charIndex, effectiveRange: nil)
+    // Checkbox toggle — allow clicks on the checkbox attachment or the space after it.
+    let nsString = string as NSString
+    let lineRange = nsString.lineRange(for: NSRange(location: charIndex, length: 0))
+    guard charIndex <= lineRange.location + 1 else {
+      super.mouseDown(with: event)
+      return
+    }
+
+    let checkboxIndex = lineRange.location
+    guard checkboxIndex < textStorage.length else {
+      super.mouseDown(with: event)
+      return
+    }
+
+    let attrs = textStorage.attributes(at: checkboxIndex, effectiveRange: nil)
     guard let listTypeRaw = attrs[.markdownListType] as? String,
       listTypeRaw == MarkdownListType.checkboxUnchecked.rawValue
         || listTypeRaw == MarkdownListType.checkboxChecked.rawValue
@@ -534,14 +547,7 @@ final class MarkdownEditorTextView: NSTextView {
       return
     }
 
-    let nsString = string as NSString
-    let lineRange = nsString.lineRange(for: NSRange(location: charIndex, length: 0))
-    guard charIndex == lineRange.location else {
-      super.mouseDown(with: event)
-      return
-    }
-
-    if editorToggleCheckbox(at: charIndex, appearanceSettings: appearanceSettings) {
+    if editorToggleCheckbox(at: checkboxIndex, appearanceSettings: appearanceSettings) {
       return
     }
 
