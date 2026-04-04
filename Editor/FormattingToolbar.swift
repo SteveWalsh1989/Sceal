@@ -242,22 +242,23 @@ import AppKit
     let size = fittingSize
     let toolbarHeight = max(size.height, 34)
     let toolbarWidth = max(size.width, 100)
-    let gap: CGFloat = 5
+    let gap: CGFloat = 4
+    let edgeInset: CGFloat = 4
 
-    // In flipped coordinates: minY is top, maxY is bottom.
-    // Place toolbar above the selection.
-    var origin = NSPoint(
-      x: selectionRect.midX - toolbarWidth / 2,
-      y: selectionRect.minY - toolbarHeight - gap
-    )
-
-    // Keep within parent bounds
     let parentBounds = parentView.bounds
-    origin.x = max(4, min(origin.x, parentBounds.maxX - toolbarWidth - 4))
-    // If toolbar would go above the visible area, flip to below
-    if origin.y < 4 {
-      origin.y = selectionRect.maxY + gap
+    let preferredAboveY = selectionRect.minY - toolbarHeight - gap
+    let fallbackBelowY = selectionRect.maxY + gap
+
+    var origin = NSPoint(x: selectionRect.midX - toolbarWidth / 2, y: preferredAboveY)
+    origin.x = max(
+      edgeInset, min(origin.x, parentBounds.maxX - toolbarWidth - edgeInset)
+    )
+    if preferredAboveY < edgeInset {
+      origin.y = fallbackBelowY
     }
+    origin.y = max(
+      edgeInset, min(origin.y, parentBounds.maxY - toolbarHeight - edgeInset)
+    )
 
     frame = NSRect(x: origin.x, y: origin.y, width: toolbarWidth, height: toolbarHeight)
 
@@ -800,7 +801,8 @@ import AppKit
   // Computes the selection rect in scroll view coordinates.
   private func currentSelectionRect(in textView: NSTextView, scrollView: NSScrollView) -> NSRect? {
     let range = textView.selectedRange()
-    guard let selectionRect = textView.editorRect(forCharacterRange: range) else { return nil }
+    guard let selectionRect = textView.editorRectInViewCoordinates(forCharacterRange: range)
+    else { return nil }
     return textView.convert(selectionRect, to: scrollView)
   }
 

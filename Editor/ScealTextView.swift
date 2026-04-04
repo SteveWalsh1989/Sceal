@@ -2,7 +2,7 @@
 //  ScealTextView.swift
 //
 
-// Custom NSTextView subclass handling section card rendering, divider navigation, and checkboxes.
+// Custom TextKit 2 NSTextView subclass handling section cards, divider navigation, and checkboxes.
 
 import AppKit
 

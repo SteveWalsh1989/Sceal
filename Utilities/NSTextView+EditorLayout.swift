@@ -2,7 +2,7 @@
 //  NSTextView+EditorLayout.swift
 //
 
-// Shared layout helpers bridging TextKit 1 and TextKit 2 geometry queries.
+// Shared TextKit 2 layout helpers for editor geometry queries.
 
 import AppKit
 
@@ -15,11 +15,6 @@ extension NSTextView {
 
   // Ensures layout is up to date for a specific character range.
   func ensureEditorLayout(forCharacterRange range: NSRange) {
-    if let layoutManager {
-      layoutManager.ensureLayout(forCharacterRange: range)
-      return
-    }
-
     guard
       let textLayoutManager,
       let textRange = editorTextRange(forCharacterRange: range)
@@ -30,11 +25,6 @@ extension NSTextView {
 
   // Invalidates layout and rendering state for a specific character range.
   func invalidateEditorLayout(forCharacterRange range: NSRange) {
-    if let layoutManager {
-      layoutManager.invalidateDisplay(forCharacterRange: range)
-      return
-    }
-
     guard
       let textLayoutManager,
       let textRange = editorTextRange(forCharacterRange: range)
@@ -47,11 +37,6 @@ extension NSTextView {
   // Resolves the visual rect for a character range in text view coordinates.
   func editorRect(forCharacterRange range: NSRange) -> NSRect? {
     guard range.length > 0 else { return nil }
-
-    if let layoutManager, let textContainer {
-      let glyphRange = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
-      return layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
-    }
 
     guard
       let textLayoutManager,
@@ -83,14 +68,6 @@ extension NSTextView {
   func editorHasVisibleGlyphs(forCharacterRange range: NSRange) -> Bool {
     guard range.length > 0 else { return false }
 
-    if let layoutManager {
-      let glyphRange = layoutManager.glyphRange(
-        forCharacterRange: range,
-        actualCharacterRange: nil
-      )
-      return glyphRange.length > 0
-    }
-
     return editorRect(forCharacterRange: range) != nil
   }
 
@@ -102,19 +79,6 @@ extension NSTextView {
   // Resolves the used line fragment rect containing the given character location.
   func editorLineFragmentRect(forCharacterLocation location: Int) -> NSRect? {
     let clampedLocation = min(max(location, 0), string.utf16.count)
-
-    if let layoutManager, let textContainer {
-      layoutManager.ensureLayout(for: textContainer)
-      let glyphCharacterLocation = max(clampedLocation - 1, 0)
-      let glyphIndex = layoutManager.glyphIndexForCharacter(at: glyphCharacterLocation)
-      var lineRect = layoutManager.lineFragmentUsedRect(
-        forGlyphAt: glyphIndex, effectiveRange: nil
-      )
-      lineRect.origin.x += textContainerOrigin.x
-      lineRect.origin.y += textContainerOrigin.y
-      if lineRect.width < 1 { lineRect.size.width = 1 }
-      return lineRect
-    }
 
     guard
       let textLayoutManager,
@@ -157,14 +121,6 @@ extension NSTextView {
 
   // Resolves a character index for a point already converted into text-container coordinates.
   func editorCharacterIndex(forTextContainerPoint point: NSPoint) -> Int? {
-    if let layoutManager, let textContainer {
-      return layoutManager.characterIndex(
-        for: point,
-        in: textContainer,
-        fractionOfDistanceBetweenInsertionPoints: nil
-      )
-    }
-
     guard
       let textLayoutManager,
       let textContentManager = textLayoutManager.textContentManager

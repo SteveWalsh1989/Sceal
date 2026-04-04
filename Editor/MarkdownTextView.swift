@@ -2,7 +2,7 @@
 //  MarkdownTextView.swift
 //
 
-// NSViewRepresentable editor with coordinator handling text changes, Enter key, slash commands, and autoformat.
+// TextKit 2-backed NSViewRepresentable editor with coordinator-driven markdown behavior.
 
 import AppKit
 import SwiftUI
@@ -193,8 +193,8 @@ extension MarkdownTextView {
     func textViewDidChangeSelection(_ notification: Notification) {
       guard let textView = notification.object as? NSTextView else { return }
 
-      if let nextTV = textView as? ScealTextView,
-        nextTV.editorNormalizeSelectionIfNeeded()
+      if let editorTextView = textView as? ScealTextView,
+        editorTextView.editorNormalizeSelectionIfNeeded()
       {
         return
       }
@@ -211,7 +211,7 @@ extension MarkdownTextView {
       }
 
       if range.length > 0, let scrollView = textView.enclosingScrollView {
-        let selectionRect = textView.editorRect(forCharacterRange: range) ?? .zero
+        let selectionRect = textView.editorRectInViewCoordinates(forCharacterRange: range) ?? .zero
         let rectInScrollView = textView.convert(selectionRect, to: scrollView)
         toolbar.textView = textView
         toolbar.show(relativeTo: rectInScrollView, in: scrollView)
@@ -240,10 +240,10 @@ extension MarkdownTextView {
       parent.text = markdown
       isUpdating = false
 
-      if let nextTV = textView as? ScealTextView {
-        let dividerCount = nextTV.sectionDividerCount
+      if let editorTextView = textView as? ScealTextView {
+        let dividerCount = editorTextView.sectionDividerCount
         if dividerCount != lastDividerCount {
-          nextTV.refreshSectionLayout()
+          editorTextView.refreshSectionLayout()
         } else {
           textView.setNeedsDisplay(textView.bounds)
         }
@@ -366,8 +366,8 @@ extension MarkdownTextView {
           guard handled else { return false }
 
           _ = textView.editorNormalizeSelectionIfNeeded(prefer: .next)
-          if let nextTV = textView as? ScealTextView {
-            nextTV.refreshSectionLayout()
+          if let editorTextView = textView as? ScealTextView {
+            editorTextView.refreshSectionLayout()
           } else {
             textView.ensureEditorLayoutForEntireDocument()
             textView.setNeedsDisplay(textView.bounds)
@@ -508,8 +508,8 @@ extension MarkdownTextView {
           for: parent.appearanceSettings)
       }
 
-      if let nextTV = textView as? ScealTextView {
-        nextTV.refreshSectionLayout()
+      if let editorTextView = textView as? ScealTextView {
+        editorTextView.refreshSectionLayout()
       } else {
         textView.ensureEditorLayoutForEntireDocument()
         textView.setNeedsDisplay(textView.bounds)
@@ -525,7 +525,7 @@ extension MarkdownTextView {
       guard
         range.length > 0,
         let scrollView = textView.enclosingScrollView,
-        let selectionRect = textView.editorRect(forCharacterRange: range)
+        let selectionRect = textView.editorRectInViewCoordinates(forCharacterRange: range)
       else {
         toolbar.hide()
         return
@@ -730,8 +730,8 @@ extension MarkdownTextView {
 
       guard handled else { return false }
 
-      if let nextTV = textView as? ScealTextView {
-        nextTV.refreshSectionLayout()
+      if let editorTextView = textView as? ScealTextView {
+        editorTextView.refreshSectionLayout()
       } else {
         textView.setNeedsDisplay(textView.bounds)
       }
@@ -890,9 +890,9 @@ extension MarkdownTextView {
         )
       }
 
-      if let nextTV = textView as? ScealTextView {
+      if let editorTextView = textView as? ScealTextView {
         applySectionColorsToEditedLines(
-          lineRanges, in: textStorage, nextTextView: nextTV)
+          lineRanges, in: textStorage, editorTextView: editorTextView)
       }
 
       textView.setSelectedRange(
@@ -907,11 +907,11 @@ extension MarkdownTextView {
     private func applySectionColorsToEditedLines(
       _ lineRanges: [NSRange],
       in textStorage: NSTextStorage,
-      nextTextView: ScealTextView
+      editorTextView: ScealTextView
     ) {
       for lineRange in lineRanges {
         guard lineRange.location < textStorage.length else { continue }
-        guard let sectionInfo = nextTextView.sectionColors(at: lineRange.location) else {
+        guard let sectionInfo = editorTextView.sectionColors(at: lineRange.location) else {
           continue
         }
         let nsString = textStorage.string as NSString
@@ -954,7 +954,7 @@ extension MarkdownTextView {
             [
               .foregroundColor: bulletColor,
               .font: NSFont.systemFont(
-                ofSize: nextTextView.appearanceSettings.bulletSize, weight: .bold),
+                ofSize: editorTextView.appearanceSettings.bulletSize, weight: .bold),
             ], range: NSRange(location: trimmed.location, length: 1))
         case .checkboxChecked, .checkboxUnchecked:
           let checked = listType == .checkboxChecked
@@ -1061,8 +1061,8 @@ extension MarkdownTextView {
         return
       }
 
-      if let nextTV = textView as? ScealTextView,
-        let sourceLocation = nextTV.typingAttributeSourceLocation(
+      if let editorTextView = textView as? ScealTextView,
+        let sourceLocation = editorTextView.typingAttributeSourceLocation(
           forInsertionLocation: textView.selectedRange().location)
       {
         textView.typingAttributes = textStorage.attributes(
