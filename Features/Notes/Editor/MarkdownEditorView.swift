@@ -8,7 +8,19 @@ import AppKit
 import SwiftUI
 
 struct MarkdownEditorView: NSViewRepresentable {
-  private static let minimumBottomPadding: CGFloat = 300
+  static let minimumBottomOverscroll: CGFloat = 300
+  static let preferredBottomOverscrollViewportRatio: CGFloat = 0.75
+
+  // Keeps enough trailing scroll room to lift the last lines into a comfortable reading zone.
+  static func bottomOverscrollHeight(for viewportHeight: CGFloat) -> CGFloat {
+    max(minimumBottomOverscroll, viewportHeight * preferredBottomOverscrollViewportRatio)
+  }
+
+  // Computes the editor document height needed to preserve scroll-past-end for any note length.
+  static func targetEditorHeight(documentHeight: CGFloat, viewportHeight: CGFloat) -> CGFloat {
+    let overscrollHeight = bottomOverscrollHeight(for: viewportHeight)
+    return ceil(max(viewportHeight + overscrollHeight, documentHeight + overscrollHeight))
+  }
 
   let noteID: DayNote.ID
   @Binding var text: String
@@ -22,13 +34,17 @@ struct MarkdownEditorView: NSViewRepresentable {
     let textView = MarkdownEditorTextView(usingTextLayoutManager: true)
     configure(textView, coordinator: context.coordinator)
 
-    let scrollView = NSScrollView()
+    let scrollView = EditorScrollView()
     scrollView.documentView = textView
     scrollView.hasVerticalScroller = true
     scrollView.hasHorizontalScroller = false
     scrollView.drawsBackground = false
     scrollView.automaticallyAdjustsContentInsets = false
     scrollView.contentInsets = .init()
+    scrollView.onViewportHeightChange = { [weak textView, weak scrollView] viewportHeight in
+      guard let textView, let scrollView else { return }
+      Self.applyBottomOverscroll(to: textView, in: scrollView, viewportHeight: viewportHeight)
+    }
 
     applyDisplayString(
       MarkdownEditorFormatter.formatForDisplay(text, appearance: appearanceSettings),
@@ -40,10 +56,7 @@ struct MarkdownEditorView: NSViewRepresentable {
     context.coordinator.lastDividerCount = (textView as MarkdownEditorTextView).sectionDividerCount
     context.coordinator.toolbar.appearanceSettings = appearanceSettings
 
-    textView.minSize = NSSize(
-      width: 0,
-      height: scrollView.contentSize.height + Self.minimumBottomPadding
-    )
+    Self.applyBottomOverscroll(to: textView, in: scrollView)
 
     return scrollView
   }
@@ -55,11 +68,13 @@ struct MarkdownEditorView: NSViewRepresentable {
     context.coordinator.parent = self
     configure(textView, coordinator: context.coordinator)
     context.coordinator.toolbar.appearanceSettings = appearanceSettings
-
-    let minHeight = scrollView.contentSize.height + Self.minimumBottomPadding
-    if textView.minSize.height != minHeight {
-      textView.minSize = NSSize(width: 0, height: minHeight)
+    if let editorScrollView = scrollView as? EditorScrollView {
+      editorScrollView.onViewportHeightChange = { [weak textView, weak scrollView] viewportHeight in
+        guard let textView, let scrollView else { return }
+        Self.applyBottomOverscroll(to: textView, in: scrollView, viewportHeight: viewportHeight)
+      }
     }
+    Self.applyBottomOverscroll(to: textView, in: scrollView)
 
     let noteChanged = noteID != context.coordinator.lastNoteID
     let textChanged = text != context.coordinator.lastPushedMarkdown
@@ -140,13 +155,51 @@ struct MarkdownEditorView: NSViewRepresentable {
   private func applyDisplayString(_ displayString: NSAttributedString, to textView: NSTextView) {
     textView.textStorage?.setAttributedString(displayString)
     textView.ensureEditorLayoutForEntireDocument()
+    if let scrollView = textView.enclosingScrollView {
+      Self.applyBottomOverscroll(to: textView, in: scrollView)
+    }
     textView.setNeedsDisplay(textView.bounds)
+  }
+
+  // Updates the document view height so the scroll view always offers trailing overscroll space.
+  private static func applyBottomOverscroll(
+    to textView: NSTextView,
+    in scrollView: NSScrollView,
+    viewportHeight: CGFloat? = nil
+  ) {
+    let resolvedViewportHeight = viewportHeight ?? scrollView.contentSize.height
+    guard resolvedViewportHeight > 0 else { return }
+
+    let targetHeight = targetEditorHeight(
+      documentHeight: textView.editorDocumentHeight(),
+      viewportHeight: resolvedViewportHeight
+    )
+
+    if textView.minSize.height != targetHeight {
+      textView.minSize = NSSize(width: 0, height: targetHeight)
+    }
+
+    if textView.frame.height != targetHeight {
+      var frame = textView.frame
+      frame.size.height = targetHeight
+      textView.frame = frame
+    }
   }
 
   private func clampedRange(_ range: NSRange, maxLength: Int) -> NSRange {
     let safeLocation = min(range.location, maxLength)
     let safeLength = min(range.length, max(maxLength - safeLocation, 0))
     return NSRange(location: safeLocation, length: safeLength)
+  }
+}
+
+@MainActor
+private final class EditorScrollView: NSScrollView {
+  var onViewportHeightChange: ((CGFloat) -> Void)?
+
+  override func tile() {
+    super.tile()
+    onViewportHeightChange?(contentSize.height)
   }
 }
 

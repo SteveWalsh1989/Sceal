@@ -7,6 +7,27 @@
 import AppKit
 
 extension NSTextView {
+  // Estimates the full document height from TextKit 2 fragments plus the text container insets.
+  func editorDocumentHeight() -> CGFloat {
+    guard
+      let textLayoutManager,
+      let textContentManager = textLayoutManager.textContentManager
+    else {
+      return ceil(textContainerInset.height * 2)
+    }
+
+    var maxFragmentY: CGFloat = 0
+    textLayoutManager.enumerateTextLayoutFragments(
+      from: textContentManager.documentRange.location,
+      options: [.ensuresLayout]
+    ) { fragment in
+      maxFragmentY = max(maxFragmentY, fragment.layoutFragmentFrame.maxY)
+      return true
+    }
+
+    return ceil(maxFragmentY + (textContainerInset.height * 2))
+  }
+
   // Ensures the current text storage has layout through the end of the document.
   func ensureEditorLayoutForEntireDocument() {
     guard let textStorage, textStorage.length > 0 else { return }
