@@ -24,13 +24,17 @@ struct NotesSidebarView: View {
           ScrollView {
             LazyVStack(alignment: .leading, spacing: 10) {
               if !store.hasTodayNote {
-                AddTodayButton {
+                AddTodayButton(accentColor: sidebarAccentColor) {
                   store.selectToday()
                 }
               }
 
               ForEach(monthSections) { section in
-                MonthDividerView(title: section.title, dividerColor: themeColors.divider.color)
+                MonthDividerView(
+                  title: section.title,
+                  accentColor: sidebarAccentColor,
+                  dividerColor: themeColors.divider.color
+                )
 
                 ForEach(section.notes) { note in
                   Button {
@@ -40,6 +44,7 @@ struct NotesSidebarView: View {
                       note: note,
                       appearanceSettings: store.appearanceSettings,
                       isSelected: store.selectedNoteID == note.id,
+                      accentColor: sidebarAccentColor,
                       selectedCardColor: themeColors.selectedCard.color,
                       unselectedCardColor: themeColors.unselectedCard.color
                     )
@@ -83,6 +88,11 @@ struct NotesSidebarView: View {
   // Background color from the active theme.
   private var sidebarBackgroundColor: Color {
     themeColors.sidebarBackground.color
+  }
+
+  // Uses the saved appearance accent instead of the app-level default tint.
+  private var sidebarAccentColor: Color {
+    Color(nsColor: store.appearanceSettings.accentColor)
   }
 }
 
@@ -169,6 +179,7 @@ private struct SidebarEmptyStateView: View {
 
 // Appears at the top of the sidebar when today has no note, so the user can manually create one.
 private struct AddTodayButton: View {
+  let accentColor: Color
   let action: () -> Void
 
   var body: some View {
@@ -183,15 +194,18 @@ private struct AddTodayButton: View {
       .frame(maxWidth: .infinity)
       .padding(.vertical, 8)
       .background(
-        Color.accentColor.opacity(0.1), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        accentColor.opacity(0.1),
+        in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+      )
     }
     .buttonStyle(.plain)
-    .foregroundStyle(Color.accentColor)
+    .foregroundStyle(accentColor)
   }
 }
 
 private struct MonthDividerView: View {
   let title: String
+  let accentColor: Color
   let dividerColor: Color
 
   var body: some View {
@@ -202,7 +216,7 @@ private struct MonthDividerView: View {
 
       Text(title)
         .font(.caption.weight(.bold))
-        .foregroundStyle(Color.accentColor)
+        .foregroundStyle(accentColor)
         .fixedSize()
 
       Rectangle()
@@ -217,6 +231,7 @@ private struct DayNoteCardView: View {
   let note: DayNote
   let appearanceSettings: NoteAppearanceSettings
   let isSelected: Bool
+  let accentColor: Color
   let selectedCardColor: Color
   let unselectedCardColor: Color
 
@@ -268,7 +283,7 @@ private struct DayNoteCardView: View {
     )
     .overlay(
       RoundedRectangle(cornerRadius: 20, style: .continuous)
-        .strokeBorder(isSelected ? Color.accentColor.opacity(0.4) : Color.clear, lineWidth: 1)
+        .strokeBorder(isSelected ? accentColor.opacity(0.4) : Color.clear, lineWidth: 1)
     )
     .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
   }
