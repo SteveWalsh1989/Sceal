@@ -1,0 +1,1137 @@
+//
+//  MarkdownEditorView.swift
+//
+
+// TextKit 2-backed NSViewRepresentable editor with coordinator-driven markdown behavior.
+
+import AppKit
+import SwiftUI
+
+struct MarkdownEditorView: NSViewRepresentable {
+  private static let minimumBottomPadding: CGFloat = 300
+
+  let noteID: DayNote.ID
+  @Binding var text: String
+  let appearanceSettings: NoteAppearanceSettings
+
+  func makeCoordinator() -> Coordinator {
+    Coordinator(parent: self)
+  }
+
+  func makeNSView(context: Context) -> NSScrollView {
+    let textView = MarkdownEditorTextView(usingTextLayoutManager: true)
+    configure(textView, coordinator: context.coordinator)
+
+    let scrollView = NSScrollView()
+    scrollView.documentView = textView
+    scrollView.hasVerticalScroller = true
+    scrollView.hasHorizontalScroller = false
+    scrollView.drawsBackground = false
+    scrollView.automaticallyAdjustsContentInsets = false
+    scrollView.contentInsets = .init()
+
+    applyDisplayString(
+      MarkdownEditorFormatter.formatForDisplay(text, appearance: appearanceSettings),
+      to: textView
+    )
+    context.coordinator.lastPushedMarkdown = text
+    context.coordinator.lastAppliedAppearance = appearanceSettings
+    context.coordinator.lastNoteID = noteID
+    context.coordinator.lastDividerCount = (textView as MarkdownEditorTextView).sectionDividerCount
+    context.coordinator.toolbar.appearanceSettings = appearanceSettings
+
+    textView.minSize = NSSize(
+      width: 0,
+      height: scrollView.contentSize.height + Self.minimumBottomPadding
+    )
+
+    return scrollView
+  }
+
+  func updateNSView(_ scrollView: NSScrollView, context: Context) {
+    guard !context.coordinator.isUpdating else { return }
+    guard let textView = scrollView.documentView as? NSTextView else { return }
+
+    context.coordinator.parent = self
+    configure(textView, coordinator: context.coordinator)
+    context.coordinator.toolbar.appearanceSettings = appearanceSettings
+
+    let minHeight = scrollView.contentSize.height + Self.minimumBottomPadding
+    if textView.minSize.height != minHeight {
+      textView.minSize = NSSize(width: 0, height: minHeight)
+    }
+
+    let noteChanged = noteID != context.coordinator.lastNoteID
+    let textChanged = text != context.coordinator.lastPushedMarkdown
+    let appearanceChanged = appearanceSettings != context.coordinator.lastAppliedAppearance
+    guard noteChanged || textChanged || appearanceChanged else { return }
+
+    context.coordinator.isUpdating = true
+    let visibleOrigin = scrollView.contentView.bounds.origin
+    let wasFirstResponder = textView.window?.firstResponder === textView
+
+    let displayString = MarkdownEditorFormatter.formatForDisplay(
+      text, appearance: appearanceSettings)
+    let selectedRange =
+      noteChanged
+      ? NSRange(location: 0, length: 0)
+      : clampedRange(textView.selectedRange(), maxLength: text.utf16.count)
+    applyDisplayString(displayString, to: textView)
+    context.coordinator.lastPushedMarkdown = text
+    context.coordinator.lastAppliedAppearance = appearanceSettings
+    context.coordinator.lastNoteID = noteID
+    if let interactiveTV = textView as? MarkdownEditorTextView {
+      context.coordinator.lastDividerCount = interactiveTV.sectionDividerCount
+    }
+    textView.setSelectedRange(
+      clampedRange(selectedRange, maxLength: textView.string.utf16.count)
+    )
+
+    if noteChanged {
+      scrollView.contentView.scroll(to: .zero)
+      textView.window?.makeFirstResponder(nil)
+    } else {
+      scrollView.contentView.scroll(to: visibleOrigin)
+      if wasFirstResponder, textView.window?.firstResponder !== textView {
+        textView.window?.makeFirstResponder(textView)
+      }
+    }
+
+    scrollView.reflectScrolledClipView(scrollView.contentView)
+    context.coordinator.isUpdating = false
+    context.coordinator.refreshToolbarPresentation(in: textView)
+  }
+
+  private func configure(_ textView: NSTextView, coordinator: Coordinator) {
+    if let interactiveTextView = textView as? MarkdownEditorTextView {
+      interactiveTextView.appearanceSettings = appearanceSettings
+    }
+    textView.isRichText = true
+    textView.isEditable = true
+    textView.isSelectable = true
+    textView.drawsBackground = false
+    textView.allowsUndo = true
+    textView.isAutomaticQuoteSubstitutionEnabled = false
+    textView.isAutomaticDashSubstitutionEnabled = false
+    textView.isAutomaticTextReplacementEnabled = false
+    textView.isAutomaticSpellingCorrectionEnabled = false
+    textView.selectedTextAttributes = [
+      .backgroundColor: NSColor.selectedTextBackgroundColor.withAlphaComponent(0.28)
+    ]
+    textView.textContainerInset = NSSize(width: 22, height: 22)
+    textView.linkTextAttributes = [
+      .foregroundColor: NSColor.linkColor,
+      .cursor: NSCursor.pointingHand,
+    ]
+    textView.typingAttributes = MarkdownEditorFormatter.baseTypingAttributes(
+      for: appearanceSettings)
+    textView.delegate = coordinator
+    textView.textContainer?.widthTracksTextView = true
+    textView.textContainer?.heightTracksTextView = false
+    textView.isVerticallyResizable = true
+    textView.isHorizontallyResizable = false
+    textView.autoresizingMask = [.width]
+    textView.maxSize = NSSize(
+      width: CGFloat.greatestFiniteMagnitude,
+      height: CGFloat.greatestFiniteMagnitude
+    )
+  }
+
+  private func applyDisplayString(_ displayString: NSAttributedString, to textView: NSTextView) {
+    textView.textStorage?.setAttributedString(displayString)
+    textView.ensureEditorLayoutForEntireDocument()
+    textView.setNeedsDisplay(textView.bounds)
+  }
+
+  private func clampedRange(_ range: NSRange, maxLength: Int) -> NSRange {
+    let safeLocation = min(range.location, maxLength)
+    let safeLength = min(range.length, max(maxLength - safeLocation, 0))
+    return NSRange(location: safeLocation, length: safeLength)
+  }
+}
+
+// MARK: - Coordinator
+
+extension MarkdownEditorView {
+  @MainActor
+  final class Coordinator: NSObject, NSTextViewDelegate {
+    private struct PendingEditContext {
+      let range: NSRange
+      let replacementString: String?
+    }
+
+    var parent: MarkdownEditorView
+    var isUpdating = false
+    var lastPushedMarkdown = ""
+    var lastAppliedAppearance = NoteAppearanceSettings.default
+    var lastDividerCount = 0
+    var lastNoteID: DayNote.ID?
+    let toolbar = EditorFormattingToolbar()
+    let slashPopup = EditorSlashCommandPopup()
+    private var slashTriggerLocation: Int?
+    private var pendingEditContext: PendingEditContext?
+    private var isApplyingSlashCommand = false
+
+    init(parent: MarkdownEditorView) {
+      self.parent = parent
+      super.init()
+      toolbar.appearanceSettings = parent.appearanceSettings
+    }
+
+    // Captures the pending edit context before AppKit applies the change.
+    func textView(
+      _: NSTextView,
+      shouldChangeTextIn affectedCharRange: NSRange,
+      replacementString: String?
+    ) -> Bool {
+      pendingEditContext = PendingEditContext(
+        range: affectedCharRange,
+        replacementString: replacementString
+      )
+      return true
+    }
+
+    // Updates toolbar visibility and syncs typing attributes on selection change.
+    func textViewDidChangeSelection(_ notification: Notification) {
+      guard let textView = notification.object as? NSTextView else { return }
+
+      if let editorTextView = textView as? MarkdownEditorTextView,
+        editorTextView.editorNormalizeSelectionIfNeeded()
+      {
+        return
+      }
+
+      let range = textView.selectedRange()
+
+      if slashPopup.isVisible, let triggerLoc = slashTriggerLocation {
+        let nsString = textView.string as NSString
+        let triggerLine = nsString.lineRange(for: NSRange(location: triggerLoc, length: 0))
+        let cursorLine = nsString.lineRange(for: NSRange(location: range.location, length: 0))
+        if triggerLine != cursorLine || range.length > 0 {
+          dismissSlashPopup()
+        }
+      }
+
+      if range.length > 0, let scrollView = textView.enclosingScrollView {
+        let selectionRect = textView.editorRectInViewCoordinates(forCharacterRange: range) ?? .zero
+        let rectInScrollView = textView.convert(selectionRect, to: scrollView)
+        toolbar.textView = textView
+        toolbar.show(relativeTo: rectInScrollView, in: scrollView)
+      } else {
+        toolbar.hide()
+      }
+
+      if range.length == 0, let textStorage = textView.textStorage {
+        syncTypingAttributesToInsertionPoint(in: textView, textStorage: textStorage)
+      }
+    }
+
+    // Converts display text back to markdown and pushes to the SwiftUI binding.
+    func textDidChange(_ notification: Notification) {
+      guard !isUpdating else { return }
+      guard let textView = notification.object as? NSTextView,
+        let textStorage = textView.textStorage
+      else { return }
+
+      isUpdating = true
+      if !isApplyingSlashCommand {
+        autoformatEditedLinesIfNeeded(in: textView, textStorage: textStorage)
+      }
+      let markdown = MarkdownEditorFormatter.convertToMarkdown(from: textStorage)
+      lastPushedMarkdown = markdown
+      parent.text = markdown
+      isUpdating = false
+
+      if let editorTextView = textView as? MarkdownEditorTextView {
+        let dividerCount = editorTextView.sectionDividerCount
+        if dividerCount != lastDividerCount {
+          editorTextView.refreshSectionLayout()
+        } else {
+          textView.setNeedsDisplay(textView.bounds)
+        }
+        lastDividerCount = dividerCount
+      } else {
+        textView.setNeedsDisplay(textView.bounds)
+      }
+
+      if isApplyingSlashCommand {
+        dismissSlashPopup()
+      } else {
+        checkSlashCommandTrigger(in: textView)
+      }
+    }
+
+    // Handles Enter, Tab, Backspace, and slash popup navigation.
+    func textView(
+      _ textView: NSTextView,
+      doCommandBy commandSelector: Selector
+    ) -> Bool {
+      if slashPopup.isVisible {
+        switch commandSelector {
+        case #selector(NSResponder.moveUp(_:)):
+          slashPopup.moveSelectionUp()
+          return true
+        case #selector(NSResponder.moveDown(_:)):
+          slashPopup.moveSelectionDown()
+          return true
+        case #selector(NSResponder.insertNewline(_:)):
+          slashPopup.confirmSelection()
+          return true
+        case #selector(NSResponder.cancelOperation(_:)):
+          dismissSlashPopup()
+          return true
+        default:
+          break
+        }
+      }
+
+      if commandSelector == #selector(NSResponder.insertTab(_:)) {
+        return handleListIndent(textView: textView, increase: true)
+      }
+      if commandSelector == #selector(NSResponder.insertBacktab(_:)) {
+        return handleListIndent(textView: textView, increase: false)
+      }
+      if commandSelector == #selector(NSResponder.deleteBackward(_:)),
+        let textStorage = textView.textStorage,
+        handleSectionDividerBackspace(in: textView, textStorage: textStorage)
+      {
+        return true
+      }
+
+      guard commandSelector == #selector(NSResponder.insertNewline(_:)),
+        let textStorage = textView.textStorage
+      else {
+        return false
+      }
+
+      let cursorLocation = textView.selectedRange().location
+      let nsString = textStorage.string as NSString
+      let fullLineRange = nsString.lineRange(
+        for: NSRange(location: cursorLocation, length: 0))
+
+      var lineRange = fullLineRange
+      if lineRange.length > 0
+        && nsString.character(at: lineRange.location + lineRange.length - 1) == 0x0A
+      {
+        lineRange.length -= 1
+      }
+
+      let lineText = nsString.substring(with: lineRange)
+
+      // Empty list item → cancel continuation
+      if isEmptyListItem(lineText) {
+        return textView.performEditorEdit(
+          affectedRange: lineRange,
+          replacementString: "",
+          actionName: "Remove List Marker"
+        ) { textStorage in
+          textStorage.replaceCharacters(in: lineRange, with: "")
+          return NSRange(location: lineRange.location, length: 0)
+        }
+      }
+
+      // Empty blockquote → cancel continuation
+      if isEmptyBlockquoteLine(lineText, in: textStorage, at: lineRange) {
+        return textView.performEditorEdit(
+          affectedRange: lineRange,
+          replacementString: "",
+          actionName: "Remove Blockquote"
+        ) { textStorage in
+          textStorage.replaceCharacters(in: lineRange, with: "")
+          return NSRange(location: lineRange.location, length: 0)
+        }
+      }
+
+      // Slash command execution
+      let slashCommand = EditorSlashCommandHandler.matchedCommand(
+        in: textStorage, lineRange: lineRange)
+      if let slashCommand {
+        switch slashCommand.action {
+        case .sectionDivider:
+          let replacementRange =
+            fullLineRange.length > lineRange.length ? fullLineRange : lineRange
+          let baseAttrs = MarkdownEditorFormatter.baseTypingAttributes(
+            for: parent.appearanceSettings)
+          let dividerLine = NSMutableAttributedString(
+            attributedString: MarkdownEditorFormatter.sectionDividerDisplayString(
+              appearance: parent.appearanceSettings))
+          dividerLine.append(NSAttributedString(string: "\n", attributes: baseAttrs))
+          dividerLine.append(NSAttributedString(string: "\n", attributes: baseAttrs))
+
+          let handled = textView.performEditorEdit(
+            affectedRange: replacementRange,
+            replacementString: dividerLine.string,
+            actionName: "Insert Section Divider"
+          ) { textStorage in
+            textStorage.replaceCharacters(in: replacementRange, with: dividerLine)
+            return NSRange(location: replacementRange.location + dividerLine.length, length: 0)
+          }
+
+          guard handled else { return false }
+
+          _ = textView.editorNormalizeSelectionIfNeeded(prefer: .next)
+          if let editorTextView = textView as? MarkdownEditorTextView {
+            editorTextView.refreshSectionLayout()
+          } else {
+            textView.ensureEditorLayoutForEntireDocument()
+            textView.setNeedsDisplay(textView.bounds)
+          }
+
+          textView.typingAttributes = headingTypingAttributes(level: 1)
+          return true
+
+        case .heading(let level):
+          let handled = textView.performEditorEdit(
+            affectedRange: lineRange,
+            replacementString: "",
+            actionName: "Insert Heading"
+          ) { textStorage in
+            textStorage.replaceCharacters(in: lineRange, with: NSAttributedString())
+            return NSRange(location: lineRange.location, length: 0)
+          }
+          if handled {
+            textView.typingAttributes = headingTypingAttributes(level: level)
+          }
+          return handled
+
+        case .codeBlock:
+          let snippet = "```\n\n\n```"
+          let displaySnippet = MarkdownEditorFormatter.formatForDisplay(
+            snippet, appearance: parent.appearanceSettings)
+          let handled = textView.performEditorEdit(
+            affectedRange: lineRange,
+            replacementString: snippet,
+            actionName: "Insert Code Block"
+          ) { textStorage in
+            textStorage.replaceCharacters(in: lineRange, with: displaySnippet)
+            return NSRange(location: lineRange.location + 4, length: 0)
+          }
+          if handled {
+            textView.typingAttributes = codeBlockTypingAttributes()
+            textView.setNeedsDisplay(textView.bounds)
+          }
+          return handled
+        }
+      }
+
+      // Normal newline with list continuation
+      var continuedListType: MarkdownListType?
+      var continuedBlockquote = false
+      let currentIndentLevel: Int = {
+        guard lineRange.length > 0 else { return 0 }
+        return textStorage.attribute(
+          .markdownIndentLevel, at: lineRange.location, effectiveRange: nil)
+          as? Int ?? 0
+      }()
+      let cursorOffsetInLine = cursorLocation - lineRange.location
+      let cursorAtLineEnd = cursorOffsetInLine >= lineRange.length
+
+      let handled = textView.performEditorEdit(
+        affectedRange: lineRange,
+        replacementString: "\n",
+        actionName: "Insert Newline"
+      ) { textStorage in
+        let priorLineLength = lineRange.length
+        continuedListType = MarkdownEditorFormatter.formatCurrentLine(
+          in: textStorage,
+          lineRange: lineRange,
+          appearance: parent.appearanceSettings
+        )
+
+        let formattedNS = textStorage.string as NSString
+        let formattedFullRange = formattedNS.lineRange(
+          for: NSRange(
+            location: min(lineRange.location, max(formattedNS.length - 1, 0)), length: 0)
+        )
+        let formattedLineEnd = min(NSMaxRange(formattedFullRange), formattedNS.length)
+        var formattedLineLength = formattedLineEnd - lineRange.location
+        if formattedLineLength > 0,
+          formattedNS.character(at: lineRange.location + formattedLineLength - 1) == 0x0A
+        {
+          formattedLineLength -= 1
+        }
+
+        let splitPoint: Int
+        if cursorAtLineEnd {
+          splitPoint = lineRange.location + formattedLineLength
+        } else {
+          let delta = formattedLineLength - priorLineLength
+          let adjustedOffset = max(0, min(cursorOffsetInLine + delta, formattedLineLength))
+          splitPoint = lineRange.location + adjustedOffset
+        }
+
+        let newlineAttrs = MarkdownEditorFormatter.baseTypingAttributes(
+          for: parent.appearanceSettings)
+        textStorage.insert(
+          NSAttributedString(string: "\n", attributes: newlineAttrs), at: splitPoint)
+        var nextInsertionLocation = splitPoint + 1
+
+        let updatedNS = textStorage.string as NSString
+        let updatedLine = updatedNS.lineRange(
+          for: NSRange(
+            location: min(lineRange.location, max(updatedNS.length - 1, 0)), length: 0))
+        if updatedLine.length > 0, updatedLine.location < textStorage.length {
+          continuedBlockquote =
+            textStorage.attribute(
+              .markdownBlockquote,
+              at: updatedLine.location,
+              effectiveRange: nil
+            ) as? Bool == true
+        }
+
+        if let listType = continuedListType {
+          let marker = continuationMarker(for: listType, previousLineText: lineText)
+          if !marker.isEmpty {
+            let markerAttr = continuationAttributedMarker(
+              for: listType,
+              marker: marker,
+              appearance: parent.appearanceSettings,
+              indentLevel: currentIndentLevel
+            )
+            textStorage.insert(markerAttr, at: nextInsertionLocation)
+            nextInsertionLocation += markerAttr.length
+          }
+        }
+
+        return NSRange(location: nextInsertionLocation, length: 0)
+      }
+
+      guard handled else { return false }
+
+      _ = textView.editorNormalizeSelectionIfNeeded(prefer: .previous)
+
+      if continuedBlockquote, continuedListType == nil {
+        textView.typingAttributes = [
+          .font: parent.appearanceSettings.bodyFont,
+          .foregroundColor: NSColor.secondaryLabelColor,
+          .paragraphStyle: MarkdownEditorFormatter.blockquoteParagraphStyle(
+            for: parent.appearanceSettings),
+          .markdownBlockquote: true,
+        ]
+      } else if continuedListType == nil {
+        textView.typingAttributes = MarkdownEditorFormatter.baseTypingAttributes(
+          for: parent.appearanceSettings)
+      }
+
+      if let editorTextView = textView as? MarkdownEditorTextView {
+        editorTextView.refreshSectionLayout()
+      } else {
+        textView.ensureEditorLayoutForEntireDocument()
+        textView.setNeedsDisplay(textView.bounds)
+      }
+
+      return true
+    }
+
+    // MARK: - Toolbar
+
+    func refreshToolbarPresentation(in textView: NSTextView) {
+      let range = textView.selectedRange()
+      guard
+        range.length > 0,
+        let scrollView = textView.enclosingScrollView,
+        let selectionRect = textView.editorRectInViewCoordinates(forCharacterRange: range)
+      else {
+        toolbar.hide()
+        return
+      }
+
+      toolbar.appearanceSettings = parent.appearanceSettings
+      toolbar.textView = textView
+      toolbar.show(relativeTo: textView.convert(selectionRect, to: scrollView), in: scrollView)
+    }
+
+    // MARK: - List Continuation Helpers
+
+    private func isEmptyBlockquoteLine(
+      _ lineText: String, in textStorage: NSTextStorage, at lineRange: NSRange
+    ) -> Bool {
+      guard lineRange.length >= 0, lineRange.location < textStorage.length else { return false }
+      let isQuote =
+        lineRange.length > 0
+        ? textStorage.attribute(.markdownBlockquote, at: lineRange.location, effectiveRange: nil)
+          as? Bool == true
+        : false
+      guard isQuote else { return false }
+      return lineText.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    private func isEmptyListItem(_ lineText: String) -> Bool {
+      let trimmed = lineText.trimmingCharacters(in: .whitespaces)
+      let emptyMarkers = [
+        "\(MarkdownEditorFormatter.bulletMarker) ",
+        "\(MarkdownEditorFormatter.bulletMarker)",
+        "\(MarkdownEditorFormatter.attachmentChar) ",
+        "\(MarkdownEditorFormatter.attachmentChar)",
+        "- ",
+        "-",
+      ]
+      if emptyMarkers.contains(trimmed) { return true }
+      if trimmed.range(of: #"^\d+\.\s*$"#, options: .regularExpression) != nil { return true }
+      return false
+    }
+
+    private func continuationMarker(for listType: MarkdownListType, previousLineText: String)
+      -> String
+    {
+      switch listType {
+      case .bullet:
+        return "\(MarkdownEditorFormatter.bulletMarker) "
+      case .checkboxUnchecked, .checkboxChecked:
+        return "\(MarkdownEditorFormatter.uncheckedMarker) "
+      case .numbered:
+        if let match = previousLineText.range(of: #"^(\d+)\."#, options: .regularExpression) {
+          let numStr = previousLineText[match].dropLast()
+          if let num = Int(numStr) { return "\(num + 1). " }
+        }
+        return "1. "
+      }
+    }
+
+    private func continuationAttributedMarker(
+      for listType: MarkdownListType, marker: String, appearance: NoteAppearanceSettings,
+      indentLevel: Int = 0
+    ) -> NSAttributedString {
+      let listStyle = MarkdownEditorFormatter.listParagraphStyle(
+        for: appearance, indentLevel: indentLevel)
+      switch listType {
+      case .checkboxUnchecked, .checkboxChecked:
+        let result = NSMutableAttributedString()
+        result.append(
+          MarkdownEditorFormatter.checkboxAttributedString(checked: false, appearance: appearance))
+        result.append(
+          NSAttributedString(
+            string: " ",
+            attributes: [
+              .font: appearance.bodyFont,
+              .foregroundColor: NSColor.labelColor,
+              .paragraphStyle: MarkdownEditorFormatter.bodyParagraphStyle(for: appearance),
+            ]))
+        let fullRange = NSRange(location: 0, length: result.length)
+        result.addAttributes(
+          [
+            .markdownListType: MarkdownListType.checkboxUnchecked.rawValue,
+            .paragraphStyle: listStyle,
+            .markdownIndentLevel: indentLevel,
+          ], range: fullRange)
+        return result
+
+      default:
+        let result = NSMutableAttributedString(
+          string: marker,
+          attributes: [
+            .font: appearance.bodyFont,
+            .foregroundColor: NSColor.labelColor,
+            .markdownListType: listType.rawValue,
+            .paragraphStyle: listStyle,
+            .markdownIndentLevel: indentLevel,
+          ])
+        if listType == .bullet {
+          result.addAttributes(
+            [
+              .foregroundColor: MarkdownEditorFormatter.bulletColor(for: appearance),
+              .font: NSFont.systemFont(ofSize: appearance.bulletSize, weight: .bold),
+            ], range: NSRange(location: 0, length: 1))
+        } else if listType == .numbered {
+          if let numEnd = marker.firstIndex(of: ".") {
+            let numLength = marker.distance(from: marker.startIndex, to: numEnd) + 1
+            result.addAttribute(
+              .foregroundColor, value: NSColor.secondaryLabelColor,
+              range: NSRange(location: 0, length: numLength))
+          }
+        }
+        return result
+      }
+    }
+
+    // MARK: - List Indentation
+
+    private func handleListIndent(textView: NSTextView, increase: Bool) -> Bool {
+      guard let textStorage = textView.textStorage else { return false }
+      let nsString = textStorage.string as NSString
+      let selectedRange = textView.selectedRange()
+      let fullRange = nsString.lineRange(for: selectedRange)
+
+      var hasListLine = false
+      var scanStart = fullRange.location
+      while scanStart < NSMaxRange(fullRange) {
+        let lineRange = nsString.lineRange(for: NSRange(location: scanStart, length: 0))
+        if lineRange.length > 0 {
+          let attrs = textStorage.attributes(at: lineRange.location, effectiveRange: nil)
+          if attrs[.markdownListType] as? String != nil {
+            hasListLine = true
+            break
+          }
+        }
+        scanStart = NSMaxRange(lineRange)
+      }
+
+      guard hasListLine else { return false }
+
+      let appearance =
+        (textView as? MarkdownEditorTextView)?.appearanceSettings ?? .default
+      return textView.performEditorEdit(
+        affectedRange: fullRange,
+        actionName: increase ? "Indent" : "Outdent"
+      ) { textStorage in
+        var scanStart = fullRange.location
+        while scanStart < NSMaxRange(fullRange) {
+          let lineRange = nsString.lineRange(for: NSRange(location: scanStart, length: 0))
+          var textRange = lineRange
+          if textRange.length > 0
+            && nsString.character(at: textRange.location + textRange.length - 1) == 0x0A
+          {
+            textRange.length -= 1
+          }
+          if textRange.length > 0 {
+            let attrs = textStorage.attributes(at: textRange.location, effectiveRange: nil)
+            if attrs[.markdownListType] as? String != nil {
+              let currentLevel = attrs[.markdownIndentLevel] as? Int ?? 0
+              let newLevel = increase ? min(currentLevel + 1, 3) : max(currentLevel - 1, 0)
+              if newLevel != currentLevel {
+                let newStyle = MarkdownEditorFormatter.listParagraphStyle(
+                  for: appearance, indentLevel: newLevel)
+                textStorage.addAttribute(.markdownIndentLevel, value: newLevel, range: textRange)
+                textStorage.addAttribute(.paragraphStyle, value: newStyle, range: textRange)
+              }
+            }
+          }
+          scanStart = NSMaxRange(lineRange)
+        }
+        return nil
+      }
+    }
+
+    // MARK: - Section Divider Backspace
+
+    private func handleSectionDividerBackspace(
+      in textView: NSTextView, textStorage: NSTextStorage
+    ) -> Bool {
+      let selection = textView.selectedRange()
+      guard selection.length == 0 else { return false }
+
+      let nsString = textStorage.string as NSString
+      guard selection.location > 0, nsString.length > 0 else { return false }
+
+      let currentLocation = min(selection.location, nsString.length)
+      let currentLineProbe = min(currentLocation, max(nsString.length - 1, 0))
+      let currentLineRange = nsString.lineRange(
+        for: NSRange(location: currentLineProbe, length: 0))
+      guard currentLocation == currentLineRange.location else { return false }
+
+      let previousLineRange = nsString.lineRange(
+        for: NSRange(location: currentLocation - 1, length: 0))
+      guard lineHasSectionDivider(previousLineRange, in: textStorage, string: nsString) else {
+        return false
+      }
+
+      let handled = textView.performEditorEdit(
+        affectedRange: previousLineRange,
+        replacementString: "",
+        actionName: "Delete Section Divider"
+      ) { textStorage in
+        textStorage.replaceCharacters(in: previousLineRange, with: "")
+        return NSRange(location: previousLineRange.location, length: 0)
+      }
+
+      guard handled else { return false }
+
+      if let editorTextView = textView as? MarkdownEditorTextView {
+        editorTextView.refreshSectionLayout()
+      } else {
+        textView.setNeedsDisplay(textView.bounds)
+      }
+
+      return true
+    }
+
+    private func lineHasSectionDivider(
+      _ lineRange: NSRange,
+      in textStorage: NSTextStorage,
+      string nsString: NSString
+    ) -> Bool {
+      var trimmedRange = lineRange
+      if trimmedRange.length > 0,
+        nsString.character(at: trimmedRange.location + trimmedRange.length - 1) == 0x0A
+      {
+        trimmedRange.length -= 1
+      }
+      guard trimmedRange.length > 0, trimmedRange.location < textStorage.length else {
+        return false
+      }
+      return textStorage.attribute(
+        .markdownSectionDivider, at: trimmedRange.location, effectiveRange: nil)
+        as? Bool == true
+    }
+
+    // MARK: - Slash Command Popup
+
+    private func checkSlashCommandTrigger(in textView: NSTextView) {
+      let cursorLocation = textView.selectedRange().location
+      guard cursorLocation > 0 else {
+        dismissSlashPopup()
+        return
+      }
+
+      let nsString = textView.string as NSString
+      let lineRange = nsString.lineRange(for: NSRange(location: cursorLocation, length: 0))
+
+      let prefixLength = cursorLocation - lineRange.location
+      guard prefixLength > 0 else {
+        dismissSlashPopup()
+        return
+      }
+      let prefixRange = NSRange(location: lineRange.location, length: prefixLength)
+      let prefixText = nsString.substring(with: prefixRange)
+      let trimmed = prefixText.trimmingCharacters(in: .whitespaces)
+
+      guard trimmed.hasPrefix("/") else {
+        dismissSlashPopup()
+        return
+      }
+
+      let filtered = EditorSlashCommandHandler.filteredCommands(for: trimmed)
+      guard !filtered.isEmpty else {
+        dismissSlashPopup()
+        return
+      }
+
+      if slashTriggerLocation == nil {
+        let whitespaceCount = prefixText.count - trimmed.count
+        slashTriggerLocation = lineRange.location + whitespaceCount
+      }
+
+      slashPopup.updateFilter(trimmed)
+
+      guard
+        let scrollView = textView.enclosingScrollView,
+        let lineRect = textView.editorLineFragmentRect(forCharacterLocation: cursorLocation)
+      else { return }
+
+      let rectInScrollView = textView.convert(lineRect, to: scrollView)
+      slashPopup.show(relativeTo: rectInScrollView, in: scrollView)
+
+      slashPopup.onSelect = { [weak self, weak textView] entry in
+        guard let self, let textView else { return }
+        self.applySlashCommand(entry, in: textView)
+      }
+    }
+
+    private func dismissSlashPopup() {
+      slashPopup.hide()
+      slashTriggerLocation = nil
+    }
+
+    private func applySlashCommand(_ entry: SlashCommandEntry, in textView: NSTextView) {
+      guard let triggerLoc = slashTriggerLocation else { return }
+      let cursorLoc = textView.selectedRange().location
+      guard cursorLoc >= triggerLoc else { return }
+
+      let replaceRange = NSRange(location: triggerLoc, length: cursorLoc - triggerLoc)
+      let undoManager = textView.undoManager
+      undoManager?.beginUndoGrouping()
+      isApplyingSlashCommand = true
+      dismissSlashPopup()
+
+      let replaced = textView.performEditorEdit(
+        affectedRange: replaceRange,
+        replacementString: entry.command
+      ) { textStorage in
+        let safeLoc = min(replaceRange.location, textStorage.length)
+        let safeLen = min(replaceRange.length, max(textStorage.length - safeLoc, 0))
+        let safeRange = NSRange(location: safeLoc, length: safeLen)
+        textStorage.replaceCharacters(in: safeRange, with: entry.command)
+        return NSRange(location: safeLoc + entry.command.utf16.count, length: 0)
+      }
+      defer {
+        isApplyingSlashCommand = false
+        undoManager?.endUndoGrouping()
+        undoManager?.setActionName("Insert Slash Command")
+      }
+
+      if replaced {
+        _ = self.textView(textView, doCommandBy: #selector(NSResponder.insertNewline(_:)))
+      }
+    }
+
+    // MARK: - Autoformat
+
+    private func autoformatEditedLinesIfNeeded(
+      in textView: NSTextView, textStorage: NSTextStorage
+    ) {
+      defer { pendingEditContext = nil }
+      guard let pendingEditContext else { return }
+
+      let nsString = textStorage.string as NSString
+      let lineRanges = affectedLineRanges(in: nsString, editContext: pendingEditContext)
+      guard !lineRanges.isEmpty else { return }
+
+      var updatedSelection = textView.selectedRange()
+
+      for lineRange in lineRanges.sorted(by: { $0.location > $1.location }) {
+        let lineText = nsString.substring(with: lineRange)
+        guard let prefixMetrics = rawAutoformatPrefixMetrics(for: lineText) else { continue }
+
+        let previousLineRange = lineRange
+        let didFormat =
+          MarkdownEditorFormatter.formatCurrentLine(
+            in: textStorage,
+            lineRange: lineRange,
+            appearance: parent.appearanceSettings
+          ) != nil
+
+        guard didFormat else { continue }
+
+        let updatedString = textStorage.string as NSString
+        let updatedLineRange = trimmedLineRange(
+          in: updatedString,
+          containing: min(previousLineRange.location, max(updatedString.length - 1, 0))
+        )
+
+        updatedSelection = adjustedSelection(
+          updatedSelection,
+          previousLineRange: previousLineRange,
+          updatedLineRange: updatedLineRange,
+          prefixMetrics: prefixMetrics
+        )
+      }
+
+      if let editorTextView = textView as? MarkdownEditorTextView {
+        applySectionColorsToEditedLines(
+          lineRanges, in: textStorage, editorTextView: editorTextView)
+      }
+
+      textView.setSelectedRange(
+        clampedRange(updatedSelection, maxLength: textStorage.string.utf16.count)
+      )
+      if textView is MarkdownEditorTextView {
+        _ = textView.editorNormalizeSelectionIfNeeded()
+      }
+      syncTypingAttributesToInsertionPoint(in: textView, textStorage: textStorage)
+    }
+
+    private func applySectionColorsToEditedLines(
+      _ lineRanges: [NSRange],
+      in textStorage: NSTextStorage,
+      editorTextView: MarkdownEditorTextView
+    ) {
+      for lineRange in lineRanges {
+        guard lineRange.location < textStorage.length else { continue }
+        guard let sectionInfo = editorTextView.sectionColors(at: lineRange.location) else {
+          continue
+        }
+        let nsString = textStorage.string as NSString
+        let currentLineRange = nsString.lineRange(
+          for: NSRange(location: lineRange.location, length: 0))
+        var trimmed = currentLineRange
+        if trimmed.length > 0,
+          nsString.character(at: trimmed.location + trimmed.length - 1) == 0x0A
+        {
+          trimmed.length -= 1
+        }
+        guard trimmed.length > 0 else { continue }
+
+        let attrs = textStorage.attributes(at: trimmed.location, effectiveRange: nil)
+
+        if attrs[.markdownHeadingLevel] != nil,
+          attrs[.markdownHeadingColor] == nil,
+          let colorName = sectionInfo.headingColorName,
+          let color = MarkdownEditorFormatter.headingColor(named: colorName)
+        {
+          textStorage.addAttribute(.foregroundColor, value: color, range: trimmed)
+          continue
+        }
+
+        guard sectionInfo.useSectionColor,
+          let rawType = attrs[.markdownListType] as? String,
+          let listType = MarkdownListType(rawValue: rawType)
+        else { continue }
+
+        let color: NSColor? = {
+          if let n = sectionInfo.bulletColorName {
+            return MarkdownEditorFormatter.headingColor(named: n)
+          }
+          if let n = sectionInfo.headingColorName {
+            return MarkdownEditorFormatter.headingColor(named: n)
+          }
+          return nil
+        }()
+        guard let bulletColor = color else { continue }
+
+        switch listType {
+        case .bullet:
+          textStorage.addAttributes(
+            [
+              .foregroundColor: bulletColor,
+              .font: NSFont.systemFont(
+                ofSize: editorTextView.appearanceSettings.bulletSize, weight: .bold),
+            ], range: NSRange(location: trimmed.location, length: 1))
+        case .checkboxChecked, .checkboxUnchecked:
+          let checked = listType == .checkboxChecked
+          let newAttachment = NSAttributedString(
+            attachment: MarkdownEditorFormatter.checkboxAttachment(
+              checked: checked, color: bulletColor))
+          textStorage.replaceCharacters(
+            in: NSRange(location: trimmed.location, length: 1), with: newAttachment)
+        case .numbered:
+          break
+        }
+      }
+    }
+
+    private func affectedLineRanges(in nsString: NSString, editContext: PendingEditContext)
+      -> [NSRange]
+    {
+      guard nsString.length > 0 else { return [] }
+
+      let startLocation = min(editContext.range.location, max(nsString.length - 1, 0))
+      let replacementLength = editContext.replacementString?.utf16.count ?? 0
+      let endSeed = max(editContext.range.location + replacementLength - 1, startLocation)
+      let endLocation = min(endSeed, max(nsString.length - 1, 0))
+
+      var lineRanges: [NSRange] = []
+      var currentRange = nsString.lineRange(for: NSRange(location: startLocation, length: 0))
+      let finalRange = nsString.lineRange(for: NSRange(location: endLocation, length: 0))
+
+      while true {
+        lineRanges.append(trimmedLineRange(from: currentRange, in: nsString))
+        if currentRange.location >= finalRange.location { break }
+        let nextLocation = min(NSMaxRange(currentRange), max(nsString.length - 1, 0))
+        currentRange = nsString.lineRange(for: NSRange(location: nextLocation, length: 0))
+      }
+
+      return lineRanges
+    }
+
+    private func rawAutoformatPrefixMetrics(for lineText: String)
+      -> (rawPrefixLength: Int, displayPrefixLength: Int)?
+    {
+      if lineText.hasPrefix("- [ ] ") || lineText.hasPrefix("- [x] ")
+        || lineText.hasPrefix("- [X] ")
+      {
+        return (6, 2)
+      }
+
+      if let prefixRange = lineText.range(of: #"^(?:-|•)\s+"#, options: .regularExpression) {
+        let rawPrefixLength = lineText.distance(
+          from: prefixRange.lowerBound, to: prefixRange.upperBound)
+        return (rawPrefixLength, 2)
+      }
+
+      if let prefixRange = lineText.range(of: #"^\d+\.\s+"#, options: .regularExpression) {
+        let prefixLength = lineText.distance(
+          from: prefixRange.lowerBound, to: prefixRange.upperBound)
+        return (prefixLength, prefixLength)
+      }
+
+      return nil
+    }
+
+    private func adjustedSelection(
+      _ selection: NSRange,
+      previousLineRange: NSRange,
+      updatedLineRange: NSRange,
+      prefixMetrics: (rawPrefixLength: Int, displayPrefixLength: Int)
+    ) -> NSRange {
+      var adjustedSelection = selection
+      let delta = updatedLineRange.length - previousLineRange.length
+
+      if adjustedSelection.location > NSMaxRange(previousLineRange) {
+        adjustedSelection.location += delta
+        return adjustedSelection
+      }
+
+      guard adjustedSelection.location >= previousLineRange.location else {
+        return adjustedSelection
+      }
+
+      let offsetInLine = adjustedSelection.location - previousLineRange.location
+      let adjustedOffset: Int
+      if offsetInLine <= prefixMetrics.rawPrefixLength {
+        adjustedOffset = min(prefixMetrics.displayPrefixLength, updatedLineRange.length)
+      } else {
+        adjustedOffset = min(
+          prefixMetrics.displayPrefixLength + (offsetInLine - prefixMetrics.rawPrefixLength),
+          updatedLineRange.length
+        )
+      }
+
+      adjustedSelection.location = updatedLineRange.location + adjustedOffset
+      return adjustedSelection
+    }
+
+    // MARK: - Typing Attributes
+
+    private func syncTypingAttributesToInsertionPoint(
+      in textView: NSTextView,
+      textStorage: NSTextStorage
+    ) {
+      guard textStorage.length > 0 else {
+        textView.typingAttributes = MarkdownEditorFormatter.baseTypingAttributes(
+          for: parent.appearanceSettings)
+        return
+      }
+
+      if let editorTextView = textView as? MarkdownEditorTextView,
+        let sourceLocation = editorTextView.typingAttributeSourceLocation(
+          forInsertionLocation: textView.selectedRange().location)
+      {
+        textView.typingAttributes = textStorage.attributes(
+          at: sourceLocation,
+          effectiveRange: nil
+        )
+        return
+      }
+
+      textView.typingAttributes = MarkdownEditorFormatter.baseTypingAttributes(
+        for: parent.appearanceSettings)
+    }
+
+    // MARK: - Typing Attribute Helpers
+
+    private func headingTypingAttributes(level: Int) -> [NSAttributedString.Key: Any] {
+      [
+        .font: parent.appearanceSettings.boldBodyFont(
+          ofSize: MarkdownEditorFormatter.headingFontSize(for: level)),
+        .foregroundColor: NSColor.labelColor,
+        .paragraphStyle: MarkdownEditorFormatter.bodyParagraphStyle(for: parent.appearanceSettings),
+        .markdownHeadingLevel: level,
+      ]
+    }
+
+    private func codeBlockTypingAttributes() -> [NSAttributedString.Key: Any] {
+      [
+        .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
+        .backgroundColor: NSColor.quaternaryLabelColor,
+        .foregroundColor: NSColor.labelColor,
+        .markdownCodeBlock: true,
+      ]
+    }
+
+    // MARK: - Utility
+
+    private func trimmedLineRange(in nsString: NSString, containing location: Int) -> NSRange {
+      let safeLocation = min(location, max(nsString.length - 1, 0))
+      return trimmedLineRange(
+        from: nsString.lineRange(for: NSRange(location: safeLocation, length: 0)),
+        in: nsString
+      )
+    }
+
+    private func trimmedLineRange(from lineRange: NSRange, in nsString: NSString) -> NSRange {
+      var trimmedRange = lineRange
+      if trimmedRange.length > 0,
+        nsString.character(at: trimmedRange.location + trimmedRange.length - 1) == 0x0A
+      {
+        trimmedRange.length -= 1
+      }
+      return trimmedRange
+    }
+
+    private func clampedRange(_ range: NSRange, maxLength: Int) -> NSRange {
+      let safeLocation = min(range.location, maxLength)
+      let safeLength = min(range.length, max(maxLength - safeLocation, 0))
+      return NSRange(location: safeLocation, length: safeLength)
+    }
+  }
+}
