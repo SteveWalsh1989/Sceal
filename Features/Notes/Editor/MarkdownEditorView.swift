@@ -36,10 +36,11 @@ struct MarkdownEditorView: NSViewRepresentable {
 
     let scrollView = EditorScrollView()
     scrollView.documentView = textView
-    scrollView.hasVerticalScroller = true
+    scrollView.hasVerticalScroller = appearanceSettings.showEditorScrollbar
     scrollView.hasHorizontalScroller = false
     scrollView.drawsBackground = false
     scrollView.automaticallyAdjustsContentInsets = false
+    scrollView.autohidesScrollers = true
     scrollView.contentInsets = .init()
     scrollView.onViewportHeightChange = { [weak textView, weak scrollView] viewportHeight in
       guard let textView, let scrollView else { return }
@@ -68,6 +69,7 @@ struct MarkdownEditorView: NSViewRepresentable {
     context.coordinator.parent = self
     configure(textView, coordinator: context.coordinator)
     context.coordinator.toolbar.appearanceSettings = appearanceSettings
+    scrollView.hasVerticalScroller = appearanceSettings.showEditorScrollbar
     if let editorScrollView = scrollView as? EditorScrollView {
       editorScrollView.onViewportHeightChange = { [weak textView, weak scrollView] viewportHeight in
         guard let textView, let scrollView else { return }

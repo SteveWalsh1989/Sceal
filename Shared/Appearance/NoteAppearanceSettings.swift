@@ -38,6 +38,7 @@ struct NoteAppearanceSettings: Codable, Equatable, Sendable {
   var bulletSize: CGFloat
   var sectionDividerGapScale: CGFloat
   var sidebarFontSize: CGFloat
+  var showEditorScrollbar: Bool
   var accentColorName: String
   var sidebarShowsTags: Bool
   var sidebarDateFormat: SidebarDateFormat
@@ -52,6 +53,7 @@ struct NoteAppearanceSettings: Codable, Equatable, Sendable {
     bulletSize: CGFloat = Self.defaultBulletSize,
     sectionDividerGapScale: CGFloat = Self.defaultSectionDividerGapScale,
     sidebarFontSize: CGFloat = Self.defaultSidebarFontSize,
+    showEditorScrollbar: Bool = false,
     accentColorName: String = Self.defaultAccentColorName,
     sidebarShowsTags: Bool = false,
     sidebarDateFormat: SidebarDateFormat = .yearMonthDay,
@@ -65,6 +67,7 @@ struct NoteAppearanceSettings: Codable, Equatable, Sendable {
     self.bulletSize = bulletSize
     self.sectionDividerGapScale = sectionDividerGapScale
     self.sidebarFontSize = sidebarFontSize
+    self.showEditorScrollbar = showEditorScrollbar
     self.accentColorName = accentColorName
     self.sidebarShowsTags = sidebarShowsTags
     self.sidebarDateFormat = sidebarDateFormat
@@ -86,6 +89,7 @@ struct NoteAppearanceSettings: Codable, Equatable, Sendable {
         to: Self.minimumSectionDividerGapScale...Self.maximumSectionDividerGapScale),
       sidebarFontSize: sidebarFontSize.clamped(
         to: Self.minimumSidebarFontSize...Self.maximumSidebarFontSize),
+      showEditorScrollbar: showEditorScrollbar,
       accentColorName: normalizedAccentColorName,
       sidebarShowsTags: sidebarShowsTags,
       sidebarDateFormat: sidebarDateFormat,
@@ -170,6 +174,7 @@ struct NoteAppearanceSettings: Codable, Equatable, Sendable {
     case bulletSize
     case sectionDividerGapScale
     case sidebarFontSize
+    case showEditorScrollbar
     case accentColorName
     case sidebarShowsTags
     case sidebarDateFormat
@@ -197,6 +202,10 @@ struct NoteAppearanceSettings: Codable, Equatable, Sendable {
       ) ?? Self.defaultSectionDividerGapScale,
       sidebarFontSize: try container.decodeIfPresent(CGFloat.self, forKey: .sidebarFontSize)
         ?? Self.defaultSidebarFontSize,
+      showEditorScrollbar: try container.decodeIfPresent(
+        Bool.self,
+        forKey: .showEditorScrollbar
+      ) ?? false,
       accentColorName: try container.decodeIfPresent(String.self, forKey: .accentColorName)
         ?? Self.defaultAccentColorName,
       sidebarShowsTags: try container.decodeIfPresent(Bool.self, forKey: .sidebarShowsTags)
@@ -221,6 +230,7 @@ struct NoteAppearanceSettings: Codable, Equatable, Sendable {
     try container.encode(bulletSize, forKey: .bulletSize)
     try container.encode(sectionDividerGapScale, forKey: .sectionDividerGapScale)
     try container.encode(sidebarFontSize, forKey: .sidebarFontSize)
+    try container.encode(showEditorScrollbar, forKey: .showEditorScrollbar)
     try container.encode(accentColorName, forKey: .accentColorName)
     try container.encode(sidebarShowsTags, forKey: .sidebarShowsTags)
     try container.encode(sidebarDateFormat, forKey: .sidebarDateFormat)

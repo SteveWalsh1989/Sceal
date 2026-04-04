@@ -53,6 +53,12 @@ extension NotesStore {
     }
   }
 
+  func updateShowEditorScrollbar(_ showEditorScrollbar: Bool) {
+    updateAppearanceSettings { settings in
+      settings.showEditorScrollbar = showEditorScrollbar
+    }
+  }
+
   func updateAccentColorName(_ accentColorName: String) {
     updateAppearanceSettings { settings in
       settings.accentColorName = accentColorName

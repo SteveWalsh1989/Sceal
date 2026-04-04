@@ -55,6 +55,14 @@ struct SettingsAppearanceView: View {
       }
 
       Section("Layout") {
+        Toggle(
+          "Show editor scrollbar",
+          isOn: Binding(
+            get: { store.appearanceSettings.showEditorScrollbar },
+            set: { store.updateShowEditorScrollbar($0) }
+          )
+        )
+
         AppearanceSliderRow(
           style: .settings,
           title: "Line height",
