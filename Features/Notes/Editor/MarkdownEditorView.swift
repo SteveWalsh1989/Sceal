@@ -25,6 +25,7 @@ struct MarkdownEditorView: NSViewRepresentable {
   let noteID: DayNote.ID
   @Binding var text: String
   let appearanceSettings: NoteAppearanceSettings
+  var searchText: String = ""
 
   func makeCoordinator() -> Coordinator {
     Coordinator(parent: self)
@@ -54,9 +55,11 @@ struct MarkdownEditorView: NSViewRepresentable {
     context.coordinator.lastPushedMarkdown = text
     context.coordinator.lastAppliedAppearance = appearanceSettings
     context.coordinator.lastNoteID = noteID
+    context.coordinator.lastSearchText = searchText
     context.coordinator.lastDividerCount = (textView as MarkdownEditorTextView).sectionDividerCount
     context.coordinator.toolbar.appearanceSettings = appearanceSettings
 
+    Self.applySearchHighlights(to: textView, query: searchText.trimmingCharacters(in: .whitespacesAndNewlines), accentColor: appearanceSettings.accentColor)
     Self.applyBottomOverscroll(to: textView, in: scrollView)
 
     return scrollView
@@ -81,42 +84,48 @@ struct MarkdownEditorView: NSViewRepresentable {
     let noteChanged = noteID != context.coordinator.lastNoteID
     let textChanged = text != context.coordinator.lastPushedMarkdown
     let appearanceChanged = appearanceSettings != context.coordinator.lastAppliedAppearance
-    guard noteChanged || textChanged || appearanceChanged else { return }
+    let searchChanged = searchText != context.coordinator.lastSearchText
+    guard noteChanged || textChanged || appearanceChanged || searchChanged else { return }
 
-    context.coordinator.isUpdating = true
-    let visibleOrigin = scrollView.contentView.bounds.origin
-    let wasFirstResponder = textView.window?.firstResponder === textView
+    if noteChanged || textChanged || appearanceChanged {
+      context.coordinator.isUpdating = true
+      let visibleOrigin = scrollView.contentView.bounds.origin
+      let wasFirstResponder = textView.window?.firstResponder === textView
 
-    let displayString = MarkdownEditorFormatter.formatForDisplay(
-      text, appearance: appearanceSettings)
-    let selectedRange =
-      noteChanged
-      ? NSRange(location: 0, length: 0)
-      : clampedRange(textView.selectedRange(), maxLength: text.utf16.count)
-    applyDisplayString(displayString, to: textView)
-    context.coordinator.lastPushedMarkdown = text
-    context.coordinator.lastAppliedAppearance = appearanceSettings
-    context.coordinator.lastNoteID = noteID
-    if let interactiveTV = textView as? MarkdownEditorTextView {
-      context.coordinator.lastDividerCount = interactiveTV.sectionDividerCount
-    }
-    textView.setSelectedRange(
-      clampedRange(selectedRange, maxLength: textView.string.utf16.count)
-    )
-
-    if noteChanged {
-      scrollView.contentView.scroll(to: .zero)
-      textView.window?.makeFirstResponder(nil)
-    } else {
-      scrollView.contentView.scroll(to: visibleOrigin)
-      if wasFirstResponder, textView.window?.firstResponder !== textView {
-        textView.window?.makeFirstResponder(textView)
+      let displayString = MarkdownEditorFormatter.formatForDisplay(
+        text, appearance: appearanceSettings)
+      let selectedRange =
+        noteChanged
+        ? NSRange(location: 0, length: 0)
+        : clampedRange(textView.selectedRange(), maxLength: text.utf16.count)
+      applyDisplayString(displayString, to: textView)
+      context.coordinator.lastPushedMarkdown = text
+      context.coordinator.lastAppliedAppearance = appearanceSettings
+      context.coordinator.lastNoteID = noteID
+      if let interactiveTV = textView as? MarkdownEditorTextView {
+        context.coordinator.lastDividerCount = interactiveTV.sectionDividerCount
       }
+      textView.setSelectedRange(
+        clampedRange(selectedRange, maxLength: textView.string.utf16.count)
+      )
+
+      if noteChanged {
+        scrollView.contentView.scroll(to: .zero)
+        textView.window?.makeFirstResponder(nil)
+      } else {
+        scrollView.contentView.scroll(to: visibleOrigin)
+        if wasFirstResponder, textView.window?.firstResponder !== textView {
+          textView.window?.makeFirstResponder(textView)
+        }
+      }
+
+      scrollView.reflectScrolledClipView(scrollView.contentView)
+      context.coordinator.isUpdating = false
+      context.coordinator.refreshToolbarPresentation(in: textView)
     }
 
-    scrollView.reflectScrolledClipView(scrollView.contentView)
-    context.coordinator.isUpdating = false
-    context.coordinator.refreshToolbarPresentation(in: textView)
+    context.coordinator.lastSearchText = searchText
+    Self.applySearchHighlights(to: textView, query: searchText.trimmingCharacters(in: .whitespacesAndNewlines), accentColor: appearanceSettings.accentColor)
   }
 
   private func configure(_ textView: NSTextView, coordinator: Coordinator) {
@@ -193,6 +202,38 @@ struct MarkdownEditorView: NSViewRepresentable {
     let safeLength = min(range.length, max(maxLength - safeLocation, 0))
     return NSRange(location: safeLocation, length: safeLength)
   }
+
+  // Clears any previous search highlights then paints new ones using rendering attributes,
+  // which are visual-only and do not touch the text storage or trigger the text delegate.
+  static func applySearchHighlights(to textView: NSTextView, query: String, accentColor: NSColor) {
+    guard let tlm = textView.textLayoutManager,
+          let tcs = tlm.textContentManager as? NSTextContentStorage else { return }
+
+    tlm.removeRenderingAttribute(.backgroundColor, for: tlm.documentRange)
+
+    guard !query.isEmpty else {
+      textView.setNeedsDisplay(textView.bounds)
+      return
+    }
+
+    let highlightColor = accentColor.withAlphaComponent(0.3)
+    let string = textView.string
+    let docBase = tlm.documentRange.location
+    var searchStart = string.startIndex
+
+    while searchStart < string.endIndex,
+          let matchRange = string.range(of: query, options: .caseInsensitive, range: searchStart..<string.endIndex) {
+      let nsRange = NSRange(matchRange, in: string)
+      if let startLoc = tcs.location(docBase, offsetBy: nsRange.location),
+         let endLoc = tcs.location(startLoc, offsetBy: nsRange.length),
+         let textRange = NSTextRange(location: startLoc, end: endLoc) {
+        tlm.addRenderingAttribute(.backgroundColor, value: highlightColor, for: textRange)
+      }
+      searchStart = matchRange.upperBound
+    }
+
+    textView.setNeedsDisplay(textView.bounds)
+  }
 }
 
 @MainActor
@@ -221,6 +262,7 @@ extension MarkdownEditorView {
     var lastAppliedAppearance = NoteAppearanceSettings.default
     var lastDividerCount = 0
     var lastNoteID: DayNote.ID?
+    var lastSearchText = ""
     let toolbar = EditorFormattingToolbar()
     let slashPopup = EditorSlashCommandPopup()
     private var slashTriggerLocation: Int?

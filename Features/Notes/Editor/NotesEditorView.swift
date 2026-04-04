@@ -113,7 +113,8 @@ struct NotesEditorView: View {
           MarkdownEditorView(
             noteID: noteID,
             text: store.bodyBinding(for: noteID),
-            appearanceSettings: store.appearanceSettings
+            appearanceSettings: store.appearanceSettings,
+            searchText: store.searchText
           )
         }
         .background(

@@ -100,8 +100,19 @@ final class NotesStore: ObservableObject {
     return notes.filter { note in
       note.title.localizedCaseInsensitiveContains(query)
         || note.tags.contains(where: { $0.localizedCaseInsensitiveContains(query) })
-        || note.body.localizedCaseInsensitiveContains(query)
+        || Self.searchableBody(note.body).localizedCaseInsensitiveContains(query)
     }
+  }
+
+  // Strips <!-- ... --> markers (section color directives) so they don't cause false-positive matches.
+  static func searchableBody(_ body: String) -> String {
+    guard body.contains("<!--") else { return body }
+    var result = body
+    while let start = result.range(of: "<!--"),
+          let end = result.range(of: "-->", range: start.upperBound..<result.endIndex) {
+      result.removeSubrange(start.lowerBound..<end.upperBound)
+    }
+    return result
   }
 
   // Groups notes by month for sidebar section display.
