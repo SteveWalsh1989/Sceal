@@ -62,6 +62,9 @@ struct NotesSidebarView: View {
             }
             .padding(.bottom, 20)
           }
+          .scrollIndicators(
+            store.appearanceSettings.showEditorScrollbar ? .visible : .hidden
+          )
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
