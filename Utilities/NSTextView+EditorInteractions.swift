@@ -2,9 +2,15 @@
 //  NSTextView+EditorInteractions.swift
 //
 
-// Shared editor interaction helpers used by both legacy and next text views.
+// Shared editor interaction helpers for divider navigation and checkbox toggling.
 
 import AppKit
+
+enum DividerResolutionPreference {
+  case previous
+  case next
+  case nearest
+}
 
 extension NSTextView {
   // Moves an insertion point out of a divider line to the nearest editable position.
