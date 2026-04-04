@@ -165,21 +165,18 @@ struct NotesEditorView: View {
   }
 }
 
-// Expandable search bar — shows as a magnifying glass icon, expands into a text field on tap.
+// Expandable search bar — shows as a magnifying glass icon, expands into a native NSSearchField on tap.
 // The icon always occupies its natural 28pt in the HStack so nothing around it ever shifts.
-// When expanded, the full bar appears as a trailing-aligned overlay growing leftward.
+// When expanded, the native search field appears as a trailing-aligned overlay growing leftward.
 private struct EditorSearchBar: View {
   @Binding var searchText: String
   @Binding var isExpanded: Bool
   let controlColor: Color
 
-  @FocusState private var isFieldFocused: Bool
-
   private let expandedWidth: CGFloat = 168
 
   var body: some View {
-    // The icon button is always in the layout at 28pt — hidden but present when expanded
-    // so the HStack never reflowing.
+    // Icon button stays in the layout at 28pt at all times to prevent HStack reflow.
     Button { expand() } label: {
       Image(systemName: "magnifyingglass")
         .font(.system(size: 12, weight: .medium))
@@ -193,29 +190,9 @@ private struct EditorSearchBar: View {
     .allowsHitTesting(!isExpanded)
     .overlay(alignment: .trailing) {
       if isExpanded {
-        HStack(spacing: 6) {
-          Image(systemName: "magnifyingglass")
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(.secondary)
-
-          TextField("Search", text: $searchText)
-            .textFieldStyle(.plain)
-            .font(.system(size: 12, weight: .medium))
-            .focused($isFieldFocused)
-            .onExitCommand { collapse() }
-
-          Button { collapse() } label: {
-            Image(systemName: "xmark.circle.fill")
-              .font(.system(size: 12))
-              .foregroundStyle(.secondary)
-          }
-          .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 5)
-        .frame(width: expandedWidth)
-        .background(controlColor, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .transition(.opacity)
+        NativeSearchField(text: $searchText, onCollapse: collapse)
+          .frame(width: expandedWidth)
+          .transition(.opacity)
       }
     }
   }
@@ -224,9 +201,6 @@ private struct EditorSearchBar: View {
     withAnimation(.easeInOut(duration: 0.2)) {
       isExpanded = true
     }
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-      isFieldFocused = true
-    }
   }
 
   private func collapse() {
@@ -234,7 +208,60 @@ private struct EditorSearchBar: View {
       searchText = ""
       isExpanded = false
     }
-    isFieldFocused = false
+  }
+}
+
+// NSSearchField wrapper — provides the native macOS search field with its built-in
+// magnifying glass icon, × clear button, and Escape key handling.
+private struct NativeSearchField: NSViewRepresentable {
+  @Binding var text: String
+  let onCollapse: () -> Void
+
+  func makeNSView(context: Context) -> NSSearchField {
+    let field = NSSearchField()
+    field.placeholderString = "Search"
+    field.delegate = context.coordinator
+    field.focusRingType = .none
+    // Auto-focus after the view is inserted into the window.
+    DispatchQueue.main.async {
+      field.window?.makeFirstResponder(field)
+    }
+    return field
+  }
+
+  func updateNSView(_ nsView: NSSearchField, context: Context) {
+    context.coordinator.onCollapse = onCollapse
+    // Sync external clears (e.g. Escape from SwiftUI) back into the field.
+    if nsView.stringValue != text {
+      nsView.stringValue = text
+    }
+  }
+
+  func makeCoordinator() -> Coordinator {
+    Coordinator(text: $text, onCollapse: onCollapse)
+  }
+
+  @MainActor
+  final class Coordinator: NSObject, NSSearchFieldDelegate {
+    @Binding var text: String
+    var onCollapse: () -> Void
+
+    init(text: Binding<String>, onCollapse: @escaping () -> Void) {
+      _text = text
+      self.onCollapse = onCollapse
+    }
+
+    // Fires on every keystroke.
+    func controlTextDidChange(_ obj: Notification) {
+      guard let field = obj.object as? NSSearchField else { return }
+      text = field.stringValue
+    }
+
+    // Fires when the user clicks the built-in × button or presses Escape.
+    func searchFieldDidEndSearching(_ sender: NSSearchField) {
+      text = ""
+      onCollapse()
+    }
   }
 }
 
