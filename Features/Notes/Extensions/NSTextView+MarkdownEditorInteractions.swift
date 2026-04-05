@@ -79,6 +79,8 @@ extension NSTextView {
       textRange.length -= 1
     }
 
+    let indentLevel = textStorage.attribute(.markdownIndentLevel, at: textRange.location, effectiveRange: nil) as? Int ?? 0
+
     let currentTypeRaw =
       textStorage.attribute(.markdownListType, at: charIndex, effectiveRange: nil) as? String
     let isChecked = currentTypeRaw == MarkdownListType.checkboxChecked.rawValue
@@ -116,11 +118,10 @@ extension NSTextView {
         value: newType.rawValue,
         range: updatedTextRange
       )
-      textStorage.addAttribute(
-        .paragraphStyle,
-        value: MarkdownEditorFormatter.listParagraphStyle(for: appearanceSettings),
-        range: updatedTextRange
-      )
+      let listStyle = MarkdownEditorFormatter.listParagraphStyle(
+        for: appearanceSettings, indentLevel: indentLevel)
+      textStorage.addAttribute(.paragraphStyle, value: listStyle, range: updatedTextRange)
+      textStorage.addAttribute(.markdownIndentLevel, value: indentLevel, range: updatedTextRange)
 
       let contentStart = min(charIndex + 2, updatedTextRange.location + updatedTextRange.length)
       let contentLength = (updatedTextRange.location + updatedTextRange.length) - contentStart
@@ -254,3 +255,4 @@ extension NSTextView {
     return trimmedRange
   }
 }
+

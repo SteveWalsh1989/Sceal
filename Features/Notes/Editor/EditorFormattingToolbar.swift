@@ -701,12 +701,26 @@ import AppKit
                 from: NSRange(location: contentLoc, length: contentLen)))
             : NSMutableAttributedString()
           let bodyRange = NSRange(location: 0, length: content.length)
+
+          let newParagraphStyle: NSParagraphStyle = {
+            if indentLevel > 0 {
+              return MarkdownEditorFormatter.listParagraphStyle(
+                for: appearanceSettings, indentLevel: indentLevel)
+            } else {
+              return MarkdownEditorFormatter.bodyParagraphStyle(for: appearanceSettings)
+            }
+          }()
           content.addAttribute(
             .paragraphStyle,
-            value: MarkdownEditorFormatter.bodyParagraphStyle(for: appearanceSettings),
+            value: newParagraphStyle,
             range: bodyRange)
           content.removeAttribute(.markdownListType, range: bodyRange)
-          content.removeAttribute(.markdownIndentLevel, range: bodyRange)
+          if indentLevel > 0 {
+            content.addAttribute(.markdownIndentLevel, value: indentLevel, range: bodyRange)
+          } else {
+            content.removeAttribute(.markdownIndentLevel, range: bodyRange)
+          }
+
           textStorage.replaceCharacters(in: line.range, with: content)
         } else {
           // Apply — strip any existing display marker, preserve inline attrs, add the new prefix
