@@ -588,39 +588,60 @@ import AppKit
     _ = textView.performEditorEdit(affectedRange: lineRange, actionName: "Blockquote") {
       textStorage in
       if isBlockquote {
-        // Toggle off — remove blockquote styling, restore default attributes
-        let attrs: [NSAttributedString.Key: Any] = [
-          .font: appearanceSettings.bodyFont,
-          .foregroundColor: NSColor.labelColor,
-          .paragraphStyle: MarkdownEditorFormatter.bodyParagraphStyle(for: appearanceSettings),
-        ]
-        textStorage.replaceCharacters(
-          in: lineRange,
-          with: NSAttributedString(string: lineText, attributes: attrs))
+        // Toggle off — preserve inline attributes (links, bold, etc.), reset block-level attrs only
+        let content = NSMutableAttributedString(
+          attributedString: textStorage.attributedSubstring(from: lineRange))
+        let fullRange = NSRange(location: 0, length: content.length)
+        content.addAttribute(
+          .paragraphStyle,
+          value: MarkdownEditorFormatter.bodyParagraphStyle(for: appearanceSettings),
+          range: fullRange)
+        content.removeAttribute(.markdownBlockquote, range: fullRange)
+        // Restore label color for non-link spans (blockquote uses secondaryLabelColor)
+        content.enumerateAttribute(.markdownLinkURL, in: fullRange, options: []) {
+          linkURL, spanRange, _ in
+          if linkURL == nil {
+            content.addAttribute(.foregroundColor, value: NSColor.labelColor, range: spanRange)
+          }
+        }
+        textStorage.replaceCharacters(in: lineRange, with: content)
       } else {
-        // Apply blockquote — strip any existing list prefix first
+        // Apply blockquote — strip any existing list prefix, preserve inline attrs
         let currentTypeRaw =
           lineRange.length > 0
           ? textStorage.attribute(.markdownListType, at: lineRange.location, effectiveRange: nil)
             as? String
           : nil
-        let cleanText: String
-        if let rawType = currentTypeRaw, let listType = MarkdownListType(rawValue: rawType) {
-          cleanText = stripDisplayListPrefix(lineText, listType: listType)
-        } else {
-          cleanText = lineText
-        }
+          let existingMarkerLen: Int = {
+            if let rawType = currentTypeRaw, let listType = MarkdownListType(rawValue: rawType) {
+              return displayMarkerUTF16Length(in: lineText, listType: listType)
+            }
+            return 0
+          }()
+        let contentLoc = lineRange.location + existingMarkerLen
+        let contentLen = max(0, lineRange.length - existingMarkerLen)
+        let content: NSMutableAttributedString =
+          contentLen > 0
+          ? NSMutableAttributedString(
+            attributedString: textStorage.attributedSubstring(
+              from: NSRange(location: contentLoc, length: contentLen)))
+          : NSMutableAttributedString()
 
         let quoteStyle = MarkdownEditorFormatter.blockquoteParagraphStyle(for: appearanceSettings)
-        let result = NSAttributedString(
-          string: cleanText,
-          attributes: [
-            .font: appearanceSettings.bodyFont,
-            .foregroundColor: NSColor.secondaryLabelColor,
-            .markdownBlockquote: true,
-            .paragraphStyle: quoteStyle,
-          ])
-        textStorage.replaceCharacters(in: lineRange, with: result)
+        let fullRange = NSRange(location: 0, length: content.length)
+        content.addAttribute(.markdownBlockquote, value: true, range: fullRange)
+        content.addAttribute(.paragraphStyle, value: quoteStyle, range: fullRange)
+        content.removeAttribute(.markdownListType, range: fullRange)
+        content.removeAttribute(.markdownIndentLevel, range: fullRange)
+        // Apply secondaryLabelColor for non-link spans only
+        content.enumerateAttribute(.markdownLinkURL, in: fullRange, options: []) {
+          linkURL, spanRange, _ in
+          if linkURL == nil {
+            content.addAttribute(
+              .foregroundColor, value: NSColor.secondaryLabelColor, range: spanRange)
+          }
+        }
+        textStorage.replaceCharacters(in: lineRange, with: content)
       }
       return nil
     }
@@ -669,21 +690,36 @@ import AppKit
           ) as? Int ?? 0 : 0
 
         if currentType == targetType {
-          // Toggle off — remove list prefix and attributes
-          let cleanText = stripDisplayListPrefix(line.text, listType: targetType)
-          let attrs: [NSAttributedString.Key: Any] = [
-            .font: appearanceSettings.bodyFont,
-            .foregroundColor: NSColor.labelColor,
-            .paragraphStyle: MarkdownEditorFormatter.bodyParagraphStyle(for: appearanceSettings),
-          ]
-          textStorage.replaceCharacters(
-            in: line.range,
-            with: NSAttributedString(string: cleanText, attributes: attrs))
+          // Toggle off — preserve inline attrs (links, bold, etc.), reset block-level attrs only
+          let markerLen = displayMarkerUTF16Length(in: line.text, listType: targetType)
+          let contentLoc = line.range.location + markerLen
+          let contentLen = max(0, line.range.length - markerLen)
+          let content: NSMutableAttributedString =
+            contentLen > 0
+            ? NSMutableAttributedString(
+              attributedString: textStorage.attributedSubstring(
+                from: NSRange(location: contentLoc, length: contentLen)))
+            : NSMutableAttributedString()
+          let bodyRange = NSRange(location: 0, length: content.length)
+          content.addAttribute(
+            .paragraphStyle,
+            value: MarkdownEditorFormatter.bodyParagraphStyle(for: appearanceSettings),
+            range: bodyRange)
+          content.removeAttribute(.markdownListType, range: bodyRange)
+          content.removeAttribute(.markdownIndentLevel, range: bodyRange)
+          textStorage.replaceCharacters(in: line.range, with: content)
         } else {
-          // Apply — strip any existing list prefix, then add the new one
-          let cleanText =
-            currentType != nil
-            ? stripDisplayListPrefix(line.text, listType: currentType!) : line.text
+          // Apply — strip any existing display marker, preserve inline attrs, add the new prefix
+          let existingMarkerLen =
+            currentType.map { displayMarkerUTF16Length(in: line.text, listType: $0) } ?? 0
+          let contentLoc = line.range.location + existingMarkerLen
+          let contentLen = max(0, line.range.length - existingMarkerLen)
+          let existingContent: NSAttributedString =
+            contentLen > 0
+            ? textStorage.attributedSubstring(
+              from: NSRange(location: contentLoc, length: contentLen))
+            : NSAttributedString()
+
           let listStyle = MarkdownEditorFormatter.listParagraphStyle(
             for: appearanceSettings, indentLevel: indentLevel)
 
@@ -697,23 +733,21 @@ import AppKit
                 checked: checked,
                 appearance: appearanceSettings
               ))
-            result.append(
-              NSAttributedString(
-                string: " \(cleanText)",
-                attributes: [
-                  .font: appearanceSettings.bodyFont,
-                  .foregroundColor: NSColor.labelColor,
-                  .paragraphStyle: MarkdownEditorFormatter.bodyParagraphStyle(
-                    for: appearanceSettings),
-                ]))
-            let fullRange = NSRange(location: 0, length: result.length)
+            // Space separator between attachment and content
+            result.append(NSAttributedString(
+              string: " ",
+              attributes: [
+                .font: appearanceSettings.bodyFont,
+                .foregroundColor: NSColor.labelColor,
+              ]))
+            result.append(existingContent)
             result.addAttributes(
               [
                 .markdownListType: targetType.rawValue,
                 .paragraphStyle: listStyle,
                 .markdownIndentLevel: indentLevel,
               ],
-              range: fullRange
+              range: NSRange(location: 0, length: result.length)
             )
           } else {
             let marker: String
@@ -723,9 +757,9 @@ import AppKit
             default: marker = ""
             }
 
-            let newText = marker + cleanText
+            // Build styled marker, then append the preserved attributed content
             result = NSMutableAttributedString(
-              string: newText,
+              string: marker,
               attributes: [
                 .font: appearanceSettings.bodyFont,
                 .foregroundColor: NSColor.labelColor,
@@ -733,8 +767,20 @@ import AppKit
                 .paragraphStyle: listStyle,
                 .markdownIndentLevel: indentLevel,
               ])
-
             styleListMarker(in: result, listType: targetType)
+            result.append(existingContent)
+            // Apply block-level attrs to the content portion
+            let contentPartRange = NSRange(
+              location: marker.utf16.count, length: existingContent.length)
+            if contentPartRange.length > 0 {
+              result.addAttributes(
+                [
+                  .markdownListType: targetType.rawValue,
+                  .paragraphStyle: listStyle,
+                  .markdownIndentLevel: indentLevel,
+                ],
+                range: contentPartRange)
+            }
           }
 
           textStorage.replaceCharacters(in: line.range, with: result)
@@ -818,6 +864,32 @@ import AppKit
     textStorage.addAttribute(
       .paragraphStyle, value: MarkdownEditorFormatter.bodyParagraphStyle(for: appearanceSettings),
       range: range)
+  }
+
+  // Returns the UTF-16 length of the visible list marker/prefix for a given line and list type.
+  // This mirrors how markers are constructed elsewhere:
+  // - Bullet: "• " (bullet marker + space) => length 2
+  // - Numbered: "<digits>. " (one or more digits, a dot, and a space)
+  // - Checkbox: attachment character (U+FFFC) + space => length 2
+  private func displayMarkerUTF16Length(in text: String, listType: MarkdownListType) -> Int {
+    switch listType {
+    case .bullet:
+      let marker = "\(MarkdownEditorFormatter.bulletMarker) "
+      return text.hasPrefix(marker) ? marker.utf16.count : 0
+
+    case .checkboxUnchecked, .checkboxChecked:
+      // Attachment character (U+FFFC) + space
+      let marker = "\(MarkdownEditorFormatter.attachmentChar) "
+      return text.hasPrefix(marker) ? marker.utf16.count : 0
+
+    case .numbered:
+      // Match one or more digits, a dot, and a following space at the start of the line
+      if let range = text.range(of: "^\\d+\\.\\s+", options: .regularExpression) {
+        let prefix = String(text[range])
+        return prefix.utf16.count
+      }
+      return 0
+    }
   }
 
   // Removes the display bullet/checkbox/number prefix from a line.
