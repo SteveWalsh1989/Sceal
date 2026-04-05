@@ -16,7 +16,7 @@ struct DayNote: Identifiable, Equatable, Sendable {
   var tags: [String]
   var body: String
 
-  init(date: Date, title: String, tags: [String], body: String) {
+  nonisolated init(date: Date, title: String, tags: [String], body: String) {
     self.date = date
     self.id = NoteDateFormatters.storageDate.string(from: date)
     self.title = title
@@ -24,7 +24,7 @@ struct DayNote: Identifiable, Equatable, Sendable {
     self.body = body
   }
 
-  init(date: Date, id: ID, title: String, tags: [String], body: String) {
+  nonisolated init(date: Date, id: ID, title: String, tags: [String], body: String) {
     self.date = date
     self.id = id
     self.title = title
@@ -33,7 +33,7 @@ struct DayNote: Identifiable, Equatable, Sendable {
   }
 
   // Markdown filename derived from the date-based ID.
-  var fileName: String {
+  nonisolated var fileName: String {
     "\(id).md"
   }
 

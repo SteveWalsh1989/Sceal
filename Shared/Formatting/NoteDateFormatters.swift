@@ -8,7 +8,7 @@
 import Foundation
 
 enum NoteDateFormatters {
-  static let storageDate: DateFormatter = {
+  nonisolated static let storageDate: DateFormatter = {
     let formatter = DateFormatter()
     formatter.calendar = Calendar(identifier: .gregorian)
     formatter.locale = Locale(identifier: "en_US_POSIX")

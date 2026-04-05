@@ -9,14 +9,14 @@ import Foundation
 // Imports notes from an unzipped Scéal export folder using the native markdown format.
 enum ScealArchiveImporter {
 
-  struct ImportResult {
+  struct ImportResult: Sendable {
     let imported: [DayNote]
     let skipped: Int
     let failed: Int
   }
 
   // Walks a Scéal export folder for .md files, decodes via front matter, and skips existing dates.
-  static func importNotes(
+  nonisolated static func importNotes(
     from folderURL: URL,
     existingNoteIDs: Set<DayNote.ID>
   ) throws -> ImportResult {
@@ -51,7 +51,7 @@ enum ScealArchiveImporter {
   }
 
   // Recursively collects all .md files from a directory, supporting both flat and year-subfolder layouts.
-  private static func collectMarkdownFiles(
+  nonisolated private static func collectMarkdownFiles(
     in directoryURL: URL,
     fileManager: FileManager
   ) -> [URL] {

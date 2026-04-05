@@ -13,6 +13,7 @@ extension NotesStore {
 
   // Opens a folder picker and imports notes from an unzipped Diarly export.
   func importFromDiarly() {
+    let cal = calendar
     importFromFolder(
       panelTitle: "Select Diarly Export Folder",
       panelMessage: "Choose the unzipped Diarly export folder (e.g. Export)",
@@ -22,7 +23,7 @@ extension NotesStore {
       let result = try DiarlyImporter.importNotes(
         from: folderURL,
         existingNoteIDs: existingIDs,
-        calendar: calendar
+        calendar: cal
       )
 
       return ImportOutcome(
@@ -55,9 +56,12 @@ extension NotesStore {
 
     guard panel.runModal() == .OK, let saveURL = panel.url else { return }
 
+    isPerformingFileOperation = true
+    progressMessage = "Exporting…"
+
     let fm = fileManager
     let noteCount = filtered.count
-    Task { [weak self] in
+    Task.detached { [weak self] in
       do {
         let zipURL = try ScealArchiveExporter.exportNotes(filtered)
 
@@ -68,9 +72,17 @@ extension NotesStore {
 
         ScealArchiveExporter.cleanUp(zipURL: zipURL)
 
-        self?.userMessage = (text: "Exported \(noteCount) notes.", kind: .info)
+        await MainActor.run { [weak self] in
+          self?.userMessage = (text: "Exported \(noteCount) notes.", kind: .info)
+          self?.isPerformingFileOperation = false
+          self?.progressMessage = nil
+        }
       } catch {
-        self?.report(error, context: "Exporting notes failed")
+        await MainActor.run { [weak self] in
+          self?.report(error, context: "Exporting notes failed")
+          self?.isPerformingFileOperation = false
+          self?.progressMessage = nil
+        }
       }
     }
   }
@@ -97,7 +109,7 @@ extension NotesStore {
   }
 
   // Shared import payload used by both Diarly and Scéal folder import flows.
-  private struct ImportOutcome {
+  private struct ImportOutcome: Sendable {
     let imported: [DayNote]
     let skipped: Int
     let extraDetail: String?
@@ -109,7 +121,7 @@ extension NotesStore {
     panelMessage: String,
     context: String,
     emptyMessage: String,
-    importBlock: (_ folderURL: URL, _ existingNoteIDs: Set<DayNote.ID>) throws -> ImportOutcome
+    importBlock: @Sendable @escaping (_ folderURL: URL, _ existingNoteIDs: Set<DayNote.ID>) throws -> ImportOutcome
   ) {
     guard let folderURL = selectImportFolder(title: panelTitle, message: panelMessage) else {
       return
@@ -117,12 +129,62 @@ extension NotesStore {
 
     let existingIDs = Set(notes.map(\.id))
 
+    // Resolve notes directory on main actor and start background work.
+    let notesDir: URL
     do {
-      let outcome = try importBlock(folderURL, existingIDs)
-      try persistImportedNotes(outcome.imported)
-      showImportMessage(outcome, emptyMessage: emptyMessage)
+      notesDir = try notesDirectoryURL()
     } catch {
       report(error, context: context)
+      return
+    }
+
+    isPerformingFileOperation = true
+    progressMessage = "Importing…"
+
+    Task.detached { [weak self] in
+      do {
+        // Step 1: Parse on a background thread.
+        let outcome = try importBlock(folderURL, existingIDs)
+
+        // If nothing to import, finish early on main.
+        if outcome.imported.isEmpty {
+          await MainActor.run { [weak self] in
+            self?.showImportMessage(outcome, emptyMessage: emptyMessage)
+            self?.isPerformingFileOperation = false
+            self?.progressMessage = nil
+          }
+          return
+        }
+
+        // Step 2: Write imported notes to disk off the main thread.
+        for (idx, note) in outcome.imported.enumerated() {
+          let fileURL = notesDir.appendingPathComponent(note.fileName)
+          let contents = try MarkdownNoteCodec.encode(note)
+          try contents.write(to: fileURL, atomically: true, encoding: .utf8)
+
+          if idx % 10 == 0 || idx == outcome.imported.count - 1 {
+            await MainActor.run { [weak self] in
+              self?.progressMessage = "Saving \(idx + 1)/\(outcome.imported.count)…"
+            }
+          }
+        }
+
+        // Step 3: Update in-memory state and notify the user on the main actor.
+        await MainActor.run { [weak self] in
+          guard let self else { return }
+          self.notes = (self.notes + outcome.imported).sorted(by: { $0.date > $1.date })
+          self.rebuildNoteIndex()
+          self.showImportMessage(outcome, emptyMessage: emptyMessage)
+          self.isPerformingFileOperation = false
+          self.progressMessage = nil
+        }
+      } catch {
+        await MainActor.run { [weak self] in
+          self?.report(error, context: context)
+          self?.isPerformingFileOperation = false
+          self?.progressMessage = nil
+        }
+      }
     }
   }
 
@@ -176,3 +238,4 @@ extension NotesStore {
     selectedNoteID = outcome.imported.first?.id
   }
 }
+

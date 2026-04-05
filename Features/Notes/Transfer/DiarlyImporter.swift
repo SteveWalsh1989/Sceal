@@ -10,16 +10,16 @@ import OSLog
 
 // Parses an unzipped Diarly export folder into DayNote objects.
 enum DiarlyImporter {
-  private static let logger = Logger(subsystem: "com.sceal.app", category: "import")
+  nonisolated private static let logger = Logger(subsystem: "com.sceal.app", category: "import")
 
-  struct ImportResult {
+  struct ImportResult: Sendable {
     let imported: [DayNote]
     let skipped: Int
     let merged: Int
   }
 
   // Parsed entry before merging — multiple entries can share the same date.
-  private struct RawEntry {
+  private struct RawEntry: Sendable {
     let date: Date
     let noteID: DayNote.ID
     let title: String
@@ -28,7 +28,7 @@ enum DiarlyImporter {
 
   // Walks a Diarly export folder and returns parsed notes, skipping dates that already exist.
   // Same-day entries are merged into a single note separated by a horizontal rule.
-  static func importNotes(
+  nonisolated static func importNotes(
     from folderURL: URL,
     existingNoteIDs: Set<DayNote.ID>,
     calendar: Calendar = .current
@@ -112,7 +112,7 @@ enum DiarlyImporter {
   // MARK: - Parsing Helpers
 
   // Derives a date from a Diarly note path like `.../2026/03-27.md`.
-  private static func parseDate(from fileURL: URL, year: Int, calendar: Calendar) -> Date? {
+  nonisolated private static func parseDate(from fileURL: URL, year: Int, calendar: Calendar) -> Date? {
     let filename = fileURL.deletingPathExtension().lastPathComponent
     let parts = filename.split(separator: "-")
     guard parts.count == 2,
@@ -137,7 +137,7 @@ enum DiarlyImporter {
   }
 
   // Splits file contents into title (first line) and body (remaining content).
-  private static func extractTitleAndBody(from contents: String) -> (title: String, body: String) {
+  nonisolated private static func extractTitleAndBody(from contents: String) -> (title: String, body: String) {
     let lines = contents.split(separator: "\n", omittingEmptySubsequences: false)
 
     guard let firstLine = lines.first else {
@@ -165,13 +165,13 @@ enum DiarlyImporter {
   }
 
   // Checks if a file URL points to a directory.
-  private static func isDirectory(_ url: URL) -> Bool {
+  nonisolated private static func isDirectory(_ url: URL) -> Bool {
     var isDir: ObjCBool = false
     return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) && isDir.boolValue
   }
 
   // Checks if a folder name is a 4-digit year.
-  private static func isYearFolder(_ url: URL) -> Bool {
+  nonisolated private static func isYearFolder(_ url: URL) -> Bool {
     guard let year = Int(url.lastPathComponent) else { return false }
     return (2000...2100).contains(year)
   }

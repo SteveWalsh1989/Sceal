@@ -9,10 +9,10 @@ import OSLog
 
 // Exports notes to a year-organized zip archive using the native markdown format.
 enum ScealArchiveExporter {
-  private static let logger = Logger(subsystem: "com.sceal.app", category: "export")
+  nonisolated private static let logger = Logger(subsystem: "com.sceal.app", category: "export")
 
   // Writes the given notes into a temp directory and zips it, returning the zip URL.
-  static func exportNotes(_ notes: [DayNote]) throws -> URL {
+  nonisolated static func exportNotes(_ notes: [DayNote]) throws -> URL {
     guard !notes.isEmpty else {
       throw ScealArchiveExporterError.noNotesToExport
     }
@@ -50,13 +50,13 @@ enum ScealArchiveExporter {
   }
 
   // Removes the temp directory that contains the zip after the caller has moved it.
-  static func cleanUp(zipURL: URL) {
+  nonisolated static func cleanUp(zipURL: URL) {
     let parentDir = zipURL.deletingLastPathComponent()
     try? FileManager.default.removeItem(at: parentDir)
   }
 
   // Uses /usr/bin/ditto to create a zip — a macOS system binary, no external deps needed.
-  private static func createZip(from sourceDir: URL, to zipURL: URL) throws {
+  nonisolated private static func createZip(from sourceDir: URL, to zipURL: URL) throws {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
     process.arguments = ["-c", "-k", "--sequesterRsrc", sourceDir.path, zipURL.path]

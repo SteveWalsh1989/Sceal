@@ -9,11 +9,11 @@ import Foundation
 import OSLog
 
 enum MarkdownNoteCodec {
-  private static let logger = Logger(subsystem: "com.sceal.app", category: "persistence")
-  private static let frontMatterMarker = "---"
+  nonisolated private static let logger = Logger(subsystem: "com.sceal.app", category: "persistence")
+  nonisolated private static let frontMatterMarker = "---"
 
   // Serializes a note to markdown with a JSON front-matter header.
-  static func encode(_ note: DayNote) throws -> String {
+  nonisolated static func encode(_ note: DayNote) throws -> String {
     let titleValue = try jsonEncoded(note.title)
     let tagsValue = try jsonEncoded(note.tags)
 
@@ -28,7 +28,7 @@ enum MarkdownNoteCodec {
   }
 
   // Parses markdown file contents into a DayNote, extracting front matter.
-  static func decode(contents: String, sourceURL: URL) throws -> DayNote {
+  nonisolated static func decode(contents: String, sourceURL: URL) throws -> DayNote {
     let contents = contents.replacingOccurrences(of: "\r\n", with: "\n")
     let prefix = "\(frontMatterMarker)\n"
     guard contents.hasPrefix(prefix) else {
@@ -66,7 +66,7 @@ enum MarkdownNoteCodec {
   }
 
   // Extracts title and tags from the `---` delimited front-matter block.
-  private static func parseMetadataBlock(_ block: String, sourceURL: URL) throws -> [String: String]
+  nonisolated private static func parseMetadataBlock(_ block: String, sourceURL: URL) throws -> [String: String]
   {
     var metadata: [String: String] = [:]
 
@@ -85,7 +85,7 @@ enum MarkdownNoteCodec {
   }
 
   // JSON-encodes a value for safe embedding in front matter.
-  private static func jsonEncoded<T: Encodable>(_ value: T) throws -> String {
+  nonisolated private static func jsonEncoded<T: Encodable>(_ value: T) throws -> String {
     let data = try JSONEncoder().encode(value)
     guard let encodedString = String(data: data, encoding: .utf8) else {
       throw MarkdownNoteCodecError.encodingFailed
@@ -95,7 +95,7 @@ enum MarkdownNoteCodec {
   }
 
   // Decodes a JSON-encoded string from front matter.
-  private static func decodeJSONString(_ value: String?, sourceURL: URL) throws -> String {
+  nonisolated private static func decodeJSONString(_ value: String?, sourceURL: URL) throws -> String {
     guard let value else {
       throw MarkdownNoteCodecError.missingMetadata("title", sourceURL)
     }
@@ -105,7 +105,7 @@ enum MarkdownNoteCodec {
   }
 
   // Decodes a JSON-encoded string array of tags from front matter.
-  private static func decodeJSONTags(_ value: String?, sourceURL: URL) throws -> [String] {
+  nonisolated private static func decodeJSONTags(_ value: String?, sourceURL: URL) throws -> [String] {
     guard let value else {
       throw MarkdownNoteCodecError.missingMetadata("tags", sourceURL)
     }

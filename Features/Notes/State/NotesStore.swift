@@ -53,6 +53,8 @@ final class NotesStore: ObservableObject {
   @Published var isSearchBarExpanded = false
   @Published private(set) var isLoading = false
   @Published var userMessage: (text: String, kind: UserMessageKind)?
+  @Published var isPerformingFileOperation = false
+  @Published var progressMessage: String?
 
   let fileManager: FileManager
   let calendar: Calendar
@@ -536,7 +538,7 @@ final class NotesStore: ObservableObject {
   }
 
   // Returns the notes directory, creating it if needed.
-  private func notesDirectoryURL() throws -> URL {
+  func notesDirectoryURL() throws -> URL {
     let appSupportURL = try fileManager.url(
       for: .applicationSupportDirectory,
       in: .userDomainMask,
@@ -597,3 +599,4 @@ final class NotesStore: ObservableObject {
     userMessage = (text: "\(context). \(message)", kind: .error)
   }
 }
+

@@ -70,6 +70,27 @@ struct AppRootView: View {
         .padding(.top, 12)
       }
     }
+    .overlay(alignment: .center) {
+      if store.isPerformingFileOperation {
+        ZStack {
+          Color.black.opacity(0.25)
+            .ignoresSafeArea()
+          VStack(spacing: 12) {
+            ProgressView(store.progressMessage ?? "Working…")
+              .progressViewStyle(.circular)
+              .controlSize(.large)
+            if let msg = store.progressMessage {
+              Text(msg)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            }
+          }
+          .padding(20)
+          .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+          .shadow(radius: 16)
+        }
+      }
+    }
   }
 
   // Keeps delete confirmation shared between header settings and sidebar actions.
