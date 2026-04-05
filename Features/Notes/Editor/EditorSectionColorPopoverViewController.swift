@@ -37,7 +37,7 @@ import AppKit
   required init?(coder: NSCoder) { fatalError() }
 
   override func loadView() {
-    let container = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 240))
+    let container = NSView(frame: NSRect(x: 0, y: 0, width: 264, height: 240))
 
     var y: CGFloat = 220
 
@@ -184,3 +184,4 @@ import AppKit
     view.frame = frame
   }
 }
+

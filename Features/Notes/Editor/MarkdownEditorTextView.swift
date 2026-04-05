@@ -563,7 +563,7 @@ final class MarkdownEditorTextView: NSTextView {
 
     let currentHeading = attrs[.markdownSectionHeadingColor] as? String
     let currentBullet = attrs[.markdownSectionBulletColor] as? String
-    let currentUseSC = attrs[.markdownSectionUseSectionColor] as? Bool ?? false
+    let currentUseSC = attrs[.markdownSectionUseSectionColor] as? Bool ?? true
 
     let popover = NSPopover()
     popover.behavior = .transient
@@ -722,3 +722,4 @@ final class MarkdownEditorTextView: NSTextView {
     setNeedsDisplay(bounds)
   }
 }
+
