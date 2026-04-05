@@ -335,9 +335,16 @@ final class NotesStore: ObservableObject {
     )
 
     let loadedNotes =
-      try fileURLs
+      fileURLs
       .filter { $0.pathExtension == "md" }
-      .map(loadNote)
+      .compactMap { url -> DayNote? in
+        do {
+          return try loadNote(from: url)
+        } catch {
+          Self.logger.error("Skipping corrupt note \(url.lastPathComponent): \(error.localizedDescription)")
+          return nil
+        }
+      }
       .sorted(by: { $0.date > $1.date })
 
     if loadedNotes.isEmpty {
