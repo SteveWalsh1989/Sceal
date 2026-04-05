@@ -52,6 +52,7 @@ struct MarkdownEditorView: NSViewRepresentable {
       MarkdownEditorFormatter.formatForDisplay(text, appearance: appearanceSettings),
       to: textView
     )
+    context.coordinator.syncTypingAttributesToCurrentSelection(in: textView)
     context.coordinator.lastPushedMarkdown = text
     context.coordinator.lastAppliedAppearance = appearanceSettings
     context.coordinator.lastNoteID = noteID
@@ -59,7 +60,9 @@ struct MarkdownEditorView: NSViewRepresentable {
     context.coordinator.lastDividerCount = (textView as MarkdownEditorTextView).sectionDividerCount
     context.coordinator.toolbar.appearanceSettings = appearanceSettings
 
-    Self.applySearchHighlights(to: textView, query: searchText.trimmingCharacters(in: .whitespacesAndNewlines), accentColor: appearanceSettings.accentColor)
+    Self.applySearchHighlights(
+      to: textView, query: searchText.trimmingCharacters(in: .whitespacesAndNewlines),
+      accentColor: appearanceSettings.accentColor)
     Self.applyBottomOverscroll(to: textView, in: scrollView)
 
     return scrollView
@@ -116,6 +119,7 @@ struct MarkdownEditorView: NSViewRepresentable {
       textView.setSelectedRange(
         clampedRange(selectedRange, maxLength: textView.string.utf16.count)
       )
+      context.coordinator.syncTypingAttributesToCurrentSelection(in: textView)
 
       if noteChanged {
         scrollView.contentView.scroll(to: .zero)
@@ -133,7 +137,9 @@ struct MarkdownEditorView: NSViewRepresentable {
     }
 
     context.coordinator.lastSearchText = searchText
-    Self.applySearchHighlights(to: textView, query: searchText.trimmingCharacters(in: .whitespacesAndNewlines), accentColor: appearanceSettings.accentColor)
+    Self.applySearchHighlights(
+      to: textView, query: searchText.trimmingCharacters(in: .whitespacesAndNewlines),
+      accentColor: appearanceSettings.accentColor)
   }
 
   private func configure(_ textView: NSTextView, coordinator: Coordinator) {
@@ -157,8 +163,6 @@ struct MarkdownEditorView: NSViewRepresentable {
       .foregroundColor: NSColor.linkColor,
       .cursor: NSCursor.pointingHand,
     ]
-    textView.typingAttributes = MarkdownEditorFormatter.baseTypingAttributes(
-      for: appearanceSettings)
     textView.delegate = coordinator
     textView.textContainer?.widthTracksTextView = true
     textView.textContainer?.heightTracksTextView = false
@@ -215,7 +219,8 @@ struct MarkdownEditorView: NSViewRepresentable {
   // which are visual-only and do not touch the text storage or trigger the text delegate.
   static func applySearchHighlights(to textView: NSTextView, query: String, accentColor: NSColor) {
     guard let tlm = textView.textLayoutManager,
-          let tcs = tlm.textContentManager as? NSTextContentStorage else { return }
+      let tcs = tlm.textContentManager as? NSTextContentStorage
+    else { return }
 
     tlm.removeRenderingAttribute(.backgroundColor, for: tlm.documentRange)
 
@@ -230,11 +235,14 @@ struct MarkdownEditorView: NSViewRepresentable {
     var searchStart = string.startIndex
 
     while searchStart < string.endIndex,
-          let matchRange = string.range(of: query, options: .caseInsensitive, range: searchStart..<string.endIndex) {
+      let matchRange = string.range(
+        of: query, options: .caseInsensitive, range: searchStart..<string.endIndex)
+    {
       let nsRange = NSRange(matchRange, in: string)
       if let startLoc = tcs.location(docBase, offsetBy: nsRange.location),
-         let endLoc = tcs.location(startLoc, offsetBy: nsRange.length),
-         let textRange = NSTextRange(location: startLoc, end: endLoc) {
+        let endLoc = tcs.location(startLoc, offsetBy: nsRange.length),
+        let textRange = NSTextRange(location: startLoc, end: endLoc)
+      {
         tlm.addRenderingAttribute(.backgroundColor, value: highlightColor, for: textRange)
       }
       searchStart = matchRange.upperBound
@@ -275,6 +283,8 @@ extension MarkdownEditorView {
     let slashPopup = EditorSlashCommandPopup()
     private var slashTriggerLocation: Int?
     private var pendingEditContext: PendingEditContext?
+    private var pendingSlashHeadingLineLocation: Int?
+    private var pendingSlashHeadingTypingAttributes: [NSAttributedString.Key: Any]?
     private var isApplyingSlashCommand = false
     private var pendingMarkdownTask: Task<Void, Never>?
 
@@ -286,10 +296,31 @@ extension MarkdownEditorView {
 
     // Captures the pending edit context before AppKit applies the change.
     func textView(
-      _: NSTextView,
+      _ textView: NSTextView,
       shouldChangeTextIn affectedCharRange: NSRange,
       replacementString: String?
     ) -> Bool {
+      if let pendingSlashHeadingLineLocation,
+        let pendingSlashHeadingTypingAttributes
+      {
+        let pendingLineStart = lineStartLocation(
+          for: pendingSlashHeadingLineLocation,
+          in: textView.textStorage
+        )
+        let currentLineStart = lineStartLocation(
+          for: affectedCharRange.location,
+          in: textView.textStorage
+        )
+        if currentLineStart == pendingLineStart {
+          textView.typingAttributes = pendingSlashHeadingTypingAttributes
+          if let replacementString, !replacementString.isEmpty {
+            clearPendingSlashHeadingOverride()
+          }
+        } else {
+          clearPendingSlashHeadingOverride()
+        }
+      }
+
       pendingEditContext = PendingEditContext(
         range: affectedCharRange,
         replacementString: replacementString
@@ -396,6 +427,14 @@ extension MarkdownEditorView {
       guard pendingMarkdownTask != nil else { return }
       pendingMarkdownTask?.cancel()
       executePushMarkdown(from: textStorage)
+    }
+
+    // Re-applies insertion typing attributes to the active caret.
+    func syncTypingAttributesToCurrentSelection(in textView: NSTextView) {
+      guard textView.selectedRange().length == 0, let textStorage = textView.textStorage else {
+        return
+      }
+      syncTypingAttributesToInsertionPoint(in: textView, textStorage: textStorage)
     }
 
     // Handles Enter, Tab, Backspace, and slash popup navigation.
@@ -532,7 +571,10 @@ extension MarkdownEditorView {
             return NSRange(location: lineRange.location, length: 0)
           }
           if handled {
-            textView.typingAttributes = headingTypingAttributes(level: level)
+            let headingAttributes = headingTypingAttributes(level: level)
+            textView.typingAttributes = headingAttributes
+            pendingSlashHeadingLineLocation = lineRange.location
+            pendingSlashHeadingTypingAttributes = headingAttributes
           }
           return handled
 
@@ -1208,6 +1250,24 @@ extension MarkdownEditorView {
       in textView: NSTextView,
       textStorage: NSTextStorage
     ) {
+      if let pendingSlashHeadingLineLocation,
+        let pendingSlashHeadingTypingAttributes
+      {
+        let pendingLineStart = lineStartLocation(
+          for: pendingSlashHeadingLineLocation,
+          in: textStorage
+        )
+        let currentLineStart = lineStartLocation(
+          for: textView.selectedRange().location,
+          in: textStorage
+        )
+        if currentLineStart == pendingLineStart {
+          textView.typingAttributes = pendingSlashHeadingTypingAttributes
+          return
+        }
+        clearPendingSlashHeadingOverride()
+      }
+
       guard textStorage.length > 0 else {
         textView.typingAttributes = MarkdownEditorFormatter.baseTypingAttributes(
           for: parent.appearanceSettings)
@@ -1227,6 +1287,31 @@ extension MarkdownEditorView {
 
       textView.typingAttributes = MarkdownEditorFormatter.baseTypingAttributes(
         for: parent.appearanceSettings)
+    }
+
+    private func clearPendingSlashHeadingOverride() {
+      pendingSlashHeadingLineLocation = nil
+      pendingSlashHeadingTypingAttributes = nil
+    }
+
+    private func lineStartLocation(for location: Int, in textStorage: NSTextStorage?) -> Int {
+      guard let textStorage else { return 0 }
+      let nsString = textStorage.string as NSString
+      if nsString.length == 0 { return 0 }
+      let safeLocation = min(max(location, 0), nsString.length)
+
+      if safeLocation == nsString.length {
+        let previousCharacter = nsString.character(at: nsString.length - 1)
+        // Caret is on the trailing empty line after a newline.
+        if previousCharacter == 0x0A {
+          return safeLocation
+        }
+        return nsString.lineRange(
+          for: NSRange(location: nsString.length - 1, length: 0)
+        ).location
+      }
+
+      return nsString.lineRange(for: NSRange(location: safeLocation, length: 0)).location
     }
 
     // MARK: - Typing Attribute Helpers
