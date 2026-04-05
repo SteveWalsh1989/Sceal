@@ -69,6 +69,14 @@ struct MarkdownEditorView: NSViewRepresentable {
     guard !context.coordinator.isUpdating else { return }
     guard let textView = scrollView.documentView as? NSTextView else { return }
 
+    // Flush any pending debounced markdown push before switching notes so the
+    // old note's final content is committed while the parent binding is still correct.
+    if noteID != context.coordinator.lastNoteID,
+      let textStorage = textView.textStorage
+    {
+      context.coordinator.flushPendingMarkdownPushIfNeeded(from: textStorage)
+    }
+
     context.coordinator.parent = self
     configure(textView, coordinator: context.coordinator)
     context.coordinator.toolbar.appearanceSettings = appearanceSettings
@@ -268,6 +276,7 @@ extension MarkdownEditorView {
     private var slashTriggerLocation: Int?
     private var pendingEditContext: PendingEditContext?
     private var isApplyingSlashCommand = false
+    private var pendingMarkdownTask: Task<Void, Never>?
 
     init(parent: MarkdownEditorView) {
       self.parent = parent
@@ -323,7 +332,7 @@ extension MarkdownEditorView {
       }
     }
 
-    // Converts display text back to markdown and pushes to the SwiftUI binding.
+    // Formats the edited line immediately, then schedules the O(n) markdown conversion.
     func textDidChange(_ notification: Notification) {
       guard !isUpdating else { return }
       guard let textView = notification.object as? NSTextView,
@@ -334,10 +343,15 @@ extension MarkdownEditorView {
       if !isApplyingSlashCommand {
         autoformatEditedLinesIfNeeded(in: textView, textStorage: textStorage)
       }
-      let markdown = MarkdownEditorFormatter.convertToMarkdown(from: textStorage)
-      lastPushedMarkdown = markdown
-      parent.text = markdown
       isUpdating = false
+
+      // Slash command operations require immediate push — the binding must be current before
+      // the command handler returns. Regular typing is debounced for performance.
+      if isApplyingSlashCommand {
+        executePushMarkdown(from: textStorage)
+      } else {
+        scheduleMarkdownPush(from: textStorage)
+      }
 
       if let editorTextView = textView as? MarkdownEditorTextView {
         let dividerCount = editorTextView.sectionDividerCount
@@ -356,6 +370,32 @@ extension MarkdownEditorView {
       } else {
         checkSlashCommandTrigger(in: textView)
       }
+    }
+
+    // Debounces the full O(n) conversion so it runs once after a pause in typing.
+    private func scheduleMarkdownPush(from textStorage: NSTextStorage) {
+      pendingMarkdownTask?.cancel()
+      pendingMarkdownTask = Task { [weak self, weak textStorage] in
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        guard !Task.isCancelled, let self, let textStorage else { return }
+        self.executePushMarkdown(from: textStorage)
+      }
+    }
+
+    // Runs the conversion and pushes the result to the SwiftUI binding.
+    private func executePushMarkdown(from textStorage: NSTextStorage) {
+      pendingMarkdownTask = nil
+      let markdown = MarkdownEditorFormatter.convertToMarkdown(from: textStorage)
+      lastPushedMarkdown = markdown
+      parent.text = markdown
+    }
+
+    // Flushes any pending debounced push immediately. Must be called before the coordinator's
+    // parent is updated so the conversion still targets the old note's binding.
+    func flushPendingMarkdownPushIfNeeded(from textStorage: NSTextStorage) {
+      guard pendingMarkdownTask != nil else { return }
+      pendingMarkdownTask?.cancel()
+      executePushMarkdown(from: textStorage)
     }
 
     // Handles Enter, Tab, Backspace, and slash popup navigation.
@@ -392,6 +432,7 @@ extension MarkdownEditorView {
         let textStorage = textView.textStorage,
         handleSectionDividerBackspace(in: textView, textStorage: textStorage)
       {
+        flushPendingMarkdownPushIfNeeded(from: textStorage)
         return true
       }
 
@@ -475,6 +516,10 @@ extension MarkdownEditorView {
           }
 
           textView.typingAttributes = headingTypingAttributes(level: 1)
+          // Flush the debounced push so the binding reflects the divider insertion immediately.
+          if let textStorage = textView.textStorage {
+            flushPendingMarkdownPushIfNeeded(from: textStorage)
+          }
           return true
 
         case .heading(let level):
