@@ -323,13 +323,12 @@ extension MarkdownEditorFormatter {
       ])
   }
 
-  // Styles a code block line with monospace font and background.
+  // Styles a code block line with monospace font. Background is drawn full-width by MarkdownEditorTextView.
   static func styledCodeBlockLine(_ line: String) -> NSAttributedString {
     NSAttributedString(
       string: line,
       attributes: [
         .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
-        .backgroundColor: NSColor.quaternaryLabelColor,
         .foregroundColor: NSColor.labelColor,
         .markdownCodeBlock: true,
       ])

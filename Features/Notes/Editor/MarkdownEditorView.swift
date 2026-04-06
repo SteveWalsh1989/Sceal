@@ -601,6 +601,8 @@ extension MarkdownEditorView {
       // Normal newline with list continuation
       var continuedListType: MarkdownListType?
       var continuedBlockquote = false
+      let continuedCodeBlock = lineRange.length > 0
+        && textStorage.attribute(.markdownCodeBlock, at: lineRange.location, effectiveRange: nil) as? Bool == true
       let currentIndentLevel: Int = {
         guard lineRange.length > 0 else { return 0 }
         return textStorage.attribute(
@@ -684,7 +686,9 @@ extension MarkdownEditorView {
 
       _ = textView.editorNormalizeSelectionIfNeeded(prefer: .previous)
 
-      if continuedBlockquote, continuedListType == nil {
+      if continuedCodeBlock {
+        textView.typingAttributes = codeBlockTypingAttributes()
+      } else if continuedBlockquote, continuedListType == nil {
         textView.typingAttributes = [
           .font: parent.appearanceSettings.bodyFont,
           .foregroundColor: NSColor.secondaryLabelColor,

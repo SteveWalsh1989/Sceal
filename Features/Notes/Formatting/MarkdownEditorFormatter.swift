@@ -373,6 +373,13 @@ enum MarkdownEditorFormatter {
         return nil
       }
 
+      // Code block content and fence lines are pre-styled — skip reformatting
+      if attrs[.markdownCodeBlock] as? Bool == true
+        || attrs[.markdownCodeFence] as? Bool == true
+      {
+        return nil
+      }
+
       let alreadyFormatted =
         attrs[.markdownHeadingLevel] != nil || attrs[.markdownListType] != nil
         || attrs[.markdownBlockquote] as? Bool == true

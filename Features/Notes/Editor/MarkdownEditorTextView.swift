@@ -28,6 +28,10 @@ final class MarkdownEditorTextView: NSTextView {
   private let cardHInset: CGFloat = 0
   private let cardVPad: CGFloat = 10
 
+  // Code block background rendering constants.
+  private let codeBlockVPad: CGFloat = 4
+  private let codeBlockRadius: CGFloat = 6
+
   // Section icon rendering and hit testing constants.
   private let sectionIconSize: CGFloat = 18
   private let sectionIconPadding: CGFloat = 24
@@ -187,6 +191,7 @@ final class MarkdownEditorTextView: NSTextView {
 
     guard let layoutSnapshot = sectionLayoutSnapshot() else {
       drawSingleCard(in: rect)
+      drawCodeBlocks(in: rect, textStorage: textStorage)
       drawHorizontalRules(hrLineRanges, in: rect)
       return
     }
@@ -239,6 +244,7 @@ final class MarkdownEditorTextView: NSTextView {
         drawSectionIcon(in: iconRect, hovered: isHovered)
       }
     }
+    drawCodeBlocks(in: rect, textStorage: textStorage)
     drawHorizontalRules(hrLineRanges, in: rect)
   }
 
@@ -271,6 +277,75 @@ final class MarkdownEditorTextView: NSTextView {
       guard hrRect.intersects(rect) else { continue }
       hrRect.fill()
     }
+  }
+
+  // Draws full-width background rectangles behind fenced code blocks.
+  private func drawCodeBlocks(in rect: NSRect, textStorage: NSTextStorage) {
+    let ranges = codeBlockVisualRanges(in: textStorage)
+    guard !ranges.isEmpty else { return }
+
+    let nsString = textStorage.string as NSString
+    let codeBlockColor = isDarkAppearance
+      ? NSColor.black.withAlphaComponent(0.3)
+      : NSColor.black.withAlphaComponent(0.06)
+
+    for range in ranges {
+      guard range.length > 0 else { continue }
+
+      // Opening fence line rect — trim trailing newline for a tighter glyph rect.
+      var openFenceLine = nsString.lineRange(for: NSRange(location: range.location, length: 0))
+      if openFenceLine.length > 0,
+        nsString.character(at: openFenceLine.location + openFenceLine.length - 1) == 0x0A
+      {
+        openFenceLine.length -= 1
+      }
+
+      // Closing fence line rect — work backward from the end of the code block range.
+      let closeFenceLocation = max(NSMaxRange(range) - 1, range.location)
+      var closeFenceLine = nsString.lineRange(
+        for: NSRange(location: min(closeFenceLocation, max(nsString.length - 1, 0)), length: 0))
+      if closeFenceLine.length > 0,
+        nsString.character(at: closeFenceLine.location + closeFenceLine.length - 1) == 0x0A
+      {
+        closeFenceLine.length -= 1
+      }
+
+      guard openFenceLine.length > 0, closeFenceLine.length > 0 else { continue }
+      guard
+        let openRect = editorRectInViewCoordinates(forCharacterRange: openFenceLine),
+        let closeRect = editorRectInViewCoordinates(forCharacterRange: closeFenceLine)
+      else { continue }
+
+      let blockRect = NSRect(
+        x: 0,
+        y: openRect.minY - codeBlockVPad,
+        width: bounds.width,
+        height: closeRect.maxY - openRect.minY + codeBlockVPad * 2
+      )
+      guard blockRect.height > 0, blockRect.intersects(rect) else { continue }
+
+      codeBlockColor.setFill()
+      NSBezierPath(roundedRect: blockRect, xRadius: codeBlockRadius, yRadius: codeBlockRadius)
+        .fill()
+    }
+  }
+
+  // Returns the character ranges of each complete fenced code block (opening fence through closing fence).
+  private func codeBlockVisualRanges(in textStorage: NSTextStorage) -> [NSRange] {
+    let fullRange = NSRange(location: 0, length: textStorage.length)
+    var fenceRanges: [NSRange] = []
+    textStorage.enumerateAttribute(.markdownCodeFence, in: fullRange, options: []) { value, range, _ in
+      if value as? Bool == true { fenceRanges.append(range) }
+    }
+    var result: [NSRange] = []
+    var i = 0
+    while i + 1 < fenceRanges.count {
+      let opening = fenceRanges[i]
+      let closing = fenceRanges[i + 1]
+      result.append(NSRange(location: opening.location, length: NSMaxRange(closing) - opening.location))
+      i += 2
+    }
+    return result
   }
 
   // Draws the small palette icon — faint by default, full opacity on hover.
@@ -421,8 +496,61 @@ final class MarkdownEditorTextView: NSTextView {
     )
   }
 
-  // Pastes as plain text only, stripping any rich formatting.
+  // Custom pasteboard type for preserving markdown structure during app-internal copy/paste.
+  private static let markdownPasteboardType = NSPasteboard.PasteboardType("com.sceal.markdown-text")
+
+  // Returns the raw markdown for the current selection if it starts at a line boundary,
+  // nil otherwise — partial-line selections don't have reliable line structure.
+  private func markdownForCurrentSelection() -> String? {
+    let range = selectedRange()
+    guard range.length > 0, let textStorage else { return nil }
+    let nsString = textStorage.string as NSString
+    let lineRange = nsString.lineRange(for: NSRange(location: range.location, length: 0))
+    guard range.location == lineRange.location else { return nil }
+    let selected = textStorage.attributedSubstring(from: range)
+    return MarkdownEditorFormatter.convertToMarkdown(from: selected)
+  }
+
+  // Copies selection and also writes raw markdown to a custom pasteboard type.
+  override func copy(_ sender: Any?) {
+    super.copy(sender)
+    if let markdown = markdownForCurrentSelection() {
+      NSPasteboard.general.addTypes([Self.markdownPasteboardType], owner: nil)
+      NSPasteboard.general.setString(markdown, forType: Self.markdownPasteboardType)
+    }
+  }
+
+  // Cuts selection and appends the raw markdown to the pasteboard after super writes its types.
+  override func cut(_ sender: Any?) {
+    // Capture markdown before super.cut() deletes the selection.
+    let markdown = markdownForCurrentSelection()
+    super.cut(sender)
+    if let markdown {
+      NSPasteboard.general.addTypes([Self.markdownPasteboardType], owner: nil)
+      NSPasteboard.general.setString(markdown, forType: Self.markdownPasteboardType)
+    }
+  }
+
+  // Pastes with markdown formatting preserved when content was copied from this editor,
+  // otherwise falls back to plain text.
   override func paste(_ sender: Any?) {
+    if let markdown = NSPasteboard.general.string(forType: Self.markdownPasteboardType) {
+      let attributed = MarkdownEditorFormatter.formatForDisplay(
+        markdown, appearance: appearanceSettings)
+      let pasteRange = selectedRange()
+      performEditorEdit(
+        affectedRange: pasteRange,
+        replacementString: attributed.string,
+        actionName: "Paste"
+      ) { textStorage in
+        let safeLocation = min(pasteRange.location, textStorage.length)
+        let safeLength = min(pasteRange.length, max(textStorage.length - safeLocation, 0))
+        let safeRange = NSRange(location: safeLocation, length: safeLength)
+        textStorage.replaceCharacters(in: safeRange, with: attributed)
+        return NSRange(location: safeLocation + attributed.length, length: 0)
+      }
+      return
+    }
     guard let plainText = NSPasteboard.general.string(forType: .string) else { return }
     insertText(plainText, replacementRange: selectedRange())
   }
