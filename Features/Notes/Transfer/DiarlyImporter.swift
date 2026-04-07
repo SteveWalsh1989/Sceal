@@ -36,9 +36,12 @@ enum DiarlyImporter {
     let fileManager = FileManager.default
     var entries: [RawEntry] = []
     var skippedIDs = Set<DayNote.ID>()
+    var processedFiles = Set<String>()
 
-    // Scan for workspace directories (e.g. "work")
-    let workspaceURLs = try fileManager.contentsOfDirectory(
+    // Include the top-level folder itself so year directories are found
+    // when the selected folder has no intermediate workspace level.
+    var workspaceURLs = [folderURL]
+    workspaceURLs += try fileManager.contentsOfDirectory(
       at: folderURL,
       includingPropertiesForKeys: [.isDirectoryKey],
       options: [.skipsHiddenFiles]
@@ -62,6 +65,10 @@ enum DiarlyImporter {
         ).filter { $0.pathExtension == "md" }
 
         for noteFileURL in noteFiles {
+          let filePath = noteFileURL.standardizedFileURL.path
+          guard !processedFiles.contains(filePath) else { continue }
+          processedFiles.insert(filePath)
+
           guard let date = parseDate(from: noteFileURL, year: year, calendar: calendar) else {
             continue
           }

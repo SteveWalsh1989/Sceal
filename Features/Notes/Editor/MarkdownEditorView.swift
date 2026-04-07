@@ -1161,6 +1161,9 @@ extension MarkdownEditorView {
               checked: checked, color: bulletColor))
           textStorage.replaceCharacters(
             in: NSRange(location: trimmed.location, length: 1), with: newAttachment)
+          textStorage.addAttribute(
+            .markdownListType, value: listType.rawValue,
+            range: NSRange(location: trimmed.location, length: 1))
         case .numbered:
           break
         }

@@ -16,10 +16,17 @@ extension MarkdownEditorFormatter {
   static func buildDisplayLine(_ rawLine: String, appearance: NoteAppearanceSettings)
     -> NSAttributedString
   {
-    // Detect and strip leading whitespace for list indentation (2 spaces = 1 indent level)
-    let leadingSpaces = rawLine.prefix(while: { $0 == " " }).count
-    let indentLevel = min(leadingSpaces / 2, 3)
-    let trimmedLine = indentLevel > 0 ? String(rawLine.dropFirst(indentLevel * 2)) : rawLine
+    // Detect and strip leading whitespace for list indentation (2 spaces or 1 tab = 1 indent level)
+    let leadingWhitespace = rawLine.prefix(while: { $0 == " " || $0 == "\t" })
+    let indentLevel: Int = {
+      var level = 0
+      for ch in leadingWhitespace {
+        level += ch == "\t" ? 1 : 0
+      }
+      let spaceCount = leadingWhitespace.filter { $0 == " " }.count
+      return min(level + spaceCount / 2, 3)
+    }()
+    let trimmedLine = String(rawLine.dropFirst(leadingWhitespace.count))
 
     let baseAttrs: [NSAttributedString.Key: Any] = [
       .font: appearance.bodyFont,
@@ -96,7 +103,7 @@ extension MarkdownEditorFormatter {
     }
 
     // Bullet list
-    if let prefixMatch = trimmedLine.range(of: #"^(?:-|•)\s+"#, options: .regularExpression) {
+    if let prefixMatch = trimmedLine.range(of: #"^(?:-|\*|\+|•)\s+"#, options: .regularExpression) {
       let content = String(trimmedLine[prefixMatch.upperBound...])
       let displayText = "\(bulletMarker) \(content)"
       let result = NSMutableAttributedString(string: displayText, attributes: baseAttrs)
@@ -451,6 +458,9 @@ extension MarkdownEditorFormatter {
         attachment: checkboxAttachment(checked: checked, color: color))
       let mutable = NSMutableAttributedString(attributedString: displayLine)
       mutable.replaceCharacters(in: NSRange(location: 0, length: 1), with: newAttachment)
+      mutable.addAttribute(
+        .markdownListType, value: listType.rawValue,
+        range: NSRange(location: 0, length: 1))
       return mutable
 
     case .numbered:

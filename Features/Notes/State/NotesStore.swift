@@ -257,6 +257,43 @@ final class NotesStore: ObservableObject {
     userDefaults.set(value.rawValue, forKey: Self.newNoteDefaultKey)
   }
 
+  // Moves a note to a new date by re-creating it with the target date's ID and file.
+  func changeDate(noteID: DayNote.ID, to newDate: Date) {
+    let targetDate = calendar.startOfDay(for: newDate)
+    let targetID = dayID(for: targetDate)
+
+    guard let sourceNote = note(withID: noteID) else { return }
+
+    if note(withID: targetID) != nil {
+      let formatted = NoteDateFormatters.editorDate.string(from: targetDate)
+      userMessage = (text: "A note already exists for \(formatted).", kind: .error)
+      return
+    }
+
+    flushPendingSave(for: noteID)
+
+    let movedNote = DayNote(
+      date: targetDate,
+      title: sourceNote.title,
+      tags: sourceNote.tags,
+      body: sourceNote.body
+    )
+
+    do {
+      try save(movedNote)
+      try deleteFile(for: sourceNote)
+    } catch {
+      report(error, context: "Changing note date failed")
+      return
+    }
+
+    notes.removeAll(where: { $0.id == noteID })
+    notes.append(movedNote)
+    notes.sort(by: { $0.date > $1.date })
+    rebuildNoteIndex()
+    selectedNoteID = movedNote.id
+  }
+
   // Deletes the requested note so shared UI flows can confirm destructive actions centrally.
   func delete(noteID: DayNote.ID) {
     guard let note = note(withID: noteID) else {

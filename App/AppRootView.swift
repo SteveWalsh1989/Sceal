@@ -10,12 +10,15 @@ import SwiftUI
 struct AppRootView: View {
   @ObservedObject var store: NotesStore
   @State private var notePendingDeletionID: DayNote.ID?
+  @State private var notePendingDateChangeID: DayNote.ID?
   @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
 
   var body: some View {
     NavigationSplitView(columnVisibility: $columnVisibility) {
       NotesSidebarView(store: store) { noteID in
         notePendingDeletionID = noteID
+      } requestChangeDate: { noteID in
+        notePendingDateChangeID = noteID
       }
       .navigationSplitViewColumnWidth(min: 240, ideal: 290, max: 360)
     } detail: {
@@ -62,6 +65,18 @@ struct AppRootView: View {
     } message: {
       Text("This cannot be undone.")
     }
+    .sheet(item: notePendingDateChangeBinding) { wrapper in
+      ChangeDateSheet(
+        currentDate: wrapper.date,
+        onConfirm: { newDate in
+          store.changeDate(noteID: wrapper.id, to: newDate)
+          notePendingDateChangeID = nil
+        },
+        onCancel: {
+          notePendingDateChangeID = nil
+        }
+      )
+    }
     .overlay(alignment: .top) {
       if let message = store.userMessage {
         ErrorBanner(message: message.text, kind: message.kind) {
@@ -105,9 +120,73 @@ struct AppRootView: View {
     )
   }
 
+  private var notePendingDateChangeBinding: Binding<DateChangeContext?> {
+    Binding(
+      get: {
+        guard let noteID = notePendingDateChangeID,
+              let note = store.note(withID: noteID)
+        else { return nil }
+        return DateChangeContext(id: noteID, date: note.date)
+      },
+      set: { value in
+        if value == nil {
+          notePendingDateChangeID = nil
+        }
+      }
+    )
+  }
+
   // Resolves the editor background from the active theme.
   private var editorBackgroundColor: Color {
     store.appearanceSettings.resolvedColors.editorBackground.color
+  }
+}
+
+private struct DateChangeContext: Identifiable {
+  let id: DayNote.ID
+  let date: Date
+}
+
+private struct ChangeDateSheet: View {
+  let currentDate: Date
+  let onConfirm: (Date) -> Void
+  let onCancel: () -> Void
+
+  @State private var selectedDate: Date
+
+  init(currentDate: Date, onConfirm: @escaping (Date) -> Void, onCancel: @escaping () -> Void) {
+    self.currentDate = currentDate
+    self.onConfirm = onConfirm
+    self.onCancel = onCancel
+    self._selectedDate = State(initialValue: currentDate)
+  }
+
+  var body: some View {
+    VStack(spacing: 20) {
+      Text("Change date")
+        .font(.headline)
+
+      DatePicker(
+        "New date",
+        selection: $selectedDate,
+        displayedComponents: .date
+      )
+      .datePickerStyle(.graphical)
+      .labelsHidden()
+
+      HStack(spacing: 12) {
+        Button("Cancel", role: .cancel, action: onCancel)
+          .keyboardShortcut(.cancelAction)
+
+        Button("Confirm") {
+          onConfirm(selectedDate)
+        }
+        .keyboardShortcut(.defaultAction)
+        .disabled(Calendar.current.isDate(selectedDate, inSameDayAs: currentDate))
+      }
+    }
+    .padding(20)
+    .frame(width: 300)
   }
 }
 

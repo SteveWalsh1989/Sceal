@@ -552,7 +552,20 @@ final class MarkdownEditorTextView: NSTextView {
       return
     }
     guard let plainText = NSPasteboard.general.string(forType: .string) else { return }
-    insertText(plainText, replacementRange: selectedRange())
+    let attributed = MarkdownEditorFormatter.formatForDisplay(
+      plainText, appearance: appearanceSettings)
+    let pasteRange = selectedRange()
+    performEditorEdit(
+      affectedRange: pasteRange,
+      replacementString: attributed.string,
+      actionName: "Paste"
+    ) { textStorage in
+      let safeLocation = min(pasteRange.location, textStorage.length)
+      let safeLength = min(pasteRange.length, max(textStorage.length - safeLocation, 0))
+      let safeRange = NSRange(location: safeLocation, length: safeLength)
+      textStorage.replaceCharacters(in: safeRange, with: attributed)
+      return NSRange(location: safeLocation + attributed.length, length: 0)
+    }
   }
 
   // MARK: - Keyboard Shortcuts
@@ -818,6 +831,9 @@ final class MarkdownEditorTextView: NSTextView {
             attachment: MarkdownEditorFormatter.checkboxAttachment(checked: checked, color: color))
           textStorage.replaceCharacters(
             in: NSRange(location: trimmed.location, length: 1), with: newAttachment)
+          textStorage.addAttribute(
+            .markdownListType, value: rawType,
+            range: NSRange(location: trimmed.location, length: 1))
         case .numbered:
           break
         }
@@ -839,6 +855,9 @@ final class MarkdownEditorTextView: NSTextView {
               checked: checked, appearance: appearanceSettings))
           textStorage.replaceCharacters(
             in: NSRange(location: trimmed.location, length: 1), with: newAttachment)
+          textStorage.addAttribute(
+            .markdownListType, value: rawType,
+            range: NSRange(location: trimmed.location, length: 1))
         case .numbered:
           break
         }

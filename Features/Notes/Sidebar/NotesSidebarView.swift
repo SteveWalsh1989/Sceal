@@ -10,6 +10,7 @@ import SwiftUI
 struct NotesSidebarView: View {
   @ObservedObject var store: NotesStore
   let requestDelete: (DayNote.ID) -> Void
+  let requestChangeDate: (DayNote.ID) -> Void
 
   var body: some View {
     let monthSections = store.monthSections
@@ -61,6 +62,12 @@ struct NotesSidebarView: View {
                   }
                   .buttonStyle(.plain)
                   .contextMenu {
+                    Button {
+                      requestChangeDate(note.id)
+                    } label: {
+                      Label("Change date…", systemImage: "calendar")
+                    }
+
                     Button(role: .destructive) {
                       requestDelete(note.id)
                     } label: {
