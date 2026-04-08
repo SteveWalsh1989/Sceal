@@ -141,7 +141,15 @@ extension NotesStore {
     isPerformingFileOperation = true
     progressMessage = "Importing…"
 
+    // Explicitly acquire security-scoped access so the detached task can
+    // read the user-selected folder inside the App Sandbox.
+    let didStartAccessing = folderURL.startAccessingSecurityScopedResource()
+
     Task.detached { [weak self] in
+      defer {
+        if didStartAccessing { folderURL.stopAccessingSecurityScopedResource() }
+      }
+
       do {
         // Step 1: Parse on a background thread.
         let outcome = try importBlock(folderURL, existingIDs)
