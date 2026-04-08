@@ -13,89 +13,119 @@ struct NotesSidebarView: View {
   let requestChangeDate: (DayNote.ID) -> Void
 
   var body: some View {
-    let monthSections = store.monthSections
-
     VStack(alignment: .leading, spacing: 12) {
       Group {
-        if monthSections.isEmpty, store.isSearchActive {
-          VStack {
-            Spacer()
-            Text("No matching notes")
-              .font(.subheadline.weight(.medium))
-              .foregroundStyle(.secondary)
-            Spacer()
-          }
-          .frame(maxWidth: .infinity)
-        } else if monthSections.isEmpty {
-          SidebarEmptyStateView {
-            store.selectToday()
-          }
-        } else {
-          ScrollView {
-            LazyVStack(alignment: .leading, spacing: 10) {
-              if !store.hasTodayNote, !store.isSearchActive {
-                AddTodayButton(accentColor: sidebarAccentColor) {
-                  store.selectToday()
-                }
-              }
-
-              ForEach(monthSections) { section in
-                MonthDividerView(
-                  title: section.title,
-                  accentColor: sidebarAccentColor,
-                  dividerColor: themeColors.divider.color
-                )
-
-                ForEach(section.notes) { note in
-                  Button {
-                    store.select(noteID: note.id)
-                  } label: {
-                    DayNoteCardView(
-                      note: note,
-                      appearanceSettings: store.appearanceSettings,
-                      isSelected: store.selectedNoteID == note.id,
-                      accentColor: sidebarAccentColor,
-                      selectedCardColor: themeColors.selectedCard.color,
-                      unselectedCardColor: themeColors.unselectedCard.color,
-                      searchText: store.searchText
-                    )
-                  }
-                  .buttonStyle(.plain)
-                  .contextMenu {
-                    Button {
-                      requestChangeDate(note.id)
-                    } label: {
-                      Label("Change date…", systemImage: "calendar")
-                    }
-
-                    Button(role: .destructive) {
-                      requestDelete(note.id)
-                    } label: {
-                      Label("Delete note…", systemImage: "trash")
-                    }
-                  }
-                }
-              }
-            }
-            .padding(.bottom, 20)
-          }
-          .scrollIndicators(
-            store.appearanceSettings.showEditorScrollbar ? .visible : .hidden
+        switch store.sidebarMode {
+        case .daily:
+          dailySidebarContent
+        case .list:
+          ListNotesSidebarContent(
+            store: store,
+            requestDelete: requestDelete
           )
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     .padding(.horizontal, 16)
     .padding(.vertical, 14)
     .background(sidebarBackgroundColor)
+    .toolbar {
+      ToolbarItem(placement: .automatic) {
+        SidebarModeToggle(
+          mode: $store.sidebarMode,
+          accentColor: sidebarAccentColor
+        )
+      }
+    }
     .background {
-      // Captures arrow keys at the AppKit level when the editor isn't first responder.
       SidebarKeyboardHelper(
-        onUpArrow: { store.selectNextNote() },
-        onDownArrow: { store.selectPreviousNote() }
+        onUpArrow: {
+          switch store.sidebarMode {
+          case .daily: store.selectNextNote()
+          case .list: store.selectNextListNote()
+          }
+        },
+        onDownArrow: {
+          switch store.sidebarMode {
+          case .daily: store.selectPreviousNote()
+          case .list: store.selectPreviousListNote()
+          }
+        }
+      )
+    }
+  }
+
+  // Daily mode sidebar content — the original monthly-grouped note list.
+  @ViewBuilder
+  private var dailySidebarContent: some View {
+    let monthSections = store.monthSections
+
+    if monthSections.isEmpty, store.isSearchActive {
+      VStack {
+        Spacer()
+        Text("No matching notes")
+          .font(.subheadline.weight(.medium))
+          .foregroundStyle(.secondary)
+        Spacer()
+      }
+      .frame(maxWidth: .infinity)
+    } else if monthSections.isEmpty {
+      SidebarEmptyStateView {
+        store.selectToday()
+      }
+    } else {
+      ScrollView {
+        LazyVStack(alignment: .leading, spacing: 10) {
+          if !store.hasTodayNote, !store.isSearchActive {
+            AddTodayButton(accentColor: sidebarAccentColor) {
+              store.selectToday()
+            }
+          }
+
+          ForEach(monthSections) { section in
+            MonthDividerView(
+              title: section.title,
+              accentColor: sidebarAccentColor,
+              dividerColor: themeColors.divider.color
+            )
+
+            ForEach(section.notes) { note in
+              Button {
+                store.select(noteID: note.id)
+              } label: {
+                DayNoteCardView(
+                  note: note,
+                  appearanceSettings: store.appearanceSettings,
+                  isSelected: store.selectedNoteID == note.id,
+                  accentColor: sidebarAccentColor,
+                  selectedCardColor: themeColors.selectedCard.color,
+                  unselectedCardColor: themeColors.unselectedCard.color,
+                  searchText: store.searchText
+                )
+              }
+              .buttonStyle(.plain)
+              .contextMenu {
+                Button {
+                  requestChangeDate(note.id)
+                } label: {
+                  Label("Change date…", systemImage: "calendar")
+                }
+
+                Button(role: .destructive) {
+                  requestDelete(note.id)
+                } label: {
+                  Label("Delete note…", systemImage: "trash")
+                }
+              }
+            }
+          }
+        }
+        .padding(.bottom, 20)
+      }
+      .scrollIndicators(
+        store.appearanceSettings.showEditorScrollbar ? .visible : .hidden
       )
     }
   }
@@ -387,4 +417,43 @@ private struct DayNoteCardView: View {
     return attributed
   }
 
+}
+
+// Toggle between daily and list sidebar modes — icon-only, sits in the toolbar.
+private struct SidebarModeToggle: View {
+  @Binding var mode: SidebarMode
+  let accentColor: Color
+
+  var body: some View {
+    HStack(spacing: 0) {
+      modeButton(.daily, systemImage: "calendar")
+      modeButton(.list, systemImage: "list.bullet")
+    }
+    .padding(2)
+    .background(
+      RoundedRectangle(cornerRadius: 7, style: .continuous)
+        .fill(.quaternary.opacity(0.5))
+    )
+  }
+
+  @ViewBuilder
+  private func modeButton(_ targetMode: SidebarMode, systemImage: String) -> some View {
+    let isActive = mode == targetMode
+
+    Button {
+      mode = targetMode
+    } label: {
+      Image(systemName: systemImage)
+        .font(.system(size: 12, weight: .medium))
+        .frame(width: 28, height: 22)
+        .contentShape(Rectangle())
+        .background(
+          RoundedRectangle(cornerRadius: 5, style: .continuous)
+            .fill(isActive ? accentColor.opacity(0.15) : Color.clear)
+        )
+        .foregroundStyle(isActive ? accentColor : .secondary)
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel(targetMode == .daily ? "Daily notes" : "List notes")
+  }
 }

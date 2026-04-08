@@ -51,6 +51,20 @@ final class NotesStore: ObservableObject {
     didSet { cachedMonthSections = nil }
   }
   @Published var isSearchBarExpanded = false
+  @Published var sidebarMode: SidebarMode = .daily {
+    didSet {
+      if oldValue != sidebarMode {
+        clearSearch()
+        listSearchText = ""
+        isListSearchBarExpanded = false
+      }
+    }
+  }
+  @Published var listNotes: [DayNote] = []
+  @Published var listNoteManifest: ListNotesManifest = .empty
+  @Published var selectedListNoteID: DayNote.ID?
+  @Published var listSearchText: String = ""
+  @Published var isListSearchBarExpanded = false
   @Published private(set) var isLoading = false
   @Published var userMessage: (text: String, kind: UserMessageKind)?
   @Published var isPerformingFileOperation = false
@@ -61,8 +75,10 @@ final class NotesStore: ObservableObject {
   private let userDefaults: UserDefaults
   private var hasLoaded = false
   private var noteIndex: [DayNote.ID: Int] = [:]
+  var listNoteIndex: [DayNote.ID: Int] = [:]
   private var cachedMonthSections: [NoteMonthSection]?
   private var pendingSaveTasks: [DayNote.ID: Task<Void, Never>] = [:]
+  var pendingListNoteSaveTasks: [DayNote.ID: Task<Void, Never>] = [:]
   private var periodicFlushTask: Task<Void, Never>?
 
   private static let logger = Logger(subsystem: "com.sceal.app", category: "store")
@@ -180,6 +196,8 @@ final class NotesStore: ObservableObject {
       }
     }
 
+    loadListNotesIfNeeded()
+
     hasLoaded = true
     isLoading = false
     startPeriodicFlush()
@@ -207,6 +225,8 @@ final class NotesStore: ObservableObject {
     for noteID in noteIDs {
       flushPendingSave(for: noteID)
     }
+
+    flushAllPendingListNoteSaves()
   }
 
   // Flushes pending saves every 5 seconds as a safety net against data loss on crash.

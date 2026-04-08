@@ -22,8 +22,17 @@ struct NotesEditorView: View {
     store.adjacentNoteIDs(for: noteID)
   }
 
+  private var isListMode: Bool {
+    store.sidebarMode == .list
+  }
+
+  // Resolves the current note from either daily or list notes.
+  private var currentNote: DayNote? {
+    isListMode ? store.listNote(withID: noteID) : store.note(withID: noteID)
+  }
+
   var body: some View {
-    if let note = store.note(withID: noteID) {
+    if let note = currentNote {
       VStack(alignment: .leading, spacing: 12) {
         HStack(alignment: .center, spacing: 12) {
           HStack(spacing: 8) {
@@ -31,47 +40,51 @@ struct NotesEditorView: View {
               .font(.callout)
               .foregroundStyle(.secondary)
 
-            if let previousNoteID = adjacentNoteIDs.previous {
-              HeaderNavigationButton(
-                systemImage: "chevron.left",
-                accessibilityLabel: "Open older note",
-                controlColor: themeColors.controlBackground.color
-              ) {
-                store.select(noteID: previousNoteID)
+            if !isListMode {
+              if let previousNoteID = adjacentNoteIDs.previous {
+                HeaderNavigationButton(
+                  systemImage: "chevron.left",
+                  accessibilityLabel: "Open older note",
+                  controlColor: themeColors.controlBackground.color
+                ) {
+                  store.select(noteID: previousNoteID)
+                }
               }
-            }
 
-            if let nextNoteID = adjacentNoteIDs.next {
-              HeaderNavigationButton(
-                systemImage: "chevron.right",
-                accessibilityLabel: "Open newer note",
-                controlColor: themeColors.controlBackground.color
-              ) {
-                store.select(noteID: nextNoteID)
+              if let nextNoteID = adjacentNoteIDs.next {
+                HeaderNavigationButton(
+                  systemImage: "chevron.right",
+                  accessibilityLabel: "Open newer note",
+                  controlColor: themeColors.controlBackground.color
+                ) {
+                  store.select(noteID: nextNoteID)
+                }
               }
             }
           }
 
           Spacer()
 
-          TextField("Tags", text: store.tagsBinding(for: noteID))
+          TextField("Tags", text: store.activeTagsBinding(for: noteID))
             .textFieldStyle(.plain)
             .font(.system(size: 12, weight: .medium))
             .foregroundStyle(.secondary)
 
           EditorSearchBar(
-            searchText: $store.searchText,
-            isExpanded: $store.isSearchBarExpanded,
+            searchText: store.activeSearchTextBinding,
+            isExpanded: store.activeSearchBarExpandedBinding,
             controlColor: themeColors.controlBackground.color
           )
 
-          Button {
-            store.selectToday()
-          } label: {
-            Label("Today", systemImage: "calendar")
+          if !isListMode {
+            Button {
+              store.selectToday()
+            } label: {
+              Label("Today", systemImage: "calendar")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
           }
-          .buttonStyle(.bordered)
-          .controlSize(.small)
 
           HeaderIconButton(
             systemImage: "slider.vertical.3",
@@ -97,13 +110,13 @@ struct NotesEditorView: View {
         }
         .padding(.leading, sidebarCollapsed ? 130 : 0)
 
-        TextField("Title", text: store.titleBinding(for: noteID))
+        TextField("Title", text: store.activeTitleBinding(for: noteID))
           .textFieldStyle(.plain)
           .font(.system(size: 30, weight: .bold))
 
         ZStack(alignment: .topLeading) {
           if note.body.isEmpty {
-            Text("Start writing today's note here.")
+            Text(isListMode ? "Start writing…" : "Start writing today's note here.")
               .foregroundStyle(.secondary)
               .padding(.horizontal, 34)
               .padding(.vertical, 30)
@@ -112,9 +125,9 @@ struct NotesEditorView: View {
 
           MarkdownEditorView(
             noteID: noteID,
-            text: store.bodyBinding(for: noteID),
+            text: store.activeBodyBinding(for: noteID),
             appearanceSettings: store.appearanceSettings,
-            searchText: store.searchText
+            searchText: isListMode ? store.listSearchText : store.searchText
           )
         }
         .background(

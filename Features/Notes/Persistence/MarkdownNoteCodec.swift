@@ -28,7 +28,8 @@ enum MarkdownNoteCodec {
   }
 
   // Parses markdown file contents into a DayNote, extracting front matter.
-  nonisolated static func decode(contents: String, sourceURL: URL) throws -> DayNote {
+  // When idOverride is provided, it is used as the note ID instead of auto-generating from the date.
+  nonisolated static func decode(contents: String, sourceURL: URL, idOverride: String? = nil) throws -> DayNote {
     let contents = contents.replacingOccurrences(of: "\r\n", with: "\n")
     let prefix = "\(frontMatterMarker)\n"
     guard contents.hasPrefix(prefix) else {
@@ -56,6 +57,16 @@ enum MarkdownNoteCodec {
 
     let title = try decodeJSONString(metadata["title"], sourceURL: sourceURL)
     let tags = try decodeJSONTags(metadata["tags"], sourceURL: sourceURL)
+
+    if let idOverride {
+      return DayNote(
+        date: date,
+        id: idOverride,
+        title: title,
+        tags: tags,
+        body: body
+      )
+    }
 
     return DayNote(
       date: date,

@@ -23,10 +23,10 @@ struct AppRootView: View {
       .navigationSplitViewColumnWidth(min: 240, ideal: 290, max: 360)
     } detail: {
       Group {
-        if let selectedNoteID = store.selectedNoteID {
+        if let activeNoteID = store.activeSelectedNoteID {
           NotesEditorView(
             store: store,
-            noteID: selectedNoteID,
+            noteID: activeNoteID,
             sidebarCollapsed: columnVisibility == .detailOnly
           ) { noteID in
             notePendingDeletionID = noteID
@@ -36,8 +36,12 @@ struct AppRootView: View {
         } else {
           ContentUnavailableView(
             "No note selected",
-            systemImage: "calendar",
-            description: Text("Choose a day from the sidebar to start writing.")
+            systemImage: store.sidebarMode == .daily ? "calendar" : "list.bullet",
+            description: Text(
+              store.sidebarMode == .daily
+                ? "Choose a day from the sidebar to start writing."
+                : "Select a note from the sidebar or add a new one."
+            )
           )
         }
       }
@@ -55,7 +59,12 @@ struct AppRootView: View {
           return
         }
 
-        store.delete(noteID: notePendingDeletionID)
+        switch store.sidebarMode {
+        case .daily:
+          store.delete(noteID: notePendingDeletionID)
+        case .list:
+          store.deleteListNote(noteID: notePendingDeletionID)
+        }
         self.notePendingDeletionID = nil
       }
 
