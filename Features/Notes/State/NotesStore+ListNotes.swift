@@ -383,6 +383,38 @@ extension NotesStore {
     saveManifest()
   }
 
+  // MARK: - Reordering
+
+  // Moves a note to a specific index within the ungrouped list.
+  func moveNoteToUngrouped(noteID: String, atIndex index: Int) {
+    listNoteManifest.removeNoteID(noteID)
+    let clampedIndex = min(index, listNoteManifest.ungroupedNoteIDs.count)
+    listNoteManifest.ungroupedNoteIDs.insert(noteID, at: clampedIndex)
+    saveManifest()
+  }
+
+  // Moves a note to a specific index within a group.
+  func moveNoteToGroup(noteID: String, groupID: String, atIndex index: Int) {
+    listNoteManifest.removeNoteID(noteID)
+    guard let groupIndex = listNoteManifest.groups.firstIndex(where: { $0.id == groupID }) else {
+      return
+    }
+    let clampedIndex = min(index, listNoteManifest.groups[groupIndex].noteIDs.count)
+    listNoteManifest.groups[groupIndex].noteIDs.insert(noteID, at: clampedIndex)
+    saveManifest()
+  }
+
+  // Moves a group to a new position in the groups array.
+  func reorderGroup(groupID: String, toIndex targetIndex: Int) {
+    guard let sourceIndex = listNoteManifest.groups.firstIndex(where: { $0.id == groupID }) else {
+      return
+    }
+    let group = listNoteManifest.groups.remove(at: sourceIndex)
+    let clampedIndex = min(targetIndex, listNoteManifest.groups.count)
+    listNoteManifest.groups.insert(group, at: clampedIndex)
+    saveManifest()
+  }
+
   // MARK: - Search
 
   // Notes filtered by the list-mode search text.

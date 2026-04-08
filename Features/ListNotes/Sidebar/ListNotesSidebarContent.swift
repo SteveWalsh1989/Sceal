@@ -2,16 +2,22 @@
 //  ListNotesSidebarContent.swift
 //
 
-// Sidebar content for list mode — shows ungrouped notes and collapsible groups.
+// Sidebar content for list mode — shows ungrouped notes and collapsible groups
+// with drag-and-drop reordering for both notes and groups.
 
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ListNotesSidebarContent: View {
   @ObservedObject var store: NotesStore
   let requestDelete: (DayNote.ID) -> Void
 
+  // Prefix used to distinguish group drags from note drags in plain-text payloads.
+  static let groupDragPrefix = "group:"
+
   @State private var isShowingNewGroupAlert = false
   @State private var newGroupName = ""
+  @State private var renamingGroupID: String?
 
   var body: some View {
     let manifest = store.listNoteManifest
@@ -41,29 +47,47 @@ struct ListNotesSidebarContent: View {
             }
 
             NewGroupButton(accentColor: sidebarAccentColor) {
+              renamingGroupID = nil
               newGroupName = ""
               isShowingNewGroupAlert = true
             }
           }
 
-          // Ungrouped notes
+          // Ungrouped section drop target (accepts notes dragged here)
           let ungroupedNotes = isSearching
             ? manifest.ungroupedNoteIDs.filter { filteredIDs.contains($0) }
             : manifest.ungroupedNoteIDs
 
-          ForEach(ungroupedNotes, id: \.self) { noteID in
+          if !ungroupedNotes.isEmpty || !isSearching {
+            // Drop zone at the top of ungrouped — inserts at index 0.
+            UngroupedDropZone()
+              .onDrop(of: [UTType.plainText], delegate: NoteDropDelegate(
+                store: store,
+                targetGroupID: nil,
+                targetIndex: 0
+              ))
+          }
+
+          ForEach(Array(ungroupedNotes.enumerated()), id: \.element) { offset, noteID in
             if let note = store.listNote(withID: noteID) {
-              listNoteButton(note: note, filteredIDs: filteredIDs)
+              listNoteButton(note: note)
+                .onDrag {
+                  NSItemProvider(object: note.id as NSString)
+                }
+                .onDrop(of: [UTType.plainText], delegate: NoteDropDelegate(
+                  store: store,
+                  targetGroupID: nil,
+                  targetIndex: offset + 1
+                ))
             }
           }
 
           // Groups
-          ForEach(manifest.groups) { group in
+          ForEach(Array(manifest.groups.enumerated()), id: \.element.id) { groupOffset, group in
             let groupNoteIDs = isSearching
               ? group.noteIDs.filter { filteredIDs.contains($0) }
               : group.noteIDs
 
-            // Hide empty groups during search
             if !isSearching || !groupNoteIDs.isEmpty {
               GroupHeaderView(
                 group: group,
@@ -73,10 +97,19 @@ struct ListNotesSidebarContent: View {
               ) {
                 store.toggleGroupCollapsed(groupID: group.id)
               }
+              .onDrag {
+                NSItemProvider(object: ("\(Self.groupDragPrefix)\(group.id)" as NSString))
+              }
+              .onDrop(of: [UTType.plainText],
+                delegate: GroupHeaderDropDelegate(
+                  store: store,
+                  targetGroupID: group.id,
+                  groupIndex: groupOffset
+                ))
               .contextMenu {
                 Button {
+                  renamingGroupID = group.id
                   newGroupName = group.name
-                  // Use a small delay so the context menu dismisses first.
                   DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                     isShowingNewGroupAlert = true
                   }
@@ -92,10 +125,29 @@ struct ListNotesSidebarContent: View {
               }
 
               if !group.isCollapsed {
-                ForEach(groupNoteIDs, id: \.self) { noteID in
+                ForEach(Array(groupNoteIDs.enumerated()), id: \.element) { noteOffset, noteID in
                   if let note = store.listNote(withID: noteID) {
-                    listNoteButton(note: note, filteredIDs: filteredIDs)
+                    listNoteButton(note: note)
+                      .onDrag {
+                        NSItemProvider(object: note.id as NSString)
+                      }
+                      .onDrop(of: [UTType.plainText], delegate: NoteDropDelegate(
+                        store: store,
+                        targetGroupID: group.id,
+                        targetIndex: noteOffset + 1
+                      ))
                   }
+                }
+
+                // Drop zone at the end of a group when it has notes — appends.
+                if !groupNoteIDs.isEmpty {
+                  Color.clear
+                    .frame(height: 2)
+                    .onDrop(of: [UTType.plainText], delegate: NoteDropDelegate(
+                      store: store,
+                      targetGroupID: group.id,
+                      targetIndex: groupNoteIDs.count
+                    ))
                 }
               }
             }
@@ -108,30 +160,28 @@ struct ListNotesSidebarContent: View {
       )
     }
 
-    // Invisible modifier to attach the alert — avoids nesting issues.
     Color.clear
       .frame(width: 0, height: 0)
       .alert("Group name", isPresented: $isShowingNewGroupAlert) {
         TextField("Name", text: $newGroupName)
-        Button("Cancel", role: .cancel) {}
+        Button("Cancel", role: .cancel) {
+          renamingGroupID = nil
+        }
         Button("OK") {
           let trimmed = newGroupName.trimmingCharacters(in: .whitespacesAndNewlines)
           guard !trimmed.isEmpty else { return }
-          // Check if we're renaming an existing group.
-          if let existing = store.listNoteManifest.groups.first(where: { $0.name == newGroupName && trimmed != newGroupName }) {
-            store.renameGroup(groupID: existing.id, name: trimmed)
-          } else if store.listNoteManifest.groups.contains(where: { $0.name == trimmed }) {
-            // Already exists with that name, do nothing.
-          } else {
+          if let groupID = renamingGroupID {
+            store.renameGroup(groupID: groupID, name: trimmed)
+          } else if !store.listNoteManifest.groups.contains(where: { $0.name == trimmed }) {
             store.createGroup(name: trimmed)
           }
+          renamingGroupID = nil
         }
       }
   }
 
-  // Renders a single list note card with selection and context menu.
   @ViewBuilder
-  private func listNoteButton(note: DayNote, filteredIDs: Set<String>) -> some View {
+  private func listNoteButton(note: DayNote) -> some View {
     Button {
       store.selectedListNoteID = note.id
     } label: {
@@ -182,7 +232,80 @@ struct ListNotesSidebarContent: View {
   }
 }
 
+// MARK: - Drop Delegates
+
+// Handles dropping a note onto another note card or a drop zone within a section.
+// Inserts the dragged note at `targetIndex` in the target location (ungrouped or a group).
+// Ignores group drags (prefixed payloads).
+private struct NoteDropDelegate: DropDelegate {
+  let store: NotesStore
+  let targetGroupID: String?
+  let targetIndex: Int
+
+  func validateDrop(info: DropInfo) -> Bool {
+    info.hasItemsConforming(to: [.plainText])
+  }
+
+  func performDrop(info: DropInfo) -> Bool {
+    guard let item = info.itemProviders(for: [.plainText]).first else { return false }
+
+    item.loadObject(ofClass: NSString.self) { reading, _ in
+      guard let payload = reading as? String else { return }
+      // Ignore group drags — they're handled by GroupHeaderDropDelegate.
+      guard !payload.hasPrefix(ListNotesSidebarContent.groupDragPrefix) else { return }
+      DispatchQueue.main.async {
+        if let groupID = targetGroupID {
+          store.moveNoteToGroup(noteID: payload, groupID: groupID, atIndex: targetIndex)
+        } else {
+          store.moveNoteToUngrouped(noteID: payload, atIndex: targetIndex)
+        }
+      }
+    }
+    return true
+  }
+}
+
+// Handles drops on a group header — accepts notes (moves into the group)
+// and other groups (reorders groups). Both use plain-text payloads;
+// group drags are distinguished by a "group:" prefix.
+private struct GroupHeaderDropDelegate: DropDelegate {
+  let store: NotesStore
+  let targetGroupID: String
+  let groupIndex: Int
+
+  func validateDrop(info: DropInfo) -> Bool {
+    info.hasItemsConforming(to: [.plainText])
+  }
+
+  func performDrop(info: DropInfo) -> Bool {
+    guard let item = info.itemProviders(for: [.plainText]).first else { return false }
+
+    item.loadObject(ofClass: NSString.self) { reading, _ in
+      guard let payload = reading as? String else { return }
+      DispatchQueue.main.async {
+        let prefix = ListNotesSidebarContent.groupDragPrefix
+        if payload.hasPrefix(prefix) {
+          let draggedGroupID = String(payload.dropFirst(prefix.count))
+          guard draggedGroupID != targetGroupID else { return }
+          store.reorderGroup(groupID: draggedGroupID, toIndex: groupIndex)
+        } else {
+          store.moveNoteToGroup(noteID: payload, groupID: targetGroupID)
+        }
+      }
+    }
+    return true
+  }
+}
+
 // MARK: - Subviews
+
+// Thin drop target at the top of the ungrouped section.
+private struct UngroupedDropZone: View {
+  var body: some View {
+    Color.clear
+      .frame(height: 2)
+  }
+}
 
 private struct ListSidebarEmptyStateView: View {
   let addNote: () -> Void
@@ -288,5 +411,6 @@ private struct GroupHeaderView: View {
     }
     .buttonStyle(.plain)
     .padding(.top, 4)
+    .contentShape(Rectangle())
   }
 }
