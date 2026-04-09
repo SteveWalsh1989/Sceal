@@ -13,6 +13,10 @@ struct AppRootView: View {
   @State private var notePendingDateChangeID: DayNote.ID?
   @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
 
+  // Prevents app-hosted unit tests from loading real user data into the test runner.
+  private let isRunningUnitTests =
+    ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+
   var body: some View {
     NavigationSplitView(columnVisibility: $columnVisibility) {
       NotesSidebarView(store: store) { noteID in
@@ -51,6 +55,9 @@ struct AppRootView: View {
     }
     .navigationSplitViewStyle(.balanced)
     .task {
+      guard !isRunningUnitTests else {
+        return
+      }
       store.loadIfNeeded()
     }
     .alert("Delete this note?", isPresented: isShowingDeleteConfirmation) {
@@ -133,7 +140,7 @@ struct AppRootView: View {
     Binding(
       get: {
         guard let noteID = notePendingDateChangeID,
-              let note = store.note(withID: noteID)
+          let note = store.note(withID: noteID)
         else { return nil }
         return DateChangeContext(id: noteID, date: note.date)
       },

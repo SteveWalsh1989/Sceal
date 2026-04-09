@@ -103,6 +103,21 @@ final class NotesStore: ObservableObject {
     self.hasLoaded = !previewNotes.isEmpty
   }
 
+  deinit {
+    periodicFlushTask?.cancel()
+    periodicFlushTask = nil
+
+    for task in pendingSaveTasks.values {
+      task.cancel()
+    }
+    pendingSaveTasks.removeAll()
+
+    for task in pendingListNoteSaveTasks.values {
+      task.cancel()
+    }
+    pendingListNoteSaveTasks.removeAll()
+  }
+
   var isSearchActive: Bool {
     !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
@@ -127,7 +142,8 @@ final class NotesStore: ObservableObject {
     guard body.contains("<!--") else { return body }
     var result = body
     while let start = result.range(of: "<!--"),
-          let end = result.range(of: "-->", range: start.upperBound..<result.endIndex) {
+      let end = result.range(of: "-->", range: start.upperBound..<result.endIndex)
+    {
       result.removeSubrange(start.lowerBound..<end.upperBound)
     }
     return result
@@ -400,7 +416,8 @@ final class NotesStore: ObservableObject {
         do {
           return try loadNote(from: url)
         } catch {
-          Self.logger.error("Skipping corrupt note \(url.lastPathComponent): \(error.localizedDescription)")
+          Self.logger.error(
+            "Skipping corrupt note \(url.lastPathComponent): \(error.localizedDescription)")
           return nil
         }
       }
@@ -656,4 +673,3 @@ final class NotesStore: ObservableObject {
     userMessage = (text: "\(context). \(message)", kind: .error)
   }
 }
-
