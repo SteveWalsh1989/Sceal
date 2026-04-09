@@ -575,6 +575,7 @@ extension MarkdownEditorView {
             textView.typingAttributes = headingAttributes
             pendingSlashHeadingLineLocation = lineRange.location
             pendingSlashHeadingTypingAttributes = headingAttributes
+            flushPendingMarkdownPushIfNeeded(from: textStorage)
           }
           return handled
 
@@ -601,8 +602,10 @@ extension MarkdownEditorView {
       // Normal newline with list continuation
       var continuedListType: MarkdownListType?
       var continuedBlockquote = false
-      let continuedCodeBlock = lineRange.length > 0
-        && textStorage.attribute(.markdownCodeBlock, at: lineRange.location, effectiveRange: nil) as? Bool == true
+      let continuedCodeBlock =
+        lineRange.length > 0
+        && textStorage.attribute(.markdownCodeBlock, at: lineRange.location, effectiveRange: nil)
+          as? Bool == true
       let currentIndentLevel: Int = {
         guard lineRange.length > 0 else { return 0 }
         return textStorage.attribute(
