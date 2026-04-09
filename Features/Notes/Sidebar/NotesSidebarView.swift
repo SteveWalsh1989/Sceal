@@ -31,14 +31,6 @@ struct NotesSidebarView: View {
     .padding(.horizontal, 16)
     .padding(.vertical, 14)
     .background(sidebarBackgroundColor)
-    .toolbar {
-      ToolbarItem(placement: .automatic) {
-        SidebarModeToggle(
-          mode: $store.sidebarMode,
-          accentColor: sidebarAccentColor
-        )
-      }
-    }
     .background {
       SidebarKeyboardHelper(
         onUpArrow: {
@@ -420,7 +412,7 @@ private struct DayNoteCardView: View {
 }
 
 // Toggle between daily and list sidebar modes — icon-only, sits in the toolbar.
-private struct SidebarModeToggle: View {
+struct SidebarModeToggle: View {
   @Binding var mode: SidebarMode
   let accentColor: Color
 
