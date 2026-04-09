@@ -50,16 +50,6 @@ struct AppRootView: View {
       .ignoresSafeArea(.container, edges: .top)
     }
     .navigationSplitViewStyle(.balanced)
-    .toolbar {
-      ToolbarItem(placement: .automatic) {
-        if columnVisibility != .detailOnly {
-          SidebarModeToggle(
-            mode: $store.sidebarMode,
-            accentColor: Color(nsColor: store.appearanceSettings.accentColor)
-          )
-        }
-      }
-    }
     .task {
       store.loadIfNeeded()
     }

@@ -31,6 +31,14 @@ struct NotesSidebarView: View {
     .padding(.horizontal, 16)
     .padding(.vertical, 14)
     .background(sidebarBackgroundColor)
+    .toolbar {
+      ToolbarItem(placement: .navigation) {
+        SidebarModeToggle(
+          mode: $store.sidebarMode,
+          accentColor: sidebarAccentColor
+        )
+      }
+    }
     .background {
       SidebarKeyboardHelper(
         onUpArrow: {
