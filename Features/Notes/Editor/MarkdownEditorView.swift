@@ -594,6 +594,7 @@ extension MarkdownEditorView {
           if handled {
             textView.typingAttributes = codeBlockTypingAttributes()
             textView.setNeedsDisplay(textView.bounds)
+            flushPendingMarkdownPushIfNeeded(from: textStorage)
           }
           return handled
         }
