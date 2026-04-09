@@ -835,10 +835,9 @@ extension MarkdownEditorView {
     // MARK: - List Indentation
 
     // Changes the indent level of list lines covered by the selection.
-    // Modifies attributes directly and pushes the updated markdown to the binding
-    // so the indent persists on round-trip. Uses direct attribute editing instead of
-    // performEditorEdit to avoid the shouldChangeText gate for attribute-only changes.
-    private func handleListIndent(textView: NSTextView, increase: Bool) -> Bool {
+    // Uses performEditorEdit for undo support, then immediately pushes
+    // the updated markdown so the indent survives the round-trip.
+    func handleListIndent(textView: NSTextView, increase: Bool) -> Bool {
       guard let textStorage = textView.textStorage else { return false }
       let nsString = textStorage.string as NSString
       let selectedRange = textView.selectedRange()
@@ -863,42 +862,43 @@ extension MarkdownEditorView {
       let appearance =
         (textView as? MarkdownEditorTextView)?.appearanceSettings ?? .default
 
-      // Apply the indent change directly — this is an attribute-only edit.
-      textStorage.beginEditing()
-      var didChange = false
-      scanStart = fullRange.location
-      while scanStart < NSMaxRange(fullRange) {
-        let lineRange = nsString.lineRange(for: NSRange(location: scanStart, length: 0))
-        var textRange = lineRange
-        if textRange.length > 0
-          && nsString.character(at: textRange.location + textRange.length - 1) == 0x0A
-        {
-          textRange.length -= 1
-        }
-        if textRange.length > 0 {
-          let attrs = textStorage.attributes(at: textRange.location, effectiveRange: nil)
-          if attrs[.markdownListType] as? String != nil {
-            let currentLevel = attrs[.markdownIndentLevel] as? Int ?? 0
-            let newLevel = increase ? min(currentLevel + 1, 3) : max(currentLevel - 1, 0)
-            if newLevel != currentLevel {
-              let newStyle = MarkdownEditorFormatter.listParagraphStyle(
-                for: appearance, indentLevel: newLevel)
-              textStorage.addAttribute(.markdownIndentLevel, value: newLevel, range: textRange)
-              textStorage.addAttribute(.paragraphStyle, value: newStyle, range: textRange)
-              didChange = true
+      // Prevent textDidChange from reformatting the line and resetting the paragraph style.
+      isUpdating = true
+      let editSucceeded = textView.performEditorEdit(
+        affectedRange: fullRange,
+        actionName: increase ? "Indent" : "Outdent"
+      ) { textStorage in
+        var scanStart = fullRange.location
+        while scanStart < NSMaxRange(fullRange) {
+          let lineRange = nsString.lineRange(for: NSRange(location: scanStart, length: 0))
+          var textRange = lineRange
+          if textRange.length > 0
+            && nsString.character(at: textRange.location + textRange.length - 1) == 0x0A
+          {
+            textRange.length -= 1
+          }
+          if textRange.length > 0 {
+            let attrs = textStorage.attributes(at: textRange.location, effectiveRange: nil)
+            if attrs[.markdownListType] as? String != nil {
+              let currentLevel = attrs[.markdownIndentLevel] as? Int ?? 0
+              let newLevel = increase ? min(currentLevel + 1, 3) : max(currentLevel - 1, 0)
+              if newLevel != currentLevel {
+                let newStyle = MarkdownEditorFormatter.listParagraphStyle(
+                  for: appearance, indentLevel: newLevel)
+                textStorage.addAttribute(.markdownIndentLevel, value: newLevel, range: textRange)
+                textStorage.addAttribute(.paragraphStyle, value: newStyle, range: textRange)
+              }
             }
           }
+          scanStart = NSMaxRange(lineRange)
         }
-        scanStart = NSMaxRange(lineRange)
+        return nil
       }
-      textStorage.endEditing()
+      isUpdating = false
 
-      if didChange {
-        // Push the updated markdown so the indent survives the round-trip.
-        let markdown = MarkdownEditorFormatter.convertToMarkdown(from: textStorage)
-        parent.text = markdown
-        lastPushedMarkdown = markdown
-        textView.undoManager?.setActionName(increase ? "Indent" : "Outdent")
+      if editSucceeded {
+        // Push updated markdown immediately so the indent persists.
+        executePushMarkdown(from: textStorage)
       }
 
       return true

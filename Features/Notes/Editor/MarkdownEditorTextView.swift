@@ -570,7 +570,7 @@ final class MarkdownEditorTextView: NSTextView {
 
   // MARK: - Keyboard Shortcuts
 
-  // Intercepts Cmd+B to toggle bold on the selection.
+  // Intercepts Cmd+B for bold and Cmd+[/] for indent/outdent.
   override func performKeyEquivalent(with event: NSEvent) -> Bool {
     guard event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command else {
       return super.performKeyEquivalent(with: event)
@@ -579,9 +579,19 @@ final class MarkdownEditorTextView: NSTextView {
     case "b":
       toggleBoldInSelection()
       return true
+    case "[":
+      return handleIndentShortcut(increase: false)
+    case "]":
+      return handleIndentShortcut(increase: true)
     default:
       return super.performKeyEquivalent(with: event)
     }
+  }
+
+  // Routes Cmd+[/] to the coordinator's indent handler.
+  private func handleIndentShortcut(increase: Bool) -> Bool {
+    guard let coordinator = delegate as? MarkdownEditorView.Coordinator else { return false }
+    return coordinator.handleListIndent(textView: self, increase: increase)
   }
 
   // Toggles bold on the current selection, mirroring EditorFormattingToolbar.toggleBold().
