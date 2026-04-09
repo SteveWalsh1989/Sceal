@@ -30,15 +30,17 @@ struct NotesSidebarView: View {
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     .padding(.horizontal, 16)
     .padding(.vertical, 14)
-    .background(sidebarBackgroundColor)
-    .toolbar {
-      ToolbarItem(placement: .navigation) {
-        SidebarModeToggle(
-          mode: $store.sidebarMode,
-          accentColor: sidebarAccentColor
-        )
-      }
+    .safeAreaInset(edge: .bottom, spacing: 0) {
+      SidebarModeToggle(
+        mode: $store.sidebarMode,
+        accentColor: sidebarAccentColor
+      )
+      .padding(.horizontal, 16)
+      .padding(.vertical, 10)
+      .frame(maxWidth: .infinity)
+      .background(sidebarBackgroundColor)
     }
+    .background(sidebarBackgroundColor)
     .background {
       SidebarKeyboardHelper(
         onUpArrow: {
@@ -295,20 +297,13 @@ private struct DayNoteCardView: View {
           .lineLimit(2)
           .foregroundStyle(.primary)
 
-        HStack(spacing: 8) {
-          Text(note.sidebarDateText(using: appearanceSettings.sidebarDateFormat))
+        if appearanceSettings.sidebarShowsTags, !note.sidebarTagsText.isEmpty {
+          Text(highlighted(note.sidebarTagsText))
+            .font(.system(size: metadataFontSize, weight: .medium))
+            .foregroundStyle(.secondary)
             .lineLimit(1)
-
-          if appearanceSettings.sidebarShowsTags, !note.sidebarTagsText.isEmpty {
-            Spacer(minLength: 6)
-
-            Text(highlighted(note.sidebarTagsText))
-              .lineLimit(1)
-              .truncationMode(.tail)
-          }
+            .truncationMode(.tail)
         }
-        .font(.system(size: metadataFontSize, weight: .medium))
-        .foregroundStyle(.secondary)
 
         if let snippet = bodySnippet {
           Text(highlighted(snippet))
@@ -419,39 +414,44 @@ private struct DayNoteCardView: View {
 
 }
 
-// Toggle between daily and list sidebar modes — icon-only, sits in the toolbar.
-struct SidebarModeToggle: View {
+// Full-width toggle between daily and list sidebar modes, pinned to the bottom of the sidebar.
+private struct SidebarModeToggle: View {
   @Binding var mode: SidebarMode
   let accentColor: Color
 
   var body: some View {
     HStack(spacing: 0) {
-      modeButton(.daily, systemImage: "calendar")
-      modeButton(.list, systemImage: "list.bullet")
+      modeButton(.daily, systemImage: "calendar", label: "Daily")
+      modeButton(.list, systemImage: "list.bullet", label: "Notes")
     }
-    .padding(2)
+    .padding(3)
     .background(
-      RoundedRectangle(cornerRadius: 7, style: .continuous)
+      RoundedRectangle(cornerRadius: 10, style: .continuous)
         .fill(.quaternary.opacity(0.5))
     )
   }
 
   @ViewBuilder
-  private func modeButton(_ targetMode: SidebarMode, systemImage: String) -> some View {
+  private func modeButton(_ targetMode: SidebarMode, systemImage: String, label: String) -> some View {
     let isActive = mode == targetMode
 
     Button {
       mode = targetMode
     } label: {
-      Image(systemName: systemImage)
-        .font(.system(size: 12, weight: .medium))
-        .frame(width: 28, height: 22)
-        .contentShape(Rectangle())
-        .background(
-          RoundedRectangle(cornerRadius: 5, style: .continuous)
-            .fill(isActive ? accentColor.opacity(0.15) : Color.clear)
-        )
-        .foregroundStyle(isActive ? accentColor : .secondary)
+      HStack(spacing: 5) {
+        Image(systemName: systemImage)
+          .font(.system(size: 12, weight: .medium))
+        Text(label)
+          .font(.system(size: 12, weight: .medium))
+      }
+      .frame(maxWidth: .infinity)
+      .padding(.vertical, 6)
+      .contentShape(Rectangle())
+      .background(
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
+          .fill(isActive ? accentColor.opacity(0.15) : Color.clear)
+      )
+      .foregroundStyle(isActive ? accentColor : .secondary)
     }
     .buttonStyle(.plain)
     .accessibilityLabel(targetMode == .daily ? "Daily notes" : "List notes")

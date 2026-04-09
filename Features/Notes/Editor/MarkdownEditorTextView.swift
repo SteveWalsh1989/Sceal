@@ -285,7 +285,8 @@ final class MarkdownEditorTextView: NSTextView {
     guard !ranges.isEmpty else { return }
 
     let nsString = textStorage.string as NSString
-    let codeBlockColor = isDarkAppearance
+    let codeBlockColor =
+      isDarkAppearance
       ? NSColor.black.withAlphaComponent(0.3)
       : NSColor.black.withAlphaComponent(0.06)
 
@@ -334,7 +335,8 @@ final class MarkdownEditorTextView: NSTextView {
   private func codeBlockVisualRanges(in textStorage: NSTextStorage) -> [NSRange] {
     let fullRange = NSRange(location: 0, length: textStorage.length)
     var fenceRanges: [NSRange] = []
-    textStorage.enumerateAttribute(.markdownCodeFence, in: fullRange, options: []) { value, range, _ in
+    textStorage.enumerateAttribute(.markdownCodeFence, in: fullRange, options: []) {
+      value, range, _ in
       if value as? Bool == true { fenceRanges.append(range) }
     }
     var result: [NSRange] = []
@@ -342,7 +344,8 @@ final class MarkdownEditorTextView: NSTextView {
     while i + 1 < fenceRanges.count {
       let opening = fenceRanges[i]
       let closing = fenceRanges[i + 1]
-      result.append(NSRange(location: opening.location, length: NSMaxRange(closing) - opening.location))
+      result.append(
+        NSRange(location: opening.location, length: NSMaxRange(closing) - opening.location))
       i += 2
     }
     return result
@@ -499,6 +502,27 @@ final class MarkdownEditorTextView: NSTextView {
   // Custom pasteboard type for preserving markdown structure during app-internal copy/paste.
   private static let markdownPasteboardType = NSPasteboard.PasteboardType("com.sceal.markdown-text")
 
+  // Returns a URL string only when the general pasteboard contains a single standalone link.
+  private func pastedURLStringFromGeneralPasteboard() -> String? {
+    guard let pastedText = NSPasteboard.general.string(forType: .string) else { return nil }
+    let trimmedText = pastedText.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmedText.isEmpty else { return nil }
+
+    guard
+      let detector = try? NSDataDetector(
+        types: NSTextCheckingResult.CheckingType.link.rawValue)
+    else { return nil }
+
+    let fullRange = NSRange(location: 0, length: (trimmedText as NSString).length)
+    guard
+      let match = detector.firstMatch(in: trimmedText, options: [], range: fullRange),
+      match.range == fullRange,
+      match.url != nil
+    else { return nil }
+
+    return trimmedText
+  }
+
   // Returns the raw markdown for the current selection if it starts at a line boundary,
   // nil otherwise — partial-line selections don't have reliable line structure.
   private func markdownForCurrentSelection() -> String? {
@@ -534,10 +558,37 @@ final class MarkdownEditorTextView: NSTextView {
   // Pastes with markdown formatting preserved when content was copied from this editor,
   // otherwise falls back to plain text.
   override func paste(_ sender: Any?) {
+    let pasteRange = selectedRange()
+    if pasteRange.length > 0,
+      let pastedURL = pastedURLStringFromGeneralPasteboard(),
+      performEditorEdit(
+        affectedRange: pasteRange,
+        actionName: "Paste Link",
+        edit: { textStorage in
+          let safeLocation = min(pasteRange.location, textStorage.length)
+          let safeLength = min(pasteRange.length, max(textStorage.length - safeLocation, 0))
+          let safeRange = NSRange(location: safeLocation, length: safeLength)
+          guard safeRange.length > 0 else { return nil }
+
+          textStorage.removeAttribute(.link, range: safeRange)
+          var attrs: [NSAttributedString.Key: Any] = [
+            .foregroundColor: NSColor.linkColor,
+            .markdownLinkURL: pastedURL,
+          ]
+          if let url = URL(string: pastedURL) {
+            attrs[.link] = url
+          }
+          textStorage.addAttributes(attrs, range: safeRange)
+          return NSRange(location: NSMaxRange(safeRange), length: 0)
+        }
+      )
+    {
+      return
+    }
+
     if let markdown = NSPasteboard.general.string(forType: Self.markdownPasteboardType) {
       let attributed = MarkdownEditorFormatter.formatForDisplay(
         markdown, appearance: appearanceSettings)
-      let pasteRange = selectedRange()
       performEditorEdit(
         affectedRange: pasteRange,
         replacementString: attributed.string,
@@ -554,7 +605,6 @@ final class MarkdownEditorTextView: NSTextView {
     guard let plainText = NSPasteboard.general.string(forType: .string) else { return }
     let attributed = MarkdownEditorFormatter.formatForDisplay(
       plainText, appearance: appearanceSettings)
-    let pasteRange = selectedRange()
     performEditorEdit(
       affectedRange: pasteRange,
       replacementString: attributed.string,
@@ -839,11 +889,27 @@ final class MarkdownEditorTextView: NSTextView {
           let checked = listType == .checkboxChecked
           let newAttachment = NSAttributedString(
             attachment: MarkdownEditorFormatter.checkboxAttachment(checked: checked, color: color))
+          let preservedParagraphStyle = attrs[.paragraphStyle]
+          let preservedIndentLevel = attrs[.markdownIndentLevel]
           textStorage.replaceCharacters(
             in: NSRange(location: trimmed.location, length: 1), with: newAttachment)
           textStorage.addAttribute(
             .markdownListType, value: rawType,
             range: NSRange(location: trimmed.location, length: 1))
+          if let preservedParagraphStyle {
+            textStorage.addAttribute(
+              .paragraphStyle,
+              value: preservedParagraphStyle,
+              range: NSRange(location: trimmed.location, length: 1)
+            )
+          }
+          if let preservedIndentLevel {
+            textStorage.addAttribute(
+              .markdownIndentLevel,
+              value: preservedIndentLevel,
+              range: NSRange(location: trimmed.location, length: 1)
+            )
+          }
         case .numbered:
           break
         }
@@ -863,11 +929,27 @@ final class MarkdownEditorTextView: NSTextView {
           let newAttachment = NSAttributedString(
             attachment: MarkdownEditorFormatter.checkboxAttachment(
               checked: checked, appearance: appearanceSettings))
+          let preservedParagraphStyle = attrs[.paragraphStyle]
+          let preservedIndentLevel = attrs[.markdownIndentLevel]
           textStorage.replaceCharacters(
             in: NSRange(location: trimmed.location, length: 1), with: newAttachment)
           textStorage.addAttribute(
             .markdownListType, value: rawType,
             range: NSRange(location: trimmed.location, length: 1))
+          if let preservedParagraphStyle {
+            textStorage.addAttribute(
+              .paragraphStyle,
+              value: preservedParagraphStyle,
+              range: NSRange(location: trimmed.location, length: 1)
+            )
+          }
+          if let preservedIndentLevel {
+            textStorage.addAttribute(
+              .markdownIndentLevel,
+              value: preservedIndentLevel,
+              range: NSRange(location: trimmed.location, length: 1)
+            )
+          }
         case .numbered:
           break
         }
@@ -879,4 +961,3 @@ final class MarkdownEditorTextView: NSTextView {
     setNeedsDisplay(bounds)
   }
 }
-

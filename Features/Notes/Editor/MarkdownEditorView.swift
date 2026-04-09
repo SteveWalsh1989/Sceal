@@ -1173,11 +1173,27 @@ extension MarkdownEditorView {
           let newAttachment = NSAttributedString(
             attachment: MarkdownEditorFormatter.checkboxAttachment(
               checked: checked, color: bulletColor))
+          let preservedParagraphStyle = attrs[.paragraphStyle]
+          let preservedIndentLevel = attrs[.markdownIndentLevel]
           textStorage.replaceCharacters(
             in: NSRange(location: trimmed.location, length: 1), with: newAttachment)
           textStorage.addAttribute(
             .markdownListType, value: listType.rawValue,
             range: NSRange(location: trimmed.location, length: 1))
+          if let preservedParagraphStyle {
+            textStorage.addAttribute(
+              .paragraphStyle,
+              value: preservedParagraphStyle,
+              range: NSRange(location: trimmed.location, length: 1)
+            )
+          }
+          if let preservedIndentLevel {
+            textStorage.addAttribute(
+              .markdownIndentLevel,
+              value: preservedIndentLevel,
+              range: NSRange(location: trimmed.location, length: 1)
+            )
+          }
         case .numbered:
           break
         }

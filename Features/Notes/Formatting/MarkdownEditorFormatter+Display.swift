@@ -457,10 +457,26 @@ extension MarkdownEditorFormatter {
       let newAttachment = NSAttributedString(
         attachment: checkboxAttachment(checked: checked, color: color))
       let mutable = NSMutableAttributedString(attributedString: displayLine)
+      let preservedParagraphStyle = attrs[.paragraphStyle]
+      let preservedIndentLevel = attrs[.markdownIndentLevel]
       mutable.replaceCharacters(in: NSRange(location: 0, length: 1), with: newAttachment)
       mutable.addAttribute(
         .markdownListType, value: listType.rawValue,
         range: NSRange(location: 0, length: 1))
+      if let preservedParagraphStyle {
+        mutable.addAttribute(
+          .paragraphStyle,
+          value: preservedParagraphStyle,
+          range: NSRange(location: 0, length: 1)
+        )
+      }
+      if let preservedIndentLevel {
+        mutable.addAttribute(
+          .markdownIndentLevel,
+          value: preservedIndentLevel,
+          range: NSRange(location: 0, length: 1)
+        )
+      }
       return mutable
 
     case .numbered:
