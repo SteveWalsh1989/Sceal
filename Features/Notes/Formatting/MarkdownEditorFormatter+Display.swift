@@ -307,6 +307,8 @@ extension MarkdownEditorFormatter {
       if let url = URL(string: urlString) { attrs[.link] = url }
       attrStr.addAttributes(attrs, range: newRange)
     }
+
+    applyAutomaticLinkDetection(in: attrStr, range: range)
   }
 
   // Convenience for applying all inline formatting to a standalone attributed string.
@@ -315,6 +317,51 @@ extension MarkdownEditorFormatter {
   ) {
     applyInlineFormatting(
       in: attrStr, range: NSRange(location: 0, length: attrStr.length), defaultFont: defaultFont)
+  }
+
+  // Detects plain URLs so pasted or typed links become clickable without explicit markdown syntax.
+  private static func applyAutomaticLinkDetection(
+    in attrStr: NSMutableAttributedString,
+    range: NSRange
+  ) {
+    guard let urlDetector = Self.urlDetector else { return }
+
+    let matches = urlDetector.matches(in: attrStr.string, range: range)
+    for match in matches {
+      let matchRange = match.range
+      guard matchRange.length > 0 else { continue }
+      guard let url = match.url else { continue }
+      guard shouldApplyAutomaticLink(to: attrStr, range: matchRange) else { continue }
+
+      attrStr.addAttributes(
+        [
+          .foregroundColor: NSColor.linkColor,
+          .link: url,
+        ],
+        range: matchRange
+      )
+    }
+  }
+
+  // Skips autolinks inside code or ranges that already carry explicit link metadata.
+  private static func shouldApplyAutomaticLink(
+    to attrStr: NSMutableAttributedString,
+    range: NSRange
+  ) -> Bool {
+    var shouldApply = true
+
+    attrStr.enumerateAttributes(in: range, options: []) { attrs, _, stop in
+      let alreadyLinked =
+        attrs[.markdownInlineCode] as? Bool == true
+        || attrs[.markdownLinkURL] != nil
+        || attrs[.link] != nil
+      if alreadyLinked {
+        shouldApply = false
+        stop.pointee = true
+      }
+    }
+
+    return shouldApply
   }
 
   // MARK: - Styled Special Lines (kept as raw text, just styled)

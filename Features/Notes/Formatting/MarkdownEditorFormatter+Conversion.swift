@@ -60,6 +60,17 @@ extension MarkdownEditorFormatter {
     return normalized.joined(separator: "\n")
   }
 
+  // Converts a selection to markdown, falling back to inline-only reconstruction for partial lines.
+  static func convertSelectionToMarkdown(
+    from attributedString: NSAttributedString,
+    preserveBlockStructure: Bool
+  ) -> String {
+    if preserveBlockStructure {
+      return convertToMarkdown(from: attributedString)
+    }
+    return convertInlineSelectionToMarkdown(from: attributedString)
+  }
+
   // Rebuilds a single markdown line from its display attributes.
   private static func reconstructLine(
     from attributedString: NSAttributedString, textRange: NSRange
@@ -203,5 +214,32 @@ extension MarkdownEditorFormatter {
     }
 
     return result
+  }
+
+  // Reconstructs only inline markdown so partial-line selections don't grow block prefixes.
+  private static func convertInlineSelectionToMarkdown(from attributedString: NSAttributedString)
+    -> String
+  {
+    let nsString = attributedString.string as NSString
+    guard nsString.length > 0 else { return "" }
+
+    var markdownLines: [String] = []
+    var lineStart = 0
+
+    while lineStart < nsString.length {
+      let lineRange = nsString.lineRange(for: NSRange(location: lineStart, length: 0))
+      var textRange = lineRange
+
+      if textRange.length > 0
+        && nsString.character(at: textRange.location + textRange.length - 1) == 0x0A
+      {
+        textRange.length -= 1
+      }
+
+      markdownLines.append(reconstructInlineMarkdown(from: attributedString, range: textRange))
+      lineStart = NSMaxRange(lineRange)
+    }
+
+    return markdownLines.joined(separator: "\n")
   }
 }

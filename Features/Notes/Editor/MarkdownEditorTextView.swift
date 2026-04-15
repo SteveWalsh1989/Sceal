@@ -530,9 +530,11 @@ final class MarkdownEditorTextView: NSTextView {
     guard range.length > 0, let textStorage else { return nil }
     let nsString = textStorage.string as NSString
     let lineRange = nsString.lineRange(for: NSRange(location: range.location, length: 0))
-    guard range.location == lineRange.location else { return nil }
     let selected = textStorage.attributedSubstring(from: range)
-    return MarkdownEditorFormatter.convertToMarkdown(from: selected)
+    return MarkdownEditorFormatter.convertSelectionToMarkdown(
+      from: selected,
+      preserveBlockStructure: range.location == lineRange.location
+    )
   }
 
   // Copies selection and also writes raw markdown to a custom pasteboard type.
@@ -541,6 +543,7 @@ final class MarkdownEditorTextView: NSTextView {
     if let markdown = markdownForCurrentSelection() {
       NSPasteboard.general.addTypes([Self.markdownPasteboardType], owner: nil)
       NSPasteboard.general.setString(markdown, forType: Self.markdownPasteboardType)
+      NSPasteboard.general.setString(markdown, forType: .string)
     }
   }
 
@@ -552,6 +555,7 @@ final class MarkdownEditorTextView: NSTextView {
     if let markdown {
       NSPasteboard.general.addTypes([Self.markdownPasteboardType], owner: nil)
       NSPasteboard.general.setString(markdown, forType: Self.markdownPasteboardType)
+      NSPasteboard.general.setString(markdown, forType: .string)
     }
   }
 

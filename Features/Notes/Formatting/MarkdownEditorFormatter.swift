@@ -46,6 +46,8 @@ enum MarkdownEditorFormatter {
   static let inlineCodeRegex = try! NSRegularExpression(pattern: #"`([^`]+)`"#)
   static let linkRegex = try! NSRegularExpression(
     pattern: #"\[([^\]]+)\]\(([^\)]+)\)"#)
+  static let urlDetector = try? NSDataDetector(
+    types: NSTextCheckingResult.CheckingType.link.rawValue)
   private static let paragraphStyleCacheLock = NSLock()
   private static var bodyParagraphStyles: [BodyParagraphStyleKey: NSParagraphStyle] = [:]
   private static var listParagraphStyles: [ListParagraphStyleKey: NSParagraphStyle] = [:]
@@ -395,6 +397,25 @@ enum MarkdownEditorFormatter {
         }
         return nil
       }
+
+      if lineContainsInlineFormatting(in: textStorage, range: lineRange) {
+        let rawMarkdownLine = convertToMarkdown(
+          from: textStorage.attributedSubstring(from: lineRange))
+        let displayLine = buildDisplayLine(rawMarkdownLine, appearance: appearance)
+
+        textStorage.beginEditing()
+        textStorage.replaceCharacters(in: lineRange, with: displayLine)
+        textStorage.endEditing()
+
+        if displayLine.length > 0 {
+          let displayAttrs = displayLine.attributes(at: 0, effectiveRange: nil)
+          if let rawType = displayAttrs[.markdownListType] as? String {
+            return MarkdownListType(rawValue: rawType)
+          }
+        }
+
+        return nil
+      }
     }
 
     // Build formatted version of this raw markdown line
@@ -413,6 +434,30 @@ enum MarkdownEditorFormatter {
     }
 
     return nil
+  }
+
+  // Detects inline markdown semantics so line reformatting can rebuild from markdown instead of display text.
+  private static func lineContainsInlineFormatting(in textStorage: NSTextStorage, range: NSRange)
+    -> Bool
+  {
+    var containsInlineFormatting = false
+
+    textStorage.enumerateAttributes(in: range, options: []) { attrs, _, stop in
+      let hasInlineFormatting =
+        attrs[.markdownBold] as? Bool == true
+        || attrs[.markdownItalic] as? Bool == true
+        || attrs[.markdownStrikethrough] as? Bool == true
+        || attrs[.markdownInlineCode] as? Bool == true
+        || attrs[.markdownLinkURL] != nil
+        || attrs[.link] != nil
+
+      if hasInlineFormatting {
+        containsInlineFormatting = true
+        stop.pointee = true
+      }
+    }
+
+    return containsInlineFormatting
   }
 
 }
