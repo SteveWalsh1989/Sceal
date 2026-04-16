@@ -1,13 +1,13 @@
 import Foundation
 
 // Writes a full standalone backup archive containing daily notes, list notes, and metadata.
-enum ScealBackupArchiveExporter {
-  static let managedFolderName = "Sceal Backup"
-  private static let metadataFileName = "backup-metadata.json"
-  private static let dailyNotesFolderName = "Notes"
-  private static let listNotesFolderName = "ListNotes"
-  private static let manifestFileName = "groups.json"
-  private static let metadataVersion = 1
+nonisolated enum ScealBackupArchiveExporter {
+  nonisolated static let managedFolderName = "Sceal Backup"
+  nonisolated private static let metadataFileName = "backup-metadata.json"
+  nonisolated private static let dailyNotesFolderName = "Notes"
+  nonisolated private static let listNotesFolderName = "ListNotes"
+  nonisolated private static let manifestFileName = "groups.json"
+  nonisolated private static let metadataVersion = 1
 
   // Creates a backup zip in a temporary directory and returns the archive URL.
   nonisolated static func exportBackup(
@@ -95,7 +95,7 @@ enum ScealBackupArchiveExporter {
   }
 }
 
-struct BackupArchiveMetadata: Codable, Equatable, Sendable {
+nonisolated struct BackupArchiveMetadata: Codable, Equatable, Sendable {
   let appVersion: String
   let backupFormatVersion: Int
   let backupKind: BackupArchiveKind

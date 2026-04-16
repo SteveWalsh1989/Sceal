@@ -2,8 +2,8 @@ import Foundation
 import OSLog
 
 // Shared zip-archive utilities for export and backup flows.
-enum ZipArchiveWriter {
-  private static let logger = Logger(subsystem: "com.sceal.app", category: "archive")
+nonisolated enum ZipArchiveWriter {
+  nonisolated private static let logger = Logger(subsystem: "com.sceal.app", category: "archive")
 
   // Creates a temporary staging root that can later be zipped and cleaned up.
   nonisolated static func makeTemporaryStagingDirectory(prefix: String, rootFolderName: String)

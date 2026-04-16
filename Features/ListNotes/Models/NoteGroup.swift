@@ -6,7 +6,7 @@
 
 import Foundation
 
-struct NoteGroup: Identifiable, Codable, Equatable, Sendable {
+nonisolated struct NoteGroup: Identifiable, Codable, Equatable, Sendable {
   let id: String
   var name: String
   var noteIDs: [String]

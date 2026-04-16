@@ -1,12 +1,12 @@
 import Foundation
 
-enum BackupSchedule: String, CaseIterable, Codable, Sendable {
+nonisolated enum BackupSchedule: String, CaseIterable, Codable, Sendable {
   case manualOnly
   case hourly
   case daily
   case weekly
 
-  var displayName: String {
+  nonisolated var displayName: String {
     switch self {
     case .manualOnly: return "Manual only"
     case .hourly: return "Hourly"
@@ -15,7 +15,7 @@ enum BackupSchedule: String, CaseIterable, Codable, Sendable {
     }
   }
 
-  var automaticInterval: TimeInterval? {
+  nonisolated var automaticInterval: TimeInterval? {
     switch self {
     case .manualOnly:
       return nil
@@ -28,7 +28,7 @@ enum BackupSchedule: String, CaseIterable, Codable, Sendable {
     }
   }
 
-  var retainedAutomaticBackupCount: Int? {
+  nonisolated var retainedAutomaticBackupCount: Int? {
     switch self {
     case .manualOnly:
       return nil
@@ -42,7 +42,7 @@ enum BackupSchedule: String, CaseIterable, Codable, Sendable {
   }
 }
 
-enum BackupHealth: String, Sendable {
+nonisolated enum BackupHealth: String, Sendable {
   case notConfigured
   case healthy
   case running
@@ -51,7 +51,7 @@ enum BackupHealth: String, Sendable {
   case permissionRequired
   case failed
 
-  var displayName: String {
+  nonisolated var displayName: String {
     switch self {
     case .notConfigured: return "Not configured"
     case .healthy: return "Healthy"
@@ -64,12 +64,12 @@ enum BackupHealth: String, Sendable {
   }
 }
 
-enum BackupArchiveKind: String, Codable, Sendable {
+nonisolated enum BackupArchiveKind: String, Codable, Sendable {
   case manual
   case automatic
 }
 
-enum BackupTrigger: Equatable, Sendable {
+nonisolated enum BackupTrigger: Equatable, Sendable {
   case manual
   case locationConfigured
   case launchCatchUp
@@ -87,7 +87,7 @@ enum BackupTrigger: Equatable, Sendable {
   }
 }
 
-struct BackupSettings: Codable, Equatable, Sendable {
+nonisolated struct BackupSettings: Codable, Equatable, Sendable {
   var folderBookmarkData: Data?
   var folderDisplayPath: String?
   var schedule: BackupSchedule
@@ -98,7 +98,7 @@ struct BackupSettings: Codable, Equatable, Sendable {
   var lastBackupArchiveName: String?
   var lastBackupBytes: Int64?
 
-  static let `default` = BackupSettings(
+  nonisolated static let `default` = BackupSettings(
     folderBookmarkData: nil,
     folderDisplayPath: nil,
     schedule: .daily,
@@ -110,7 +110,7 @@ struct BackupSettings: Codable, Equatable, Sendable {
     lastBackupBytes: nil
   )
 
-  var isConfigured: Bool {
+  nonisolated var isConfigured: Bool {
     folderBookmarkData != nil && folderDisplayPath != nil
   }
 }
