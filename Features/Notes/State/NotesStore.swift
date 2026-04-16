@@ -69,10 +69,13 @@ final class NotesStore: ObservableObject {
   @Published var userMessage: (text: String, kind: UserMessageKind)?
   @Published var isPerformingFileOperation = false
   @Published var progressMessage: String?
+  @Published var backupSettings: BackupSettings
+  @Published var backupHealth: BackupHealth
+  @Published var isBackupRunning = false
 
   let fileManager: FileManager
   let calendar: Calendar
-  private let userDefaults: UserDefaults
+  let userDefaults: UserDefaults
   private var hasLoaded = false
   private var noteIndex: [DayNote.ID: Int] = [:]
   var listNoteIndex: [DayNote.ID: Int] = [:]
@@ -80,10 +83,12 @@ final class NotesStore: ObservableObject {
   private var pendingSaveTasks: [DayNote.ID: Task<Void, Never>] = [:]
   var pendingListNoteSaveTasks: [DayNote.ID: Task<Void, Never>] = [:]
   private var periodicFlushTask: Task<Void, Never>?
+  var periodicBackupCheckTask: Task<Void, Never>?
 
   private static let logger = Logger(subsystem: "com.sceal.app", category: "store")
   private static let appearanceSettingsDefaultsKey = "sceal.noteAppearanceSettings"
   private static let newNoteDefaultKey = "sceal.newNoteDefault"
+  nonisolated static let backupSettingsDefaultsKey = "sceal.backupSettings"
 
   init(
     fileManager: FileManager = .default,
@@ -95,10 +100,13 @@ final class NotesStore: ObservableObject {
     self.calendar = calendar
     self.userDefaults = userDefaults
     let sortedNotes = previewNotes.sorted(by: { $0.date > $1.date })
+    let loadedBackupSettings = Self.loadBackupSettings(from: userDefaults)
     self.notes = sortedNotes
     self.noteIndex = Dictionary(uniqueKeysWithValues: sortedNotes.enumerated().map { ($1.id, $0) })
     self.appearanceSettings = Self.loadAppearanceSettings(from: userDefaults)
     self.newNoteDefault = Self.loadNewNoteDefault(from: userDefaults)
+    self.backupSettings = loadedBackupSettings
+    self.backupHealth = loadedBackupSettings.isConfigured ? .healthy : .notConfigured
     self.selectedNoteID = sortedNotes.first?.id
     self.hasLoaded = !previewNotes.isEmpty
   }
@@ -116,6 +124,9 @@ final class NotesStore: ObservableObject {
       task.cancel()
     }
     pendingListNoteSaveTasks.removeAll()
+
+    periodicBackupCheckTask?.cancel()
+    periodicBackupCheckTask = nil
   }
 
   var isSearchActive: Bool {
@@ -217,6 +228,9 @@ final class NotesStore: ObservableObject {
     hasLoaded = true
     isLoading = false
     startPeriodicFlush()
+    startPeriodicBackupChecks()
+    refreshBackupHealth()
+    checkAndRunBackupIfDue(trigger: .launchCatchUp)
   }
 
   // Creates today's note if needed and selects it.

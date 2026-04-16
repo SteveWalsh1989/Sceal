@@ -8,6 +8,7 @@
 enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
   case appearance
   case themes
+  case backup
   case importData
   case exportData
 
@@ -17,6 +18,7 @@ enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
     switch self {
     case .appearance: return "Appearance"
     case .themes: return "Themes"
+    case .backup: return "Backup"
     case .importData: return "Import"
     case .exportData: return "Export"
     }
@@ -26,6 +28,7 @@ enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
     switch self {
     case .appearance: return "paintbrush"
     case .themes: return "paintpalette"
+    case .backup: return "externaldrive.badge.timemachine"
     case .importData: return "square.and.arrow.down"
     case .exportData: return "square.and.arrow.up"
     }

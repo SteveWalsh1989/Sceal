@@ -33,6 +33,8 @@ struct SettingsRootView: View {
       SettingsAppearanceView(store: store)
     case .themes:
       SettingsThemesView(store: store)
+    case .backup:
+      SettingsBackupView(store: store)
     case .importData:
       SettingsImportView(store: store)
     case .exportData:

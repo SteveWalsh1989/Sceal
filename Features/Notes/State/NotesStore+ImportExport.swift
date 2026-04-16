@@ -121,7 +121,9 @@ extension NotesStore {
     panelMessage: String,
     context: String,
     emptyMessage: String,
-    importBlock: @Sendable @escaping (_ folderURL: URL, _ existingNoteIDs: Set<DayNote.ID>) throws -> ImportOutcome
+    importBlock:
+      @Sendable @escaping (_ folderURL: URL, _ existingNoteIDs: Set<DayNote.ID>) throws ->
+      ImportOutcome
   ) {
     guard let folderURL = selectImportFolder(title: panelTitle, message: panelMessage) else {
       return
@@ -183,6 +185,7 @@ extension NotesStore {
           self.notes = (self.notes + outcome.imported).sorted(by: { $0.date > $1.date })
           self.rebuildNoteIndex()
           self.showImportMessage(outcome, emptyMessage: emptyMessage)
+          self.checkAndRunBackupIfDue(trigger: .postImport)
           self.isPerformingFileOperation = false
           self.progressMessage = nil
         }
@@ -246,4 +249,3 @@ extension NotesStore {
     selectedNoteID = outcome.imported.first?.id
   }
 }
-

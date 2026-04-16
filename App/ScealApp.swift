@@ -28,6 +28,9 @@ struct ScealApp: App {
     .onChange(of: scenePhase) { _, newScenePhase in
       if newScenePhase != .active {
         noteStore.flushPendingSaves()
+        if noteStore.backupSettings.backupOnInactive {
+          noteStore.checkAndRunBackupIfDue(trigger: .inactive)
+        }
       }
     }
 
