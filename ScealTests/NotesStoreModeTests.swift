@@ -30,12 +30,40 @@ final class NotesStoreModeTests: NotesStoreTestCase {
     XCTAssertFalse(store.isListSearchBarExpanded)
   }
 
+  // Prevents daily search state from being reset when switching between the two daily-note views.
+  func testSwitchingBetweenDailyAndCalendarPreservesDailySearch() {
+    let store = makeStore(previewNotes: [makeDailyNote(year: 2026, month: 4, day: 1)])
+    store.searchText = "daily"
+    store.isSearchBarExpanded = true
+
+    store.sidebarMode = .calendar
+
+    XCTAssertEqual(store.searchText, "daily")
+    XCTAssertTrue(store.isSearchBarExpanded)
+
+    store.sidebarMode = .daily
+
+    XCTAssertEqual(store.searchText, "daily")
+    XCTAssertTrue(store.isSearchBarExpanded)
+  }
+
   // Prevents active selection routing from pointing the editor at the wrong daily note.
   func testActiveSelectedNoteIDUsesDailySelection() {
     let note = makeDailyNote(year: 2026, month: 4, day: 1)
     let store = makeStore(previewNotes: [note])
 
     store.sidebarMode = .daily
+    store.selectedNoteID = note.id
+
+    XCTAssertEqual(store.activeSelectedNoteID, note.id)
+  }
+
+  // Prevents calendar mode from routing the editor away from the selected daily note.
+  func testActiveSelectedNoteIDUsesCalendarSelection() {
+    let note = makeDailyNote(year: 2025, month: 2, day: 14)
+    let store = makeStore(previewNotes: [note])
+
+    store.sidebarMode = .calendar
     store.selectedNoteID = note.id
 
     XCTAssertEqual(store.activeSelectedNoteID, note.id)
@@ -64,6 +92,17 @@ final class NotesStoreModeTests: NotesStoreTestCase {
     XCTAssertEqual(store.activeNote?.id, note.id)
   }
 
+  // Prevents the calendar sidebar from resolving the wrong daily note in the editor.
+  func testActiveNoteUsesCalendarSelection() {
+    let note = makeDailyNote(year: 2025, month: 2, day: 14, title: "Calendar")
+    let store = makeStore(previewNotes: [note])
+
+    store.sidebarMode = .calendar
+    store.selectedNoteID = note.id
+
+    XCTAssertEqual(store.activeNote?.id, note.id)
+  }
+
   // Prevents the editor from resolving the wrong note when list mode is active.
   func testActiveNoteUsesListSelection() {
     let store = makeStore(previewNotes: [makeDailyNote(year: 2026, month: 4, day: 1)])
@@ -86,6 +125,17 @@ final class NotesStoreModeTests: NotesStoreTestCase {
 
     XCTAssertEqual(store.searchText, "daily query")
     XCTAssertEqual(store.activeSearchTextBinding.wrappedValue, "daily query")
+  }
+
+  // Prevents calendar mode from writing search text into the list-note search state.
+  func testActiveSearchTextBindingUsesCalendarDailySearch() {
+    let store = makeStore(previewNotes: [makeDailyNote(year: 2026, month: 4, day: 1)])
+
+    store.sidebarMode = .calendar
+    store.activeSearchTextBinding.wrappedValue = "calendar query"
+
+    XCTAssertEqual(store.searchText, "calendar query")
+    XCTAssertEqual(store.activeSearchTextBinding.wrappedValue, "calendar query")
   }
 
   // Prevents the shared search bar from writing into the wrong list search state.

@@ -22,14 +22,19 @@
 
 /* Begin PBXFileReference section */
 		2C90B2D62F7D6E1700B3A430 /* Sceal.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Sceal.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		B20000012F90000100B3A430 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A10000012F7E000100B3A430 /* ScealTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ScealTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B20000012F90000100B3A430 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		2C90B2D82F7D6E1700B3A430 /* App */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = App;
+			sourceTree = "<group>";
+		};
+		A10000022F7E000100B3A430 /* ScealTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = ScealTests;
 			sourceTree = "<group>";
 		};
 		B20000022F90000100B3A430 /* Features */ = {
@@ -40,11 +45,6 @@
 		B20000032F90000100B3A430 /* Shared */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = Shared;
-			sourceTree = "<group>";
-		};
-		A10000022F7E000100B3A430 /* ScealTests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = ScealTests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */

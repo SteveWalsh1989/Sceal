@@ -42,24 +42,40 @@ final class NotesStore: ObservableObject {
   @Published var notes: [DayNote] {
     didSet {
       cachedMonthSections = nil
+      clampCalendarBrowseYear()
     }
   }
   @Published private(set) var appearanceSettings: NoteAppearanceSettings
   @Published private(set) var newNoteDefault: NewNoteDefault
-  @Published var selectedNoteID: DayNote.ID?
+  @Published var selectedNoteID: DayNote.ID? {
+    didSet {
+      guard sidebarMode == .calendar else { return }
+      syncCalendarBrowseYearToSelectedNote()
+    }
+  }
   @Published var searchText: String = "" {
     didSet { cachedMonthSections = nil }
   }
   @Published var isSearchBarExpanded = false
   @Published var sidebarMode: SidebarMode = .daily {
     didSet {
-      if oldValue != sidebarMode {
+      guard oldValue != sidebarMode else { return }
+
+      if sidebarMode == .list {
         clearSearch()
+      }
+
+      if oldValue == .list {
         listSearchText = ""
         isListSearchBarExpanded = false
       }
+
+      if sidebarMode == .calendar {
+        syncCalendarBrowseYearToSelectedNote()
+      }
     }
   }
+  @Published var calendarBrowseYear: Int
   @Published var listNotes: [DayNote] = []
   @Published var listNoteManifest: ListNotesManifest = .empty
   @Published var selectedListNoteID: DayNote.ID?
@@ -101,12 +117,14 @@ final class NotesStore: ObservableObject {
     self.userDefaults = userDefaults
     let sortedNotes = previewNotes.sorted(by: { $0.date > $1.date })
     let loadedBackupSettings = Self.loadBackupSettings(from: userDefaults)
+    let currentYear = calendar.component(.year, from: .now)
     self.notes = sortedNotes
     self.noteIndex = Dictionary(uniqueKeysWithValues: sortedNotes.enumerated().map { ($1.id, $0) })
     self.appearanceSettings = Self.loadAppearanceSettings(from: userDefaults)
     self.newNoteDefault = Self.loadNewNoteDefault(from: userDefaults)
     self.backupSettings = loadedBackupSettings
     self.backupHealth = loadedBackupSettings.isConfigured ? .healthy : .notConfigured
+    self.calendarBrowseYear = currentYear
     self.selectedNoteID = sortedNotes.first?.id
     self.hasLoaded = !previewNotes.isEmpty
   }
@@ -131,6 +149,25 @@ final class NotesStore: ObservableObject {
 
   var isSearchActive: Bool {
     !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  }
+
+  // Notes that match the current daily-note search query.
+  var filteredDailyNotes: [DayNote] {
+    filteredNotes
+  }
+
+  // Fast lookup set for daily search matches in calendar mode.
+  var filteredDailyNoteIDs: Set<DayNote.ID> {
+    Set(filteredNotes.map(\.id))
+  }
+
+  // The oldest/newest years available to the calendar browser, always including today.
+  var calendarYearBounds: ClosedRange<Int> {
+    let currentYear = calendar.component(.year, from: .now)
+    let noteYears = notes.map { calendar.component(.year, from: $0.date) }
+    let minimumYear = min(noteYears.min() ?? currentYear, currentYear)
+    let maximumYear = max(noteYears.max() ?? currentYear, currentYear)
+    return minimumYear...maximumYear
   }
 
   func clearSearch() {
@@ -238,9 +275,46 @@ final class NotesStore: ObservableObject {
     do {
       try ensureTodayNoteExists()
       selectedNoteID = dayID(for: .now)
+      calendarBrowseYear = calendar.component(.year, from: .now)
     } catch {
       report(error, context: "Opening today's note failed")
     }
+  }
+
+  // Opens an existing daily note for the target date, creating a blank one when missing.
+  func openDailyDate(_ date: Date) {
+    let targetDate = calendar.startOfDay(for: date)
+
+    do {
+      let note = try ensureDailyNoteExists(
+        for: targetDate, applyTodayDefault: calendar.isDateInToday(targetDate))
+      selectedNoteID = note.id
+      calendarBrowseYear = calendar.component(.year, from: targetDate)
+    } catch {
+      report(error, context: "Opening note failed")
+    }
+  }
+
+  // Returns the daily note saved for a date, if one exists.
+  func dailyNote(on date: Date) -> DayNote? {
+    note(withID: dayID(for: date))
+  }
+
+  // Whether a saved daily note exists for the given date.
+  func hasDailyNote(on date: Date) -> Bool {
+    dailyNote(on: date) != nil
+  }
+
+  // Steps the visible calendar year while staying inside the available note range.
+  func browseCalendarYear(by delta: Int) {
+    let bounds = calendarYearBounds
+    let targetYear = min(max(calendarBrowseYear + delta, bounds.lowerBound), bounds.upperBound)
+    calendarBrowseYear = targetYear
+  }
+
+  // Whether a one-step year navigation stays inside the available note range.
+  func canBrowseCalendarYear(by delta: Int) -> Bool {
+    calendarYearBounds.contains(calendarBrowseYear + delta)
   }
 
   // Clears the current user-facing message banner.
@@ -461,21 +535,39 @@ final class NotesStore: ObservableObject {
 
   // Creates today's note (blank or copy-previous) if it doesn't exist.
   private func ensureTodayNoteExists() throws {
-    let todayID = dayID(for: .now)
-    guard note(withID: todayID) == nil else {
-      return
+    _ = try ensureDailyNoteExists(for: .now, applyTodayDefault: true)
+  }
+
+  // Creates a daily note for the date when missing and returns the existing or new note.
+  private func ensureDailyNoteExists(for date: Date, applyTodayDefault: Bool) throws -> DayNote {
+    let targetDate = calendar.startOfDay(for: date)
+    let targetID = dayID(for: targetDate)
+
+    if let existingNote = note(withID: targetID) {
+      return existingNote
     }
 
-    let todayNote: DayNote
-    if newNoteDefault == .copyPrevious, let mostRecent = notes.first {
-      todayNote = mostRecent.copyForToday(calendar: calendar)
-    } else {
-      todayNote = DayNote.empty(for: .now, calendar: calendar)
-    }
-
-    notes = ([todayNote] + notes).sorted(by: { $0.date > $1.date })
+    let newNote = makeDailyNote(for: targetDate, applyTodayDefault: applyTodayDefault)
+    notes = ([newNote] + notes).sorted(by: { $0.date > $1.date })
     rebuildNoteIndex()
-    try save(todayNote)
+    try save(newNote)
+    return newNote
+  }
+
+  // Builds a blank day note, or copies the most recent note when creating today with that default.
+  private func makeDailyNote(for date: Date, applyTodayDefault: Bool) -> DayNote {
+    let startOfDay = calendar.startOfDay(for: date)
+
+    if applyTodayDefault, newNoteDefault == .copyPrevious, let mostRecent = notes.first {
+      return DayNote(
+        date: startOfDay,
+        title: mostRecent.title,
+        tags: mostRecent.tags,
+        body: mostRecent.body
+      )
+    }
+
+    return DayNote.empty(for: startOfDay, calendar: calendar)
   }
 
   // Decodes a single note from a markdown file URL.
@@ -677,6 +769,25 @@ final class NotesStore: ObservableObject {
   // Rebuilds the ID-to-array-index lookup dictionary.
   func rebuildNoteIndex() {
     noteIndex = Dictionary(uniqueKeysWithValues: notes.enumerated().map { ($1.id, $0) })
+  }
+
+  // Keeps the visible calendar year inside the available note range after note changes.
+  private func clampCalendarBrowseYear() {
+    let bounds = calendarYearBounds
+    if calendarBrowseYear < bounds.lowerBound {
+      calendarBrowseYear = bounds.lowerBound
+    } else if calendarBrowseYear > bounds.upperBound {
+      calendarBrowseYear = bounds.upperBound
+    }
+  }
+
+  // When calendar mode is active, the grid follows the currently selected daily note.
+  private func syncCalendarBrowseYearToSelectedNote() {
+    if let selectedNote {
+      calendarBrowseYear = calendar.component(.year, from: selectedNote.date)
+    } else {
+      clampCalendarBrowseYear()
+    }
   }
 
   // Logs an error and surfaces it as a user-facing message.

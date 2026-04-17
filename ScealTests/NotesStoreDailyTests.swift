@@ -51,4 +51,40 @@ final class NotesStoreDailyTests: NotesStoreTestCase {
     XCTAssertEqual(store.searchText, "")
     XCTAssertFalse(store.isSearchBarExpanded)
   }
+
+  // Prevents calendar taps on missing days from failing to create/select a new daily note.
+  func testOpenDailyDateCreatesMissingNoteAndSelectsIt() {
+    let existing = makeDailyNote(year: 2026, month: 4, day: 3, title: "Existing")
+    let targetDate = makeDate(year: 2025, month: 2, day: 14)
+    let store = makeStore(previewNotes: [existing])
+
+    store.openDailyDate(targetDate)
+
+    let createdID = NoteDateFormatters.storageDate.string(from: targetDate)
+    XCTAssertEqual(store.selectedNoteID, createdID)
+    XCTAssertEqual(store.dailyNote(on: targetDate)?.id, createdID)
+    XCTAssertEqual(store.notes.count, 2)
+    XCTAssertEqual(store.calendarBrowseYear, 2025)
+  }
+
+  // Prevents calendar taps on existing days from creating duplicate notes.
+  func testOpenDailyDateSelectsExistingNoteWithoutCreatingDuplicate() {
+    let existing = makeDailyNote(year: 2025, month: 2, day: 14, title: "Saved")
+    let store = makeStore(previewNotes: [existing])
+
+    store.openDailyDate(existing.date)
+
+    XCTAssertEqual(store.selectedNoteID, existing.id)
+    XCTAssertEqual(store.notes.count, 1)
+    XCTAssertEqual(store.calendarBrowseYear, 2025)
+  }
+
+  // Prevents the calendar year browser from excluding the current year when all notes are older.
+  func testCalendarYearBoundsIncludeCurrentYear() {
+    let currentYear = Calendar.current.component(.year, from: .now)
+    let store = makeStore(previewNotes: [makeDailyNote(year: 2021, month: 1, day: 1)])
+
+    XCTAssertEqual(store.calendarYearBounds.lowerBound, 2021)
+    XCTAssertEqual(store.calendarYearBounds.upperBound, currentYear)
+  }
 }

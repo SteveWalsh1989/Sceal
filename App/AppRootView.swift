@@ -40,9 +40,9 @@ struct AppRootView: View {
         } else {
           ContentUnavailableView(
             "No note selected",
-            systemImage: store.sidebarMode == .daily ? "calendar" : "list.bullet",
+            systemImage: store.sidebarMode.usesDailyNotes ? "calendar" : "list.bullet",
             description: Text(
-              store.sidebarMode == .daily
+              store.sidebarMode.usesDailyNotes
                 ? "Choose a day from the sidebar to start writing."
                 : "Select a note from the sidebar or add a new one."
             )
@@ -67,7 +67,7 @@ struct AppRootView: View {
         }
 
         switch store.sidebarMode {
-        case .daily:
+        case .calendar, .daily:
           store.delete(noteID: notePendingDeletionID)
         case .list:
           store.deleteListNote(noteID: notePendingDeletionID)

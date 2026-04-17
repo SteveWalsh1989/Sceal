@@ -16,6 +16,12 @@ struct NotesSidebarView: View {
     VStack(alignment: .leading, spacing: 12) {
       Group {
         switch store.sidebarMode {
+        case .calendar:
+          DailyCalendarSidebarContent(
+            store: store,
+            requestDelete: requestDelete,
+            requestChangeDate: requestChangeDate
+          )
         case .daily:
           dailySidebarContent
         case .list:
@@ -45,13 +51,13 @@ struct NotesSidebarView: View {
       SidebarKeyboardHelper(
         onUpArrow: {
           switch store.sidebarMode {
-          case .daily: store.selectNextNote()
+          case .calendar, .daily: store.selectNextNote()
           case .list: store.selectNextListNote()
           }
         },
         onDownArrow: {
           switch store.sidebarMode {
-          case .daily: store.selectPreviousNote()
+          case .calendar, .daily: store.selectPreviousNote()
           case .list: store.selectPreviousListNote()
           }
         }
@@ -375,11 +381,15 @@ private struct DayNoteCardView: View {
   private var bodySnippet: String? {
     let body = NotesStore.searchableBody(note.body)
     guard !query.isEmpty,
-          let matchRange = body.range(of: query, options: .caseInsensitive) else { return nil }
+      let matchRange = body.range(of: query, options: .caseInsensitive)
+    else { return nil }
 
     let window = 60
-    let snippetStart = body.index(matchRange.lowerBound, offsetBy: -window, limitedBy: body.startIndex) ?? body.startIndex
-    let snippetEnd = body.index(matchRange.upperBound, offsetBy: window, limitedBy: body.endIndex) ?? body.endIndex
+    let snippetStart =
+      body.index(matchRange.lowerBound, offsetBy: -window, limitedBy: body.startIndex)
+      ?? body.startIndex
+    let snippetEnd =
+      body.index(matchRange.upperBound, offsetBy: window, limitedBy: body.endIndex) ?? body.endIndex
 
     var snippet = String(body[snippetStart..<snippetEnd])
       .components(separatedBy: .newlines)
@@ -400,7 +410,9 @@ private struct DayNoteCardView: View {
 
     var searchStart = text.startIndex
     while searchStart < text.endIndex,
-          let matchRange = text.range(of: query, options: .caseInsensitive, range: searchStart..<text.endIndex) {
+      let matchRange = text.range(
+        of: query, options: .caseInsensitive, range: searchStart..<text.endIndex)
+    {
       let startOffset = text.distance(from: text.startIndex, to: matchRange.lowerBound)
       let matchLength = text.distance(from: matchRange.lowerBound, to: matchRange.upperBound)
       let attrStart = attributed.index(attributed.startIndex, offsetByCharacters: startOffset)
@@ -421,7 +433,8 @@ private struct SidebarModeToggle: View {
 
   var body: some View {
     HStack(spacing: 0) {
-      modeButton(.daily, systemImage: "calendar", label: "Daily")
+      modeButton(.calendar, systemImage: "calendar", label: "Calendar")
+      modeButton(.daily, systemImage: "clock.arrow.circlepath", label: "Daily")
       modeButton(.list, systemImage: "list.bullet", label: "Notes")
     }
     .padding(3)
@@ -432,7 +445,9 @@ private struct SidebarModeToggle: View {
   }
 
   @ViewBuilder
-  private func modeButton(_ targetMode: SidebarMode, systemImage: String, label: String) -> some View {
+  private func modeButton(_ targetMode: SidebarMode, systemImage: String, label: String)
+    -> some View
+  {
     let isActive = mode == targetMode
 
     Button {
@@ -454,6 +469,17 @@ private struct SidebarModeToggle: View {
       .foregroundStyle(isActive ? accentColor : .secondary)
     }
     .buttonStyle(.plain)
-    .accessibilityLabel(targetMode == .daily ? "Daily notes" : "List notes")
+    .accessibilityLabel(accessibilityLabel(for: targetMode))
+  }
+
+  private func accessibilityLabel(for mode: SidebarMode) -> String {
+    switch mode {
+    case .calendar:
+      return "Calendar view"
+    case .daily:
+      return "Daily notes"
+    case .list:
+      return "List notes"
+    }
   }
 }

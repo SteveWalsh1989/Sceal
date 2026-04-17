@@ -23,7 +23,7 @@ struct NotesEditorView: View {
   }
 
   private var isListMode: Bool {
-    store.sidebarMode == .list
+    !store.sidebarMode.usesDailyNotes
   }
 
   // Resolves the current note from either daily or list notes.
@@ -190,7 +190,9 @@ private struct EditorSearchBar: View {
 
   var body: some View {
     // Icon button stays in the layout at 28pt at all times to prevent HStack reflow.
-    Button { expand() } label: {
+    Button {
+      expand()
+    } label: {
       Image(systemName: "magnifyingglass")
         .font(.system(size: 12, weight: .medium))
         .foregroundStyle(.secondary)

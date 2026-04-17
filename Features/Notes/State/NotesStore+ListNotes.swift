@@ -119,7 +119,9 @@ extension NotesStore {
   }
 
   // Ensures the manifest matches the notes on disk — removes orphan IDs, adds untracked notes.
-  private func reconcileManifest(_ manifest: inout ListNotesManifest, with noteIDsOnDisk: Set<String>) {
+  private func reconcileManifest(
+    _ manifest: inout ListNotesManifest, with noteIDsOnDisk: Set<String>
+  ) {
     let trackedIDs = manifest.allNoteIDs
 
     // Remove IDs from manifest that have no matching file.
@@ -456,7 +458,7 @@ extension NotesStore {
   // The selected note ID for the current sidebar mode.
   var activeSelectedNoteID: DayNote.ID? {
     switch sidebarMode {
-    case .daily: return selectedNoteID
+    case .calendar, .daily: return selectedNoteID
     case .list: return selectedListNoteID
     }
   }
@@ -465,7 +467,7 @@ extension NotesStore {
   var activeNote: DayNote? {
     guard let noteID = activeSelectedNoteID else { return nil }
     switch sidebarMode {
-    case .daily: return note(withID: noteID)
+    case .calendar, .daily: return note(withID: noteID)
     case .list: return listNote(withID: noteID)
     }
   }
@@ -473,7 +475,7 @@ extension NotesStore {
   // Two-way binding for the active mode's search text.
   var activeSearchTextBinding: Binding<String> {
     switch sidebarMode {
-    case .daily:
+    case .calendar, .daily:
       return Binding(
         get: { self.searchText },
         set: { self.searchText = $0 }
@@ -489,7 +491,7 @@ extension NotesStore {
   // Two-way binding for the active search bar expanded state.
   var activeSearchBarExpandedBinding: Binding<Bool> {
     switch sidebarMode {
-    case .daily:
+    case .calendar, .daily:
       return Binding(
         get: { self.isSearchBarExpanded },
         set: { self.isSearchBarExpanded = $0 }
@@ -505,7 +507,7 @@ extension NotesStore {
   // Title binding that routes to daily or list note by ID.
   func activeTitleBinding(for noteID: DayNote.ID) -> Binding<String> {
     switch sidebarMode {
-    case .daily: return titleBinding(for: noteID)
+    case .calendar, .daily: return titleBinding(for: noteID)
     case .list: return listNoteTitleBinding(for: noteID)
     }
   }
@@ -513,7 +515,7 @@ extension NotesStore {
   // Tags binding that routes to daily or list note by ID.
   func activeTagsBinding(for noteID: DayNote.ID) -> Binding<String> {
     switch sidebarMode {
-    case .daily: return tagsBinding(for: noteID)
+    case .calendar, .daily: return tagsBinding(for: noteID)
     case .list: return listNoteTagsBinding(for: noteID)
     }
   }
@@ -521,7 +523,7 @@ extension NotesStore {
   // Body binding that routes to daily or list note by ID.
   func activeBodyBinding(for noteID: DayNote.ID) -> Binding<String> {
     switch sidebarMode {
-    case .daily: return bodyBinding(for: noteID)
+    case .calendar, .daily: return bodyBinding(for: noteID)
     case .list: return listNoteBodyBinding(for: noteID)
     }
   }
