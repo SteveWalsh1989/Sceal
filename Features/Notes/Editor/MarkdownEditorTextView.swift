@@ -64,11 +64,18 @@ final class MarkdownEditorTextView: NSTextView {
     guard let textStorage, textStorage.length > 0 else { return nil }
 
     let clampedLocation = min(max(location, 0), textStorage.length)
+    let nsString = textStorage.string as NSString
+    let currentLineRange: NSRange = {
+      let lineProbe = min(clampedLocation, max(textStorage.length - 1, 0))
+      return nsString.lineRange(for: NSRange(location: lineProbe, length: 0))
+    }()
+    let currentLineStart = currentLineRange.location
+    let currentLineEnd = min(NSMaxRange(currentLineRange), textStorage.length)
 
-    if clampedLocation > 0 {
+    if clampedLocation > currentLineStart {
       let backwardRange = stride(
-        from: min(clampedLocation - 1, textStorage.length - 1),
-        through: 0,
+        from: min(clampedLocation - 1, currentLineEnd - 1),
+        through: currentLineStart,
         by: -1
       )
       for candidate in backwardRange where canUseTypingAttributes(at: candidate) {
@@ -76,8 +83,22 @@ final class MarkdownEditorTextView: NSTextView {
       }
     }
 
-    guard clampedLocation < textStorage.length else { return nil }
-    for candidate in clampedLocation..<textStorage.length
+    if clampedLocation < currentLineEnd {
+      for candidate in clampedLocation..<currentLineEnd
+      where canUseTypingAttributes(at: candidate) {
+        return candidate
+      }
+    }
+
+    if currentLineStart > 0 {
+      let priorRange = stride(from: currentLineStart - 1, through: 0, by: -1)
+      for candidate in priorRange where canUseTypingAttributes(at: candidate) {
+        return candidate
+      }
+    }
+
+    guard currentLineEnd < textStorage.length else { return nil }
+    for candidate in currentLineEnd..<textStorage.length
     where canUseTypingAttributes(at: candidate) {
       return candidate
     }
@@ -89,8 +110,40 @@ final class MarkdownEditorTextView: NSTextView {
   private func canUseTypingAttributes(at location: Int) -> Bool {
     guard let textStorage, location >= 0, location < textStorage.length else { return false }
     let attributes = textStorage.attributes(at: location, effectiveRange: nil)
-    return attributes[.markdownSectionDivider] as? Bool != true
-      && attributes[.markdownHorizontalRule] as? Bool != true
+    guard attributes[.markdownSectionDivider] as? Bool != true else { return false }
+    guard attributes[.markdownHorizontalRule] as? Bool != true else { return false }
+    guard attributes[.font] != nil, attributes[.foregroundColor] != nil else { return false }
+    return !isListMarkerTypingAttributeSource(
+      at: location,
+      attributes: attributes,
+      textStorage: textStorage
+    )
+  }
+
+  // Skips list marker glyph runs so typing inherits the list paragraph style without marker fonts.
+  private func isListMarkerTypingAttributeSource(
+    at location: Int,
+    attributes: [NSAttributedString.Key: Any],
+    textStorage: NSTextStorage
+  ) -> Bool {
+    guard let rawType = attributes[.markdownListType] as? String,
+      let listType = MarkdownListType(rawValue: rawType)
+    else { return false }
+
+    let nsString = textStorage.string as NSString
+    let lineRange = nsString.lineRange(for: NSRange(location: location, length: 0))
+
+    switch listType {
+    case .bullet, .checkboxUnchecked, .checkboxChecked:
+      return location == lineRange.location
+    case .numbered:
+      let lineText = nsString.substring(with: lineRange)
+      guard let markerRange = lineText.range(of: #"^\d+\."#, options: .regularExpression) else {
+        return false
+      }
+      let markerLength = lineText.distance(from: lineText.startIndex, to: markerRange.upperBound)
+      return location < lineRange.location + markerLength
+    }
   }
 
   // Forces layout recalculation and redraws section card backgrounds.
