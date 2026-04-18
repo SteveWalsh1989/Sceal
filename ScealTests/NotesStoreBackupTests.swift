@@ -117,4 +117,55 @@ final class NotesStoreBackupTests: NotesStoreTestCase {
     XCTAssertFalse(remainingNames.contains("sceal-backup-auto-2026-04-16-01-00-00.zip"))
     XCTAssertTrue(remainingNames.contains("sceal-backup-manual-2026-04-16-00-30-00.zip"))
   }
+
+  func testWritingAutomaticBackupPrunesWhileFolderAccessIsActive() throws {
+    let temporaryDirectoryURL = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: temporaryDirectoryURL, withIntermediateDirectories: true)
+    addTeardownBlock {
+      try? FileManager.default.removeItem(at: temporaryDirectoryURL)
+    }
+
+    let managedFolderURL = ScealBackupArchiveExporter.managedBackupDirectoryURL(
+      in: temporaryDirectoryURL)
+    try FileManager.default.createDirectory(at: managedFolderURL, withIntermediateDirectories: true)
+
+    for hour in 0..<24 {
+      let archiveName = String(format: "sceal-backup-auto-2026-04-16-%02d-00-00.zip", hour)
+      try Data().write(to: managedFolderURL.appendingPathComponent(archiveName))
+    }
+
+    let bookmarkData = try temporaryDirectoryURL.bookmarkData(
+      options: [.withSecurityScope],
+      includingResourceValuesForKeys: nil,
+      relativeTo: nil
+    )
+
+    let archiveURL = try NotesStore.writeBackupArchive(
+      dailyNotes: [makeDailyNote(year: 2026, month: 4, day: 17, body: "Backup body")],
+      listNotes: [],
+      manifest: .empty,
+      bookmarkData: bookmarkData,
+      kind: .automatic,
+      schedule: .hourly,
+      createdAt: makeDate(year: 2026, month: 4, day: 17),
+      fileManager: .default
+    )
+    addTeardownBlock {
+      ZipArchiveWriter.cleanUp(zipURL: archiveURL)
+    }
+
+    let remainingNames = try FileManager.default.contentsOfDirectory(
+      at: managedFolderURL,
+      includingPropertiesForKeys: nil,
+      options: [.skipsHiddenFiles]
+    )
+    .map(\.lastPathComponent)
+    .sorted()
+
+    XCTAssertEqual(remainingNames.filter { $0.hasPrefix("sceal-backup-auto-") }.count, 24)
+    XCTAssertFalse(remainingNames.contains("sceal-backup-auto-2026-04-16-00-00-00.zip"))
+    XCTAssertTrue(remainingNames.contains(archiveURL.lastPathComponent))
+  }
 }
