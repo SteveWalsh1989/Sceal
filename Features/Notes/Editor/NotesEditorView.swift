@@ -127,6 +127,7 @@ struct NotesEditorView: View {
             noteID: noteID,
             text: store.activeBodyBinding(for: noteID),
             appearanceSettings: store.appearanceSettings,
+            continuousSpellCheckingEnabled: store.continuousSpellCheckingEnabled,
             searchText: isListMode ? store.listSearchText : store.searchText
           )
         }

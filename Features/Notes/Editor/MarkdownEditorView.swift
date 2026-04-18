@@ -25,6 +25,7 @@ struct MarkdownEditorView: NSViewRepresentable {
   let noteID: DayNote.ID
   @Binding var text: String
   let appearanceSettings: NoteAppearanceSettings
+  var continuousSpellCheckingEnabled: Bool = true
   var searchText: String = ""
 
   func makeCoordinator() -> Coordinator {
@@ -52,9 +53,15 @@ struct MarkdownEditorView: NSViewRepresentable {
       MarkdownEditorFormatter.formatForDisplay(text, appearance: appearanceSettings),
       to: textView
     )
+    Self.applyContinuousSpellChecking(
+      to: textView,
+      enabled: continuousSpellCheckingEnabled,
+      refresh: continuousSpellCheckingEnabled
+    )
     context.coordinator.syncTypingAttributesToCurrentSelection(in: textView)
     context.coordinator.lastPushedMarkdown = text
     context.coordinator.lastAppliedAppearance = appearanceSettings
+    context.coordinator.lastContinuousSpellCheckingEnabled = continuousSpellCheckingEnabled
     context.coordinator.lastNoteID = noteID
     context.coordinator.lastSearchText = searchText
     context.coordinator.lastDividerCount = (textView as MarkdownEditorTextView).sectionDividerCount
@@ -95,10 +102,13 @@ struct MarkdownEditorView: NSViewRepresentable {
     let noteChanged = noteID != context.coordinator.lastNoteID
     let textChanged = text != context.coordinator.lastPushedMarkdown
     let appearanceChanged = appearanceSettings != context.coordinator.lastAppliedAppearance
+    let spellCheckingChanged =
+      continuousSpellCheckingEnabled != context.coordinator.lastContinuousSpellCheckingEnabled
     let searchChanged = searchText != context.coordinator.lastSearchText
-    guard noteChanged || textChanged || appearanceChanged || searchChanged else { return }
+    let contentChanged = noteChanged || textChanged || appearanceChanged
+    guard contentChanged || searchChanged || spellCheckingChanged else { return }
 
-    if noteChanged || textChanged || appearanceChanged {
+    if contentChanged {
       context.coordinator.isUpdating = true
       let visibleOrigin = scrollView.contentView.bounds.origin
       let wasFirstResponder = textView.window?.firstResponder === textView
@@ -136,6 +146,13 @@ struct MarkdownEditorView: NSViewRepresentable {
       context.coordinator.refreshToolbarPresentation(in: textView)
     }
 
+    Self.applyContinuousSpellChecking(
+      to: textView,
+      enabled: continuousSpellCheckingEnabled,
+      refresh: contentChanged || spellCheckingChanged
+    )
+    context.coordinator.lastContinuousSpellCheckingEnabled = continuousSpellCheckingEnabled
+
     context.coordinator.lastSearchText = searchText
     Self.applySearchHighlights(
       to: textView, query: searchText.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -143,6 +160,20 @@ struct MarkdownEditorView: NSViewRepresentable {
   }
 
   private func configure(_ textView: NSTextView, coordinator: Coordinator) {
+    Self.configureTextView(
+      textView,
+      appearanceSettings: appearanceSettings,
+      continuousSpellCheckingEnabled: continuousSpellCheckingEnabled,
+      delegate: coordinator
+    )
+  }
+
+  static func configureTextView(
+    _ textView: NSTextView,
+    appearanceSettings: NoteAppearanceSettings,
+    continuousSpellCheckingEnabled: Bool,
+    delegate: NSTextViewDelegate?
+  ) {
     if let interactiveTextView = textView as? MarkdownEditorTextView {
       interactiveTextView.appearanceSettings = appearanceSettings
     }
@@ -151,6 +182,8 @@ struct MarkdownEditorView: NSViewRepresentable {
     textView.isSelectable = true
     textView.drawsBackground = false
     textView.allowsUndo = true
+    textView.isContinuousSpellCheckingEnabled = continuousSpellCheckingEnabled
+    textView.isGrammarCheckingEnabled = false
     textView.isAutomaticQuoteSubstitutionEnabled = false
     textView.isAutomaticDashSubstitutionEnabled = false
     textView.isAutomaticTextReplacementEnabled = false
@@ -163,7 +196,7 @@ struct MarkdownEditorView: NSViewRepresentable {
       .foregroundColor: NSColor.linkColor,
       .cursor: NSCursor.pointingHand,
     ]
-    textView.delegate = coordinator
+    textView.delegate = delegate
     textView.textContainer?.widthTracksTextView = true
     textView.textContainer?.heightTracksTextView = false
     textView.isVerticallyResizable = true
@@ -182,6 +215,26 @@ struct MarkdownEditorView: NSViewRepresentable {
       Self.applyBottomOverscroll(to: textView, in: scrollView)
     }
     textView.setNeedsDisplay(textView.bounds)
+  }
+
+  // Re-runs or clears native spell indicators after content or preference changes.
+  private static func applyContinuousSpellChecking(
+    to textView: NSTextView,
+    enabled: Bool,
+    refresh: Bool
+  ) {
+    textView.isContinuousSpellCheckingEnabled = enabled
+    textView.isGrammarCheckingEnabled = false
+    guard refresh else { return }
+
+    let fullRange = NSRange(location: 0, length: textView.string.utf16.count)
+    guard fullRange.length > 0 else { return }
+
+    textView.setSpellingState(0, range: fullRange)
+    guard enabled else { return }
+
+    let checkingTypes = NSTextCheckingTypes(NSTextCheckingResult.CheckingType.spelling.rawValue)
+    textView.checkText(in: fullRange, types: checkingTypes)
   }
 
   // Updates the document view height so the scroll view always offers trailing overscroll space.
@@ -262,6 +315,90 @@ private final class EditorScrollView: NSScrollView {
   }
 }
 
+// MARK: - Spell Checking
+
+enum MarkdownEditorSpellChecking {
+  // Computes the markdown-sensitive ranges that native spell checking should ignore.
+  static func ignoredRanges(
+    in attributedString: NSAttributedString,
+    within targetRange: NSRange? = nil
+  ) -> [NSRange] {
+    let fullLength = attributedString.length
+    guard fullLength > 0 else { return [] }
+
+    let resolvedRange = clampedRange(
+      targetRange ?? NSRange(location: 0, length: fullLength), maxLength: fullLength)
+    guard resolvedRange.length > 0 else { return [] }
+
+    var ignoredRanges: [NSRange] = []
+    attributedString.enumerateAttributes(in: resolvedRange, options: []) { attributes, range, _ in
+      guard range.length > 0, shouldIgnore(attributes) else { return }
+      ignoredRanges.append(range)
+    }
+
+    return mergeContiguousRanges(ignoredRanges)
+  }
+
+  // Returns true when the given character range overlaps a markdown-sensitive region.
+  static func hasIgnoredOverlap(_ range: NSRange, in attributedString: NSAttributedString) -> Bool {
+    let ignoredRanges = ignoredRanges(in: attributedString, within: range)
+    return ignoredRanges.contains { NSIntersectionRange($0, range).length > 0 }
+  }
+
+  // Removes native spell-check results that land inside ignored markdown regions.
+  static func filterTextCheckingResults(
+    _ results: [NSTextCheckingResult],
+    ignoredRanges: [NSRange]
+  ) -> [NSTextCheckingResult] {
+    guard !ignoredRanges.isEmpty else { return results }
+
+    return results.filter { result in
+      ignoredRanges.allSatisfy { NSIntersectionRange($0, result.range).length == 0 }
+    }
+  }
+
+  // Clamps external ranges to the bounds of the current attributed string.
+  private static func clampedRange(_ range: NSRange, maxLength: Int) -> NSRange {
+    let safeLocation = min(max(range.location, 0), maxLength)
+    let safeLength = min(range.length, max(maxLength - safeLocation, 0))
+    return NSRange(location: safeLocation, length: safeLength)
+  }
+
+  // Treats code, links, and structural markers as non-prose for spell-check purposes.
+  private static func shouldIgnore(_ attributes: [NSAttributedString.Key: Any]) -> Bool {
+    attributes[.markdownCodeFence] as? Bool == true
+      || attributes[.markdownCodeBlock] as? Bool == true
+      || attributes[.markdownInlineCode] as? Bool == true
+      || attributes[.markdownLinkURL] != nil
+      || attributes[.link] != nil
+      || attributes[.markdownSectionDivider] as? Bool == true
+      || attributes[.markdownHorizontalRule] as? Bool == true
+  }
+
+  // Coalesces adjacent ignored spans so result filtering stays cheap and deterministic.
+  private static func mergeContiguousRanges(_ ranges: [NSRange]) -> [NSRange] {
+    let sortedRanges = ranges.filter { $0.length > 0 }.sorted { $0.location < $1.location }
+    guard let firstRange = sortedRanges.first else { return [] }
+
+    var mergedRanges: [NSRange] = [firstRange]
+    for range in sortedRanges.dropFirst() {
+      let lastIndex = mergedRanges.count - 1
+      let previousRange = mergedRanges[lastIndex]
+      if range.location <= NSMaxRange(previousRange) {
+        let mergedEnd = max(NSMaxRange(previousRange), NSMaxRange(range))
+        mergedRanges[lastIndex] = NSRange(
+          location: previousRange.location,
+          length: mergedEnd - previousRange.location
+        )
+      } else {
+        mergedRanges.append(range)
+      }
+    }
+
+    return mergedRanges
+  }
+}
+
 // MARK: - Coordinator
 
 extension MarkdownEditorView {
@@ -276,6 +413,7 @@ extension MarkdownEditorView {
     var isUpdating = false
     var lastPushedMarkdown = ""
     var lastAppliedAppearance = NoteAppearanceSettings.default
+    var lastContinuousSpellCheckingEnabled = true
     var lastDividerCount = 0
     var lastNoteID: DayNote.ID?
     var lastSearchText = ""
@@ -401,6 +539,36 @@ extension MarkdownEditorView {
       } else {
         checkSlashCommandTrigger(in: textView)
       }
+    }
+
+    // Drops spell-check matches that land inside code, links, or structural markdown markers.
+    func textView(
+      _ textView: NSTextView,
+      didCheckTextIn range: NSRange,
+      types checkingTypes: NSTextCheckingTypes,
+      options: [NSSpellChecker.OptionKey: Any],
+      results: [NSTextCheckingResult],
+      orthography: NSOrthography,
+      wordCount: Int
+    ) -> [NSTextCheckingResult] {
+      guard let textStorage = textView.textStorage else { return results }
+      let ignoredRanges = MarkdownEditorSpellChecking.ignoredRanges(in: textStorage, within: range)
+      return MarkdownEditorSpellChecking.filterTextCheckingResults(
+        results,
+        ignoredRanges: ignoredRanges
+      )
+    }
+
+    // Blocks any spelling indicator that would otherwise bleed into ignored markdown regions.
+    func textView(
+      _ textView: NSTextView,
+      shouldSetSpellingState value: Int,
+      range affectedCharRange: NSRange
+    ) -> Int {
+      guard value != 0, let textStorage = textView.textStorage else { return value }
+      return MarkdownEditorSpellChecking.hasIgnoredOverlap(affectedCharRange, in: textStorage)
+        ? 0
+        : value
     }
 
     // Debounces the full O(n) conversion so it runs once after a pause in typing.

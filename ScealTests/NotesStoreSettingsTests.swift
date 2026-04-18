@@ -56,6 +56,38 @@ final class NotesStoreSettingsTests: NotesStoreTestCase {
     XCTAssertEqual(userDefaults.string(forKey: "sceal.newNoteDefault"), "copyPrevious")
   }
 
+  // Prevents new installs from silently shipping with spell checking disabled.
+  func testContinuousSpellCheckingDefaultsToEnabled() {
+    let userDefaults = makeUserDefaults()
+    let store = makeStore(userDefaults: userDefaults)
+
+    XCTAssertTrue(store.continuousSpellCheckingEnabled)
+  }
+
+  // Prevents the spell-check toggle from changing UI state without persisting the preference.
+  func testUpdatingContinuousSpellCheckingPersistsChoice() {
+    let userDefaults = makeUserDefaults()
+    let store = makeStore(userDefaults: userDefaults)
+
+    store.updateContinuousSpellCheckingEnabled(false)
+
+    XCTAssertFalse(store.continuousSpellCheckingEnabled)
+    XCTAssertEqual(
+      userDefaults.object(forKey: "sceal.continuousSpellCheckingEnabled") as? Bool,
+      false
+    )
+  }
+
+  // Prevents the persisted spell-check preference from being ignored on relaunch.
+  func testLoadingContinuousSpellCheckingFromDefaults() {
+    let userDefaults = makeUserDefaults()
+    userDefaults.set(false, forKey: "sceal.continuousSpellCheckingEnabled")
+
+    let store = makeStore(userDefaults: userDefaults)
+
+    XCTAssertFalse(store.continuousSpellCheckingEnabled)
+  }
+
   // Prevents the new-note default from resetting to blank across launches.
   func testLoadingNewNoteDefaultFromDefaults() {
     let userDefaults = makeUserDefaults()

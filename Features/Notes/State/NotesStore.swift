@@ -46,6 +46,7 @@ final class NotesStore: ObservableObject {
     }
   }
   @Published private(set) var appearanceSettings: NoteAppearanceSettings
+  @Published private(set) var continuousSpellCheckingEnabled: Bool
   @Published private(set) var newNoteDefault: NewNoteDefault
   @Published var selectedNoteID: DayNote.ID? {
     didSet {
@@ -103,6 +104,7 @@ final class NotesStore: ObservableObject {
 
   private static let logger = Logger(subsystem: "com.sceal.app", category: "store")
   private static let appearanceSettingsDefaultsKey = "sceal.noteAppearanceSettings"
+  private static let continuousSpellCheckingEnabledKey = "sceal.continuousSpellCheckingEnabled"
   private static let newNoteDefaultKey = "sceal.newNoteDefault"
   nonisolated static let backupSettingsDefaultsKey = "sceal.backupSettings"
 
@@ -121,6 +123,9 @@ final class NotesStore: ObservableObject {
     self.notes = sortedNotes
     self.noteIndex = Dictionary(uniqueKeysWithValues: sortedNotes.enumerated().map { ($1.id, $0) })
     self.appearanceSettings = Self.loadAppearanceSettings(from: userDefaults)
+    self.continuousSpellCheckingEnabled = Self.loadContinuousSpellCheckingEnabled(
+      from: userDefaults
+    )
     self.newNoteDefault = Self.loadNewNoteDefault(from: userDefaults)
     self.backupSettings = loadedBackupSettings
     self.backupHealth = loadedBackupSettings.isConfigured ? .healthy : .notConfigured
@@ -379,6 +384,12 @@ final class NotesStore: ObservableObject {
   func updateNewNoteDefault(_ value: NewNoteDefault) {
     newNoteDefault = value
     userDefaults.set(value.rawValue, forKey: Self.newNoteDefaultKey)
+  }
+
+  // Persists the body editor's continuous spell-check setting.
+  func updateContinuousSpellCheckingEnabled(_ value: Bool) {
+    continuousSpellCheckingEnabled = value
+    userDefaults.set(value, forKey: Self.continuousSpellCheckingEnabledKey)
   }
 
   // Moves a note to a new date by re-creating it with the target date's ID and file.
@@ -703,6 +714,15 @@ final class NotesStore: ObservableObject {
     }
 
     return settings.clamped
+  }
+
+  // Reads the body editor spell-check preference, defaulting to enabled for new installs.
+  private static func loadContinuousSpellCheckingEnabled(from userDefaults: UserDefaults) -> Bool {
+    guard userDefaults.object(forKey: continuousSpellCheckingEnabledKey) != nil else {
+      return true
+    }
+
+    return userDefaults.bool(forKey: continuousSpellCheckingEnabledKey)
   }
 
   // Reads the new-note default preference from UserDefaults.

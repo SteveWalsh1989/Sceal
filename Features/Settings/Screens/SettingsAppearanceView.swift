@@ -152,6 +152,14 @@ struct SettingsAppearanceView: View {
       }
 
       Section("Behavior") {
+        Toggle(
+          "Check spelling while typing",
+          isOn: Binding(
+            get: { store.continuousSpellCheckingEnabled },
+            set: { store.updateContinuousSpellCheckingEnabled($0) }
+          )
+        )
+
         Picker(
           "New note default",
           selection: Binding(

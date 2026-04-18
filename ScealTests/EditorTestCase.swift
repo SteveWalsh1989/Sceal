@@ -79,34 +79,13 @@ class EditorTestCase: XCTestCase {
 
   // Applies the same editor configuration used by the production AppKit host.
   func configure(_ textView: MarkdownEditorTextView) {
-    textView.appearanceSettings = appearance
-    textView.isRichText = true
-    textView.isEditable = true
-    textView.isSelectable = true
-    textView.drawsBackground = false
-    textView.allowsUndo = true
-    textView.isAutomaticQuoteSubstitutionEnabled = false
-    textView.isAutomaticDashSubstitutionEnabled = false
-    textView.isAutomaticTextReplacementEnabled = false
-    textView.isAutomaticSpellingCorrectionEnabled = false
-    textView.selectedTextAttributes = [
-      .backgroundColor: NSColor.selectedTextBackgroundColor.withAlphaComponent(0.28)
-    ]
-    textView.textContainerInset = NSSize(width: 22, height: 22)
-    textView.linkTextAttributes = [
-      .foregroundColor: NSColor.linkColor,
-      .cursor: NSCursor.pointingHand,
-    ]
-    textView.typingAttributes = MarkdownEditorFormatter.baseTypingAttributes(for: appearance)
-    textView.textContainer?.widthTracksTextView = true
-    textView.textContainer?.heightTracksTextView = false
-    textView.isVerticallyResizable = true
-    textView.isHorizontallyResizable = false
-    textView.autoresizingMask = [.width]
-    textView.maxSize = NSSize(
-      width: CGFloat.greatestFiniteMagnitude,
-      height: CGFloat.greatestFiniteMagnitude
+    MarkdownEditorView.configureTextView(
+      textView,
+      appearanceSettings: appearance,
+      continuousSpellCheckingEnabled: true,
+      delegate: nil
     )
+    textView.typingAttributes = MarkdownEditorFormatter.baseTypingAttributes(for: appearance)
   }
 
   // Finds the first rendered divider so tests can assert selection and layout behavior.
@@ -164,5 +143,144 @@ class EditorTestCase: XCTestCase {
     }
 
     return location
+  }
+}
+
+@MainActor
+final class MarkdownEditorSpellCheckingTests: EditorTestCase {
+  // Prevents spell-check wiring from turning on autocorrect or substitutions while enabled.
+  func testConfigureTextViewAppliesSpellCheckingWithoutOtherAutomaticFeatures() {
+    let textView = MarkdownEditorTextView(usingTextLayoutManager: true)
+
+    MarkdownEditorView.configureTextView(
+      textView,
+      appearanceSettings: appearance,
+      continuousSpellCheckingEnabled: true,
+      delegate: nil
+    )
+
+    XCTAssertTrue(textView.isContinuousSpellCheckingEnabled)
+    XCTAssertFalse(textView.isGrammarCheckingEnabled)
+    XCTAssertFalse(textView.isAutomaticSpellingCorrectionEnabled)
+    XCTAssertFalse(textView.isAutomaticTextReplacementEnabled)
+    XCTAssertFalse(textView.isAutomaticQuoteSubstitutionEnabled)
+    XCTAssertFalse(textView.isAutomaticDashSubstitutionEnabled)
+  }
+
+  // Prevents markdown-specific spans from receiving red underlines while prose stays eligible.
+  func testIgnoredRangesSkipMarkdownSensitiveContentAndKeepProseCheckable() throws {
+    let markdown = """
+      Normal prose line
+      `inline cdoe`
+      [lnik label](https://example.com)
+      https://example.com/rawword
+      ```
+      codde block
+      ```
+      <!-- section -->
+      ---
+      - [ ] chekcbox label
+      # Heding
+      """
+    let display = MarkdownEditorFormatter.formatForDisplay(markdown, appearance: appearance)
+    let textStorage = NSTextStorage(attributedString: display)
+    let ignoredRanges = MarkdownEditorSpellChecking.ignoredRanges(in: textStorage)
+    let string = textStorage.string as NSString
+
+    XCTAssertTrue(
+      overlapsIgnoredRange(string.range(of: "inline cdoe"), ignoredRanges: ignoredRanges)
+    )
+    XCTAssertTrue(
+      overlapsIgnoredRange(string.range(of: "lnik label"), ignoredRanges: ignoredRanges)
+    )
+    XCTAssertTrue(
+      overlapsIgnoredRange(
+        string.range(of: "https://example.com/rawword"), ignoredRanges: ignoredRanges)
+    )
+    XCTAssertTrue(
+      overlapsIgnoredRange(string.range(of: "codde block"), ignoredRanges: ignoredRanges)
+    )
+    XCTAssertTrue(
+      overlapsIgnoredRange(
+        firstAttributedRange(
+          for: .markdownSectionDivider,
+          in: textStorage,
+          file: #filePath,
+          line: #line
+        ),
+        ignoredRanges: ignoredRanges
+      )
+    )
+    XCTAssertTrue(
+      overlapsIgnoredRange(
+        firstAttributedRange(
+          for: .markdownHorizontalRule,
+          in: textStorage,
+          file: #filePath,
+          line: #line
+        ),
+        ignoredRanges: ignoredRanges
+      )
+    )
+    XCTAssertFalse(
+      overlapsIgnoredRange(string.range(of: "Normal prose line"), ignoredRanges: ignoredRanges)
+    )
+    XCTAssertFalse(
+      overlapsIgnoredRange(string.range(of: "chekcbox label"), ignoredRanges: ignoredRanges)
+    )
+    XCTAssertFalse(
+      overlapsIgnoredRange(string.range(of: "Heding"), ignoredRanges: ignoredRanges)
+    )
+  }
+
+  // Prevents ignored markdown spans from surviving result filtering when AppKit reports them.
+  func testFilterTextCheckingResultsDropsIgnoredMatches() {
+    let markdown = """
+      prose wurd
+      `inline cdoe`
+      """
+    let display = MarkdownEditorFormatter.formatForDisplay(markdown, appearance: appearance)
+    let textStorage = NSTextStorage(attributedString: display)
+    let string = textStorage.string as NSString
+    let proseRange = string.range(of: "wurd")
+    let inlineCodeRange = string.range(of: "cdoe")
+    let results = [
+      NSTextCheckingResult.spellCheckingResult(range: proseRange),
+      NSTextCheckingResult.spellCheckingResult(range: inlineCodeRange),
+    ]
+
+    let filteredResults = MarkdownEditorSpellChecking.filterTextCheckingResults(
+      results,
+      ignoredRanges: MarkdownEditorSpellChecking.ignoredRanges(in: textStorage)
+    )
+
+    XCTAssertEqual(filteredResults.map(\.range), [proseRange])
+  }
+
+  private func firstAttributedRange(
+    for key: NSAttributedString.Key,
+    in textStorage: NSTextStorage,
+    file: StaticString,
+    line: UInt
+  ) -> NSRange {
+    let fullRange = NSRange(location: 0, length: textStorage.length)
+    var match: NSRange?
+
+    textStorage.enumerateAttribute(key, in: fullRange, options: []) { value, range, stop in
+      guard value as? Bool == true else { return }
+      match = range
+      stop.pointee = true
+    }
+
+    guard let match else {
+      XCTFail("Expected range for \(key.rawValue).", file: file, line: line)
+      return NSRange(location: 0, length: 0)
+    }
+
+    return match
+  }
+
+  private func overlapsIgnoredRange(_ range: NSRange, ignoredRanges: [NSRange]) -> Bool {
+    ignoredRanges.contains { NSIntersectionRange($0, range).length > 0 }
   }
 }
