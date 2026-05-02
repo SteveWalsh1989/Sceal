@@ -4,15 +4,13 @@ Scéal is a local-first macOS notes app built to make everyday writing feel beau
 
 It is for people who want more than a blank editor, but less than an overbuilt workspace app. Scéal gives you a focused place to journal, think, plan, and collect ideas, while still making your notes feel structured, expressive, and fully your own.
 
-If you care about calm software, thoughtful design, and keeping ownership of your writing, Scéal is the kind of notes app that makes an immediate impression.
-
 ## A notes app that feels crafted
 
 Scéal is designed around a simple idea: writing tools should disappear when you need focus, but still give you enough shape and personality to make the experience enjoyable.
 
 That means daily notes that are easy to return to, freeform notes that are flexible enough for real use, and an editor that feels far more intentional than a plain markdown field.
 
-## Why Scéal is compelling
+## What can Scéal do
 
 - Daily notes give journaling and reflection a natural home without adding friction
 - Calendar and list views make it easy to move between recent writing and older entries
@@ -45,7 +43,7 @@ Scéal is not locked into a single look. It gives you meaningful control over ho
 - Choose whether tags appear in the sidebar
 - Change the sidebar date format
 
-The result is an app that can feel minimal, warm, sharp, soft, dense, airy, dark, light, or somewhere in between. Scéal is designed to adapt to your taste instead of forcing you into someone else’s default.
+The result is an app that can feel minimal, warm, sharp, soft, dense, airy, dark, light, or somewhere in between. 
 
 ## Built for ownership
 
@@ -55,8 +53,6 @@ Scéal is for people who do not want their notes trapped inside a cloud-first pr
 - Export is built in
 - Local backups are supported
 - Import from Diarly is supported
-
-That makes Scéal a strong fit for people who want a native Mac notes app with a better writing experience and fewer compromises around control, portability, and long-term access to their own work.
 
 ## Build the app locally
 
