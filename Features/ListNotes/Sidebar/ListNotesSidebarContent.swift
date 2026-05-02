@@ -24,160 +24,172 @@ struct ListNotesSidebarContent: View {
     let isSearching = store.isListSearchActive
     let filteredIDs = Set(store.filteredListNotes.map(\.id))
 
-    if manifest.isEmpty, !isSearching {
-      ListSidebarEmptyStateView {
-        store.createListNote()
-      }
-    } else if store.filteredListNotes.isEmpty, isSearching {
-      VStack {
-        Spacer()
-        Text("No matching notes")
-          .font(.subheadline.weight(.medium))
-          .foregroundStyle(.secondary)
-        Spacer()
-      }
-      .frame(maxWidth: .infinity)
-    } else {
-      ScrollView {
-        LazyVStack(alignment: .leading, spacing: 10) {
-          // Add note + new group buttons
-          HStack(spacing: 8) {
-            AddListNoteButton(accentColor: sidebarAccentColor) {
-              store.createListNote()
-            }
-
-            NewGroupButton(accentColor: sidebarAccentColor) {
-              renamingGroupID = nil
-              newGroupName = ""
-              isShowingNewGroupAlert = true
-            }
-          }
-
-          // Ungrouped section drop target (accepts notes dragged here)
-          let ungroupedNotes = isSearching
-            ? manifest.ungroupedNoteIDs.filter { filteredIDs.contains($0) }
-            : manifest.ungroupedNoteIDs
-
-          if !ungroupedNotes.isEmpty || !isSearching {
-            // Drop zone at the top of ungrouped — inserts at index 0.
-            UngroupedDropZone()
-              .onDrop(of: [UTType.plainText], delegate: NoteDropDelegate(
-                store: store,
-                targetGroupID: nil,
-                targetIndex: 0
-              ))
-          }
-
-          ForEach(Array(ungroupedNotes.enumerated()), id: \.element) { offset, noteID in
-            if let note = store.listNote(withID: noteID) {
-              listNoteButton(note: note)
-                .onDrag {
-                  NSItemProvider(object: note.id as NSString)
-                }
-                .onDrop(of: [UTType.plainText], delegate: NoteDropDelegate(
-                  store: store,
-                  targetGroupID: nil,
-                  targetIndex: offset + 1
-                ))
-            }
-          }
-
-          // Groups
-          ForEach(Array(manifest.groups.enumerated()), id: \.element.id) { groupOffset, group in
-            let groupNoteIDs = isSearching
-              ? group.noteIDs.filter { filteredIDs.contains($0) }
-              : group.noteIDs
-
-            if !isSearching || !groupNoteIDs.isEmpty {
-              GroupHeaderView(
-                group: group,
-                noteCount: groupNoteIDs.count,
-                accentColor: sidebarAccentColor,
-                dividerColor: themeColors.divider.color
-              ) {
-                store.toggleGroupCollapsed(groupID: group.id)
+    ZStack(alignment: .top) {
+      if manifest.isEmpty, !isSearching {
+        ListSidebarEmptyStateView {
+          store.createListNote()
+        }
+      } else if store.filteredListNotes.isEmpty, isSearching {
+        VStack {
+          Spacer()
+          Text("No matching notes")
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(.secondary)
+          Spacer()
+        }
+        .frame(maxWidth: .infinity)
+      } else {
+        ScrollView {
+          LazyVStack(alignment: .leading, spacing: 10) {
+            // Add note + new group buttons
+            HStack(spacing: 8) {
+              AddListNoteButton(accentColor: sidebarAccentColor) {
+                store.createListNote()
               }
-              .onDrag {
-                NSItemProvider(object: ("\(Self.groupDragPrefix)\(group.id)" as NSString))
+
+              NewGroupButton(accentColor: sidebarAccentColor) {
+                renamingGroupID = nil
+                newGroupName = ""
+                isShowingNewGroupAlert = true
               }
-              .onDrop(of: [UTType.plainText],
-                delegate: GroupHeaderDropDelegate(
-                  store: store,
-                  targetGroupID: group.id,
-                  groupIndex: groupOffset
-                ))
-              .contextMenu {
-                Button {
-                  renamingGroupID = group.id
-                  newGroupName = group.name
-                  DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    isShowingNewGroupAlert = true
+            }
+
+            // Ungrouped section drop target (accepts notes dragged here)
+            let ungroupedNotes =
+              isSearching
+              ? manifest.ungroupedNoteIDs.filter { filteredIDs.contains($0) }
+              : manifest.ungroupedNoteIDs
+
+            if !ungroupedNotes.isEmpty || !isSearching {
+              // Drop zone at the top of ungrouped — inserts at index 0.
+              UngroupedDropZone()
+                .onDrop(
+                  of: [UTType.plainText],
+                  delegate: NoteDropDelegate(
+                    store: store,
+                    targetGroupID: nil,
+                    targetIndex: 0
+                  ))
+            }
+
+            ForEach(Array(ungroupedNotes.enumerated()), id: \.element) { offset, noteID in
+              if let note = store.listNote(withID: noteID) {
+                listNoteButton(note: note)
+                  .onDrag {
+                    NSItemProvider(object: note.id as NSString)
                   }
-                } label: {
-                  Label("Rename group…", systemImage: "pencil")
-                }
-
-                Button(role: .destructive) {
-                  store.deleteGroup(groupID: group.id)
-                } label: {
-                  Label("Delete group", systemImage: "trash")
-                }
-              }
-
-              if !group.isCollapsed {
-                ForEach(Array(groupNoteIDs.enumerated()), id: \.element) { noteOffset, noteID in
-                  if let note = store.listNote(withID: noteID) {
-                    listNoteButton(note: note)
-                      .onDrag {
-                        NSItemProvider(object: note.id as NSString)
-                      }
-                      .onDrop(of: [UTType.plainText], delegate: NoteDropDelegate(
-                        store: store,
-                        targetGroupID: group.id,
-                        targetIndex: noteOffset + 1
-                      ))
-                  }
-                }
-
-                // Drop zone at the end of a group when it has notes — appends.
-                if !groupNoteIDs.isEmpty {
-                  Color.clear
-                    .frame(height: 2)
-                    .onDrop(of: [UTType.plainText], delegate: NoteDropDelegate(
+                  .onDrop(
+                    of: [UTType.plainText],
+                    delegate: NoteDropDelegate(
                       store: store,
-                      targetGroupID: group.id,
-                      targetIndex: groupNoteIDs.count
+                      targetGroupID: nil,
+                      targetIndex: offset + 1
                     ))
+              }
+            }
+
+            // Groups
+            ForEach(Array(manifest.groups.enumerated()), id: \.element.id) { groupOffset, group in
+              let groupNoteIDs =
+                isSearching
+                ? group.noteIDs.filter { filteredIDs.contains($0) }
+                : group.noteIDs
+
+              if !isSearching || !groupNoteIDs.isEmpty {
+                GroupHeaderView(
+                  group: group,
+                  noteCount: groupNoteIDs.count,
+                  accentColor: sidebarAccentColor,
+                  dividerColor: themeColors.divider.color
+                ) {
+                  store.toggleGroupCollapsed(groupID: group.id)
+                }
+                .onDrag {
+                  NSItemProvider(object: ("\(Self.groupDragPrefix)\(group.id)" as NSString))
+                }
+                .onDrop(
+                  of: [UTType.plainText],
+                  delegate: GroupHeaderDropDelegate(
+                    store: store,
+                    targetGroupID: group.id,
+                    groupIndex: groupOffset
+                  )
+                )
+                .contextMenu {
+                  Button {
+                    renamingGroupID = group.id
+                    newGroupName = group.name
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                      isShowingNewGroupAlert = true
+                    }
+                  } label: {
+                    Label("Rename group…", systemImage: "pencil")
+                  }
+
+                  Button(role: .destructive) {
+                    store.deleteGroup(groupID: group.id)
+                  } label: {
+                    Label("Delete group", systemImage: "trash")
+                  }
+                }
+
+                if !group.isCollapsed {
+                  ForEach(Array(groupNoteIDs.enumerated()), id: \.element) { noteOffset, noteID in
+                    if let note = store.listNote(withID: noteID) {
+                      listNoteButton(note: note)
+                        .onDrag {
+                          NSItemProvider(object: note.id as NSString)
+                        }
+                        .onDrop(
+                          of: [UTType.plainText],
+                          delegate: NoteDropDelegate(
+                            store: store,
+                            targetGroupID: group.id,
+                            targetIndex: noteOffset + 1
+                          ))
+                    }
+                  }
+
+                  // Drop zone at the end of a group when it has notes — appends.
+                  if !groupNoteIDs.isEmpty {
+                    Color.clear
+                      .frame(height: 2)
+                      .onDrop(
+                        of: [UTType.plainText],
+                        delegate: NoteDropDelegate(
+                          store: store,
+                          targetGroupID: group.id,
+                          targetIndex: groupNoteIDs.count
+                        ))
+                  }
                 }
               }
             }
           }
+          .padding(.bottom, 20)
         }
-        .padding(.bottom, 20)
+        .scrollIndicators(
+          store.appearanceSettings.showEditorScrollbar ? .visible : .hidden
+        )
       }
-      .scrollIndicators(
-        store.appearanceSettings.showEditorScrollbar ? .visible : .hidden
-      )
     }
-
-    Color.clear
-      .frame(width: 0, height: 0)
-      .alert("Group name", isPresented: $isShowingNewGroupAlert) {
-        TextField("Name", text: $newGroupName)
-        Button("Cancel", role: .cancel) {
-          renamingGroupID = nil
-        }
-        Button("OK") {
-          let trimmed = newGroupName.trimmingCharacters(in: .whitespacesAndNewlines)
-          guard !trimmed.isEmpty else { return }
-          if let groupID = renamingGroupID {
-            store.renameGroup(groupID: groupID, name: trimmed)
-          } else if !store.listNoteManifest.groups.contains(where: { $0.name == trimmed }) {
-            store.createGroup(name: trimmed)
-          }
-          renamingGroupID = nil
-        }
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    .alert("Group name", isPresented: $isShowingNewGroupAlert) {
+      TextField("Name", text: $newGroupName)
+      Button("Cancel", role: .cancel) {
+        renamingGroupID = nil
       }
+      Button("OK") {
+        let trimmed = newGroupName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        if let groupID = renamingGroupID {
+          store.renameGroup(groupID: groupID, name: trimmed)
+        } else if !store.listNoteManifest.groups.contains(where: { $0.name == trimmed }) {
+          store.createGroup(name: trimmed)
+        }
+        renamingGroupID = nil
+      }
+    }
   }
 
   @ViewBuilder
