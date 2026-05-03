@@ -110,9 +110,10 @@ struct NotesEditorView: View {
         }
         .padding(.leading, sidebarCollapsed ? 130 : 0)
 
-        TextField("Title", text: store.activeTitleBinding(for: noteID))
+        TextField("Title", text: store.activeTitleBinding(for: noteID), axis: .vertical)
           .textFieldStyle(.plain)
           .font(.system(size: 30, weight: .bold))
+          .lineLimit(1...3)
 
         ZStack(alignment: .topLeading) {
           if note.body.isEmpty {

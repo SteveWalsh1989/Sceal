@@ -50,7 +50,7 @@ struct DailyCalendarSidebarContent: View {
               VStack(alignment: .leading, spacing: 12) {
                 Text(monthTitle(for: monthStart))
                   .font(.headline.weight(.semibold))
-                  .foregroundStyle(.secondary)
+                  .foregroundStyle(sidebarAccentColor)
 
                 LazyVGrid(columns: calendarColumns, spacing: 12) {
                   ForEach(gridCells(for: monthStart)) { cell in
@@ -196,6 +196,7 @@ private struct CalendarYearHeader: View {
 
         Text(String(year))
           .font(.headline.weight(.semibold))
+          .foregroundStyle(accentColor)
           .frame(minWidth: 56)
 
         CalendarHeaderButton(
@@ -283,14 +284,7 @@ private struct CalendarDayButton: View {
   var body: some View {
     Button(action: openDate) {
       VStack(spacing: 5) {
-        RoundedRectangle(cornerRadius: 8, style: .continuous)
-          .fill(statusBackgroundColor)
-          .overlay {
-            Image(systemName: hasNote ? "checkmark" : "plus")
-              .font(.system(size: 11, weight: .semibold))
-              .foregroundStyle(statusForegroundColor)
-          }
-          .frame(height: 26)
+        statusIndicator
 
         Text(dayNumber)
           .font(.system(size: 13, weight: dayFontWeight))
@@ -317,24 +311,39 @@ private struct CalendarDayButton: View {
     .accessibilityLabel(accessibilityLabel)
   }
 
+  @ViewBuilder
+  private var statusIndicator: some View {
+    if hasNote {
+      Image(systemName: "checkmark")
+        .font(.system(size: 12, weight: .semibold))
+        .foregroundStyle(accentColor)
+        .frame(height: 26)
+    } else {
+      RoundedRectangle(cornerRadius: 8, style: .continuous)
+        .fill(statusBackgroundColor)
+        .overlay {
+          Image(systemName: "plus")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(statusForegroundColor)
+        }
+        .frame(height: 26)
+    }
+  }
+
   private var dayNumber: String {
     String(Calendar.current.component(.day, from: date))
   }
 
   private var statusBackgroundColor: Color {
-    if isSelected {
+    if isSelected || isToday {
       return accentColor.opacity(0.28)
     }
 
-    return hasNote ? controlColor.opacity(0.95) : controlColor.opacity(0.5)
+    return controlColor.opacity(0.5)
   }
 
   private var statusForegroundColor: Color {
-    if isSelected || isToday {
-      return accentColor
-    }
-
-    return hasNote ? .primary : .secondary
+    isSelected || isToday ? accentColor : .secondary
   }
 
   private var dayForegroundColor: Color {
