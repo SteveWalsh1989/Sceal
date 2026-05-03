@@ -71,6 +71,26 @@ struct SettingsImportView: View {
           }
         }
       }
+
+      Section("Day One") {
+        HStack {
+          VStack(alignment: .leading, spacing: 4) {
+            Text("Import from Day One")
+              .font(.body)
+            Text(
+              "Select a Day One JSON export zip or extracted JSON file. Media is skipped for now."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+          }
+
+          Spacer()
+
+          Button("Import\u{2026}") {
+            store.importFromDayOne()
+          }
+        }
+      }
     }
     .formStyle(.grouped)
   }

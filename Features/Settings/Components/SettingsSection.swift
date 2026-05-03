@@ -5,12 +5,29 @@
 // Defines sidebar sections for the settings navigation.
 
 // Sidebar sections for the settings window.
-enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
+enum SettingsSection: String, Identifiable, Hashable {
   case appearance
   case themes
   case backup
   case importData
   case exportData
+  #if DEBUG
+    case developer
+  #endif
+
+  static var allCases: [SettingsSection] {
+    var sections: [SettingsSection] = [
+      .appearance,
+      .themes,
+      .backup,
+      .importData,
+      .exportData,
+    ]
+    #if DEBUG
+      sections.append(.developer)
+    #endif
+    return sections
+  }
 
   var id: String { rawValue }
 
@@ -21,6 +38,9 @@ enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
     case .backup: return "Backup"
     case .importData: return "Import"
     case .exportData: return "Export"
+    #if DEBUG
+      case .developer: return "Developer"
+    #endif
     }
   }
 
@@ -31,6 +51,9 @@ enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
     case .backup: return "externaldrive.badge.timemachine"
     case .importData: return "square.and.arrow.down"
     case .exportData: return "square.and.arrow.up"
+    #if DEBUG
+      case .developer: return "hammer"
+    #endif
     }
   }
 }

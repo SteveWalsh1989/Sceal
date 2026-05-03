@@ -39,6 +39,10 @@ struct SettingsRootView: View {
       SettingsImportView(store: store)
     case .exportData:
       SettingsExportView(store: store)
+    #if DEBUG
+      case .developer:
+        SettingsDeveloperView(store: store)
+    #endif
     }
   }
 }

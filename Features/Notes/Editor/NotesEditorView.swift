@@ -23,7 +23,7 @@ struct NotesEditorView: View {
   }
 
   private var isListMode: Bool {
-    !store.sidebarMode.usesDailyNotes
+    store.isListModeAvailable && !store.sidebarMode.usesDailyNotes
   }
 
   // Resolves the current note from either daily or list notes.
@@ -104,7 +104,8 @@ struct NotesEditorView: View {
               confirmDelete: {
                 isShowingAppearancePopover = false
                 requestDelete(noteID)
-              }
+              },
+              allowsDelete: !store.isDemoModeEnabled
             )
           }
         }
@@ -327,6 +328,7 @@ private struct QuickAppearancePopover: View {
   let openSettings: () -> Void
   let openFontPanel: () -> Void
   let confirmDelete: () -> Void
+  let allowsDelete: Bool
 
   private var controlBackgroundColor: Color {
     store.appearanceSettings.resolvedColors
@@ -441,18 +443,20 @@ private struct QuickAppearancePopover: View {
         onSelect: store.updateNewNoteDefault
       )
 
-      Divider()
+      if allowsDelete {
+        Divider()
 
-      Button(role: .destructive, action: confirmDelete) {
-        HStack(spacing: 8) {
-          Image(systemName: "trash")
-          Text("Delete note…")
+        Button(role: .destructive, action: confirmDelete) {
+          HStack(spacing: 8) {
+            Image(systemName: "trash")
+            Text("Delete note…")
+          }
+          .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .buttonStyle(.plain)
+        .foregroundStyle(.red)
+        .padding(.top, 2)
       }
-      .buttonStyle(.plain)
-      .foregroundStyle(.red)
-      .padding(.top, 2)
     }
     .padding(20)
     .frame(width: 332)

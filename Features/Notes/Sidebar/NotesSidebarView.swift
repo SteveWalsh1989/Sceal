@@ -39,7 +39,8 @@ struct NotesSidebarView: View {
     .safeAreaInset(edge: .bottom, spacing: 0) {
       SidebarModeToggle(
         mode: $store.sidebarMode,
-        accentColor: sidebarAccentColor
+        accentColor: sidebarAccentColor,
+        showsListMode: store.isListModeAvailable
       )
       .padding(.horizontal, 16)
       .padding(.vertical, 10)
@@ -115,16 +116,18 @@ struct NotesSidebarView: View {
               }
               .buttonStyle(.plain)
               .contextMenu {
-                Button {
-                  requestChangeDate(note.id)
-                } label: {
-                  Label("Change date…", systemImage: "calendar")
-                }
+                if !store.isDemoModeEnabled {
+                  Button {
+                    requestChangeDate(note.id)
+                  } label: {
+                    Label("Change date…", systemImage: "calendar")
+                  }
 
-                Button(role: .destructive) {
-                  requestDelete(note.id)
-                } label: {
-                  Label("Delete note…", systemImage: "trash")
+                  Button(role: .destructive) {
+                    requestDelete(note.id)
+                  } label: {
+                    Label("Delete note…", systemImage: "trash")
+                  }
                 }
               }
             }
@@ -430,12 +433,15 @@ private struct DayNoteCardView: View {
 private struct SidebarModeToggle: View {
   @Binding var mode: SidebarMode
   let accentColor: Color
+  let showsListMode: Bool
 
   var body: some View {
     HStack(spacing: 0) {
       modeButton(.calendar, systemImage: "calendar", label: "Calendar")
       modeButton(.daily, systemImage: "clock.arrow.circlepath", label: "Daily")
-      modeButton(.list, systemImage: "list.bullet", label: "Notes")
+      if showsListMode {
+        modeButton(.list, systemImage: "list.bullet", label: "Notes")
+      }
     }
     .padding(3)
     .background(

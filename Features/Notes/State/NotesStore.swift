@@ -37,6 +37,19 @@ enum UserMessageKind {
   case info
 }
 
+#if DEBUG
+  private struct DemoReturnContext {
+    let sidebarMode: SidebarMode
+    let selectedNoteID: DayNote.ID?
+    let selectedListNoteID: DayNote.ID?
+    let searchText: String
+    let isSearchBarExpanded: Bool
+    let listSearchText: String
+    let isListSearchBarExpanded: Bool
+    let calendarBrowseYear: Int
+  }
+#endif
+
 @MainActor
 final class NotesStore: ObservableObject {
   @Published var notes: [DayNote] {
@@ -60,6 +73,12 @@ final class NotesStore: ObservableObject {
   @Published var isSearchBarExpanded = false
   @Published var sidebarMode: SidebarMode = .daily {
     didSet {
+      #if DEBUG
+        if isDemoModeEnabled, sidebarMode == .list {
+          sidebarMode = .daily
+          return
+        }
+      #endif
       guard oldValue != sidebarMode else { return }
 
       if sidebarMode == .list {
@@ -89,6 +108,18 @@ final class NotesStore: ObservableObject {
   @Published var backupSettings: BackupSettings
   @Published var backupHealth: BackupHealth
   @Published var isBackupRunning = false
+  #if DEBUG
+    @Published var isDemoModeEnabled = false
+    @Published private(set) var demoNotes: [DayNote] = [] {
+      didSet {
+        guard isDemoModeEnabled else { return }
+        cachedMonthSections = nil
+        clampCalendarBrowseYear()
+      }
+    }
+  #else
+    var isDemoModeEnabled: Bool { false }
+  #endif
 
   let fileManager: FileManager
   let calendar: Calendar
@@ -101,6 +132,9 @@ final class NotesStore: ObservableObject {
   var pendingListNoteSaveTasks: [DayNote.ID: Task<Void, Never>] = [:]
   private var periodicFlushTask: Task<Void, Never>?
   var periodicBackupCheckTask: Task<Void, Never>?
+  #if DEBUG
+    private var demoReturnContext: DemoReturnContext?
+  #endif
 
   private static let logger = Logger(subsystem: "com.sceal.app", category: "store")
   private static let appearanceSettingsDefaultsKey = "sceal.noteAppearanceSettings"
@@ -156,6 +190,18 @@ final class NotesStore: ObservableObject {
     !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 
+  var dailyNotesForDisplay: [DayNote] {
+    activeDailyNotes
+  }
+
+  var isListModeAvailable: Bool {
+    #if DEBUG
+      !isDemoModeEnabled
+    #else
+      true
+    #endif
+  }
+
   // Notes that match the current daily-note search query.
   var filteredDailyNotes: [DayNote] {
     filteredNotes
@@ -169,7 +215,7 @@ final class NotesStore: ObservableObject {
   // The oldest/newest years available to the calendar browser, always including today.
   var calendarYearBounds: ClosedRange<Int> {
     let currentYear = calendar.component(.year, from: .now)
-    let noteYears = notes.map { calendar.component(.year, from: $0.date) }
+    let noteYears = activeDailyNotes.map { calendar.component(.year, from: $0.date) }
     let minimumYear = min(noteYears.min() ?? currentYear, currentYear)
     let maximumYear = max(noteYears.max() ?? currentYear, currentYear)
     return minimumYear...maximumYear
@@ -180,10 +226,76 @@ final class NotesStore: ObservableObject {
     isSearchBarExpanded = false
   }
 
+  #if DEBUG
+    // Toggles the in-memory demo library used for screenshot and local testing flows.
+    func setDemoModeEnabled(_ enabled: Bool, referenceDate: Date = .now) {
+      guard enabled != isDemoModeEnabled else { return }
+
+      if enabled {
+        enableDemoMode(relativeTo: referenceDate)
+      } else {
+        disableDemoMode()
+      }
+    }
+
+    private func enableDemoMode(relativeTo referenceDate: Date) {
+      demoReturnContext = DemoReturnContext(
+        sidebarMode: sidebarMode,
+        selectedNoteID: selectedNoteID,
+        selectedListNoteID: selectedListNoteID,
+        searchText: searchText,
+        isSearchBarExpanded: isSearchBarExpanded,
+        listSearchText: listSearchText,
+        isListSearchBarExpanded: isListSearchBarExpanded,
+        calendarBrowseYear: calendarBrowseYear
+      )
+
+      demoNotes = DayNote.demoModeNotes(relativeTo: referenceDate, calendar: calendar)
+      isDemoModeEnabled = true
+      sidebarMode = .daily
+      selectedNoteID = demoNotes.first?.id
+      searchText = ""
+      isSearchBarExpanded = false
+      calendarBrowseYear = calendar.component(.year, from: demoNotes.first?.date ?? referenceDate)
+    }
+
+    private func disableDemoMode() {
+      let returnContext = demoReturnContext
+      demoReturnContext = nil
+      isDemoModeEnabled = false
+      demoNotes = []
+
+      guard let returnContext else {
+        selectedNoteID = notes.first?.id
+        return
+      }
+
+      selectedNoteID = returnContext.selectedNoteID
+      selectedListNoteID = returnContext.selectedListNoteID
+      sidebarMode = returnContext.sidebarMode
+      searchText = returnContext.searchText
+      isSearchBarExpanded = returnContext.isSearchBarExpanded
+      listSearchText = returnContext.listSearchText
+      isListSearchBarExpanded = returnContext.isListSearchBarExpanded
+      calendarBrowseYear = returnContext.calendarBrowseYear
+    }
+  #endif
+
+  private var activeDailyNotes: [DayNote] {
+    #if DEBUG
+      if isDemoModeEnabled {
+        return demoNotes
+      }
+    #endif
+
+    return notes
+  }
+
   private var filteredNotes: [DayNote] {
     let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !query.isEmpty else { return notes }
-    return notes.filter { note in
+    let dailyNotes = activeDailyNotes
+    guard !query.isEmpty else { return dailyNotes }
+    return dailyNotes.filter { note in
       note.title.localizedCaseInsensitiveContains(query)
         || note.tags.contains(where: { $0.localizedCaseInsensitiveContains(query) })
         || Self.searchableBody(note.body).localizedCaseInsensitiveContains(query)
@@ -277,6 +389,16 @@ final class NotesStore: ObservableObject {
 
   // Creates today's note if needed and selects it.
   func selectToday() {
+    #if DEBUG
+      if isDemoModeEnabled {
+        selectedNoteID = demoNotes.first?.id
+        if let date = demoNotes.first?.date {
+          calendarBrowseYear = calendar.component(.year, from: date)
+        }
+        return
+      }
+    #endif
+
     do {
       try ensureTodayNoteExists()
       selectedNoteID = dayID(for: .now)
@@ -289,6 +411,19 @@ final class NotesStore: ObservableObject {
   // Opens an existing daily note for the target date, creating a blank one when missing.
   func openDailyDate(_ date: Date) {
     let targetDate = calendar.startOfDay(for: date)
+
+    #if DEBUG
+      if isDemoModeEnabled {
+        guard let note = dailyNote(on: targetDate) else {
+          userMessage = (text: "Demo Library only includes the sample notes.", kind: .info)
+          return
+        }
+
+        selectedNoteID = note.id
+        calendarBrowseYear = calendar.component(.year, from: targetDate)
+        return
+      }
+    #endif
 
     do {
       let note = try ensureDailyNoteExists(
@@ -351,6 +486,12 @@ final class NotesStore: ObservableObject {
 
   // Looks up a note by ID using the fast index, falling back to linear search.
   func note(withID noteID: DayNote.ID) -> DayNote? {
+    #if DEBUG
+      if isDemoModeEnabled {
+        return demoNotes.first(where: { $0.id == noteID })
+      }
+    #endif
+
     if let index = noteIndex[noteID], notes.indices.contains(index), notes[index].id == noteID {
       return notes[index]
     }
@@ -365,19 +506,19 @@ final class NotesStore: ObservableObject {
   // Selects the next newer note (earlier in date-descending array).
   func selectNextNote() {
     guard let currentID = selectedNoteID,
-      let currentIndex = notes.firstIndex(where: { $0.id == currentID }),
-      currentIndex > notes.startIndex
+      let currentIndex = activeDailyNotes.firstIndex(where: { $0.id == currentID }),
+      currentIndex > activeDailyNotes.startIndex
     else { return }
-    selectedNoteID = notes[currentIndex - 1].id
+    selectedNoteID = activeDailyNotes[currentIndex - 1].id
   }
 
   // Selects the next older note (later in date-descending array).
   func selectPreviousNote() {
     guard let currentID = selectedNoteID,
-      let currentIndex = notes.firstIndex(where: { $0.id == currentID }),
-      notes.indices.contains(currentIndex + 1)
+      let currentIndex = activeDailyNotes.firstIndex(where: { $0.id == currentID }),
+      activeDailyNotes.indices.contains(currentIndex + 1)
     else { return }
-    selectedNoteID = notes[currentIndex + 1].id
+    selectedNoteID = activeDailyNotes[currentIndex + 1].id
   }
 
   // Persists the new-note default preference to UserDefaults.
@@ -394,6 +535,13 @@ final class NotesStore: ObservableObject {
 
   // Moves a note to a new date by re-creating it with the target date's ID and file.
   func changeDate(noteID: DayNote.ID, to newDate: Date) {
+    #if DEBUG
+      if isDemoModeEnabled {
+        userMessage = (text: "Demo Library notes cannot be moved.", kind: .info)
+        return
+      }
+    #endif
+
     let targetDate = calendar.startOfDay(for: newDate)
     let targetID = dayID(for: targetDate)
 
@@ -431,6 +579,13 @@ final class NotesStore: ObservableObject {
 
   // Deletes the requested note so shared UI flows can confirm destructive actions centrally.
   func delete(noteID: DayNote.ID) {
+    #if DEBUG
+      if isDemoModeEnabled {
+        userMessage = (text: "Demo Library notes cannot be deleted.", kind: .info)
+        return
+      }
+    #endif
+
     guard let note = note(withID: noteID) else {
       return
     }
@@ -465,12 +620,14 @@ final class NotesStore: ObservableObject {
 
   // Returns the nearest older and newer notes so header arrows only step through saved notes.
   func adjacentNoteIDs(for noteID: DayNote.ID) -> (previous: DayNote.ID?, next: DayNote.ID?) {
-    guard let currentIndex = notes.firstIndex(where: { $0.id == noteID }) else {
+    let dailyNotes = activeDailyNotes
+    guard let currentIndex = dailyNotes.firstIndex(where: { $0.id == noteID }) else {
       return (nil, nil)
     }
 
-    let previousNoteID = notes.indices.contains(currentIndex + 1) ? notes[currentIndex + 1].id : nil
-    let nextNoteID = currentIndex > notes.startIndex ? notes[currentIndex - 1].id : nil
+    let previousNoteID =
+      dailyNotes.indices.contains(currentIndex + 1) ? dailyNotes[currentIndex + 1].id : nil
+    let nextNoteID = currentIndex > dailyNotes.startIndex ? dailyNotes[currentIndex - 1].id : nil
 
     return (previousNoteID, nextNoteID)
   }
@@ -618,6 +775,19 @@ final class NotesStore: ObservableObject {
 
   // Applies a mutation to a note, rebuilds the index, and schedules a save.
   private func update(noteID: DayNote.ID, mutate: (inout DayNote) -> Void) {
+    #if DEBUG
+      if isDemoModeEnabled {
+        guard let index = demoNotes.firstIndex(where: { $0.id == noteID }) else {
+          return
+        }
+
+        var updatedNotes = demoNotes
+        mutate(&updatedNotes[index])
+        demoNotes = updatedNotes
+        return
+      }
+    #endif
+
     guard let index = notes.firstIndex(where: { $0.id == noteID }) else {
       return
     }

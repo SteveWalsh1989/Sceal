@@ -11,6 +11,45 @@ import UniformTypeIdentifiers
 
 extension NotesStore {
 
+  // Opens a file picker and imports notes from a Day One JSON export.
+  func importFromDayOne() {
+    let cal = calendar
+    importFromFile(
+      panelTitle: "Select Day One Export",
+      panelMessage: "Choose a Day One JSON export zip or extracted JSON file.",
+      allowedContentTypes: [.zip, .json],
+      context: "Importing from Day One failed",
+      emptyMessage: "No Day One entries found in the selected export."
+    ) { fileURL, existingIDs in
+      let result = try DayOneImporter.importNotes(
+        from: fileURL,
+        existingNoteIDs: existingIDs,
+        calendar: cal
+      )
+
+      let mediaDetails = [
+        result.omittedPhotos > 0 ? "\(result.omittedPhotos) photos omitted" : nil,
+        result.omittedVideos > 0 ? "\(result.omittedVideos) videos omitted" : nil,
+        result.omittedAudios > 0 ? "\(result.omittedAudios) audio files omitted" : nil,
+        result.omittedPDFs > 0 ? "\(result.omittedPDFs) PDFs omitted" : nil,
+      ].compactMap { $0 }
+
+      let extraDetails = [
+        result.merged > 0 ? "\(result.merged) same-day entries merged" : nil,
+        result.missingTimeZone > 0
+          ? "\(result.missingTimeZone) missing or invalid time zones" : nil,
+        result.failed > 0 ? "\(result.failed) failed to parse" : nil,
+        mediaDetails.isEmpty ? nil : mediaDetails.joined(separator: ", "),
+      ].compactMap { $0 }
+
+      return ImportOutcome(
+        imported: result.imported,
+        skipped: result.skipped,
+        extraDetail: extraDetails.isEmpty ? nil : extraDetails.joined(separator: ", ")
+      )
+    }
+  }
+
   // Opens a folder picker and imports dated Markdown files from common note apps.
   func importFromMarkdown() {
     let cal = calendar
@@ -152,13 +191,59 @@ extension NotesStore {
     context: String,
     emptyMessage: String,
     importBlock:
-      @Sendable @escaping (_ folderURL: URL, _ existingNoteIDs: Set<DayNote.ID>) throws ->
+      @Sendable @escaping (_ sourceURL: URL, _ existingNoteIDs: Set<DayNote.ID>) throws ->
       ImportOutcome
   ) {
     guard let folderURL = selectImportFolder(title: panelTitle, message: panelMessage) else {
       return
     }
 
+    runImport(
+      from: folderURL,
+      context: context,
+      emptyMessage: emptyMessage,
+      importBlock: importBlock
+    )
+  }
+
+  // Runs a file-import flow with shared panel, persistence, and user-message handling.
+  private func importFromFile(
+    panelTitle: String,
+    panelMessage: String,
+    allowedContentTypes: [UTType],
+    context: String,
+    emptyMessage: String,
+    importBlock:
+      @Sendable @escaping (_ sourceURL: URL, _ existingNoteIDs: Set<DayNote.ID>) throws ->
+      ImportOutcome
+  ) {
+    guard
+      let fileURL = selectImportFile(
+        title: panelTitle,
+        message: panelMessage,
+        allowedContentTypes: allowedContentTypes
+      )
+    else {
+      return
+    }
+
+    runImport(
+      from: fileURL,
+      context: context,
+      emptyMessage: emptyMessage,
+      importBlock: importBlock
+    )
+  }
+
+  // Runs shared background import, persistence, and result-message handling.
+  private func runImport(
+    from sourceURL: URL,
+    context: String,
+    emptyMessage: String,
+    importBlock:
+      @Sendable @escaping (_ sourceURL: URL, _ existingNoteIDs: Set<DayNote.ID>) throws ->
+      ImportOutcome
+  ) {
     let existingIDs = Set(notes.map(\.id))
 
     // Resolve notes directory on main actor and start background work.
@@ -174,17 +259,17 @@ extension NotesStore {
     progressMessage = "Importing…"
 
     // Explicitly acquire security-scoped access so the detached task can
-    // read the user-selected folder inside the App Sandbox.
-    let didStartAccessing = folderURL.startAccessingSecurityScopedResource()
+    // read the user-selected source inside the App Sandbox.
+    let didStartAccessing = sourceURL.startAccessingSecurityScopedResource()
 
     Task.detached { [weak self] in
       defer {
-        if didStartAccessing { folderURL.stopAccessingSecurityScopedResource() }
+        if didStartAccessing { sourceURL.stopAccessingSecurityScopedResource() }
       }
 
       do {
         // Step 1: Parse on a background thread.
-        let outcome = try importBlock(folderURL, existingIDs)
+        let outcome = try importBlock(sourceURL, existingIDs)
 
         // If nothing to import, finish early on main.
         if outcome.imported.isEmpty {
@@ -237,6 +322,27 @@ extension NotesStore {
     panel.canChooseDirectories = true
     panel.canChooseFiles = false
     panel.allowsMultipleSelection = false
+
+    guard panel.runModal() == .OK else {
+      return nil
+    }
+
+    return panel.url
+  }
+
+  // Opens a file picker configured for import flows.
+  private func selectImportFile(
+    title: String,
+    message: String,
+    allowedContentTypes: [UTType]
+  ) -> URL? {
+    let panel = NSOpenPanel()
+    panel.title = title
+    panel.message = message
+    panel.canChooseDirectories = false
+    panel.canChooseFiles = true
+    panel.allowsMultipleSelection = false
+    panel.allowedContentTypes = allowedContentTypes
 
     guard panel.runModal() == .OK else {
       return nil

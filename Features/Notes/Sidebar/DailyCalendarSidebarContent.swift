@@ -90,7 +90,7 @@ struct DailyCalendarSidebarContent: View {
                           }
                         )
                         .contextMenu {
-                          if let note {
+                          if let note, !store.isDemoModeEnabled {
                             Button {
                               requestChangeDate(note.id)
                             } label: {
@@ -156,7 +156,7 @@ struct DailyCalendarSidebarContent: View {
       return []
     }
 
-    let noteMonthStarts = store.notes.compactMap { monthStart(for: $0.date) }
+    let noteMonthStarts = store.dailyNotesForDisplay.compactMap { monthStart(for: $0.date) }
     let firstMonthStart = min(noteMonthStarts.min() ?? currentMonthStart, currentMonthStart)
     let lastMonthStart = max(noteMonthStarts.max() ?? currentMonthStart, currentMonthStart)
 
