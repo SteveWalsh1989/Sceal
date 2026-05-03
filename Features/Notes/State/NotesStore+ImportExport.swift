@@ -11,6 +11,36 @@ import UniformTypeIdentifiers
 
 extension NotesStore {
 
+  // Opens a folder picker and imports dated Markdown files from common note apps.
+  func importFromMarkdown() {
+    let cal = calendar
+    importFromFolder(
+      panelTitle: "Select Markdown Folder",
+      panelMessage:
+        "Choose a folder of dated Markdown files from Obsidian, Logseq, Joplin, Bear, Apple Notes, or a similar app.",
+      context: "Importing Markdown notes failed",
+      emptyMessage: "No dated Markdown notes found in the selected folder."
+    ) { folderURL, existingIDs in
+      let result = try GenericMarkdownImporter.importNotes(
+        from: folderURL,
+        existingNoteIDs: existingIDs,
+        calendar: cal
+      )
+
+      let extraDetails = [
+        result.merged > 0 ? "\(result.merged) same-day files merged" : nil,
+        result.missingDate > 0 ? "\(result.missingDate) missing dates" : nil,
+        result.failed > 0 ? "\(result.failed) failed to parse" : nil,
+      ].compactMap { $0 }
+
+      return ImportOutcome(
+        imported: result.imported,
+        skipped: result.skipped,
+        extraDetail: extraDetails.isEmpty ? nil : extraDetails.joined(separator: ", ")
+      )
+    }
+  }
+
   // Opens a folder picker and imports notes from an unzipped Diarly export.
   func importFromDiarly() {
     let cal = calendar
@@ -108,7 +138,7 @@ extension NotesStore {
     }
   }
 
-  // Shared import payload used by both Diarly and Scéal folder import flows.
+  // Shared import payload used by folder import flows.
   private struct ImportOutcome: Sendable {
     let imported: [DayNote]
     let skipped: Int
