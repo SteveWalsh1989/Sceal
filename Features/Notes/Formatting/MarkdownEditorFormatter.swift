@@ -99,6 +99,7 @@ enum MarkdownEditorFormatter {
     }
 
     let style = NSMutableParagraphStyle()
+    style.baseWritingDirection = .leftToRight
     style.lineHeightMultiple = appearance.lineHeight
     let cachedStyle = style.copy() as! NSParagraphStyle
     bodyParagraphStyles[key] = cachedStyle
@@ -122,6 +123,7 @@ enum MarkdownEditorFormatter {
 
     let style = NSMutableParagraphStyle()
     let indent = CGFloat(indentLevel) * 20
+    style.baseWritingDirection = .leftToRight
     style.firstLineHeadIndent = 8 + indent
     style.headIndent = 28 + indent
     style.paragraphSpacing = appearance.listItemSpacing
@@ -143,6 +145,7 @@ enum MarkdownEditorFormatter {
     }
 
     let style = NSMutableParagraphStyle()
+    style.baseWritingDirection = .leftToRight
     style.firstLineHeadIndent = 20
     style.headIndent = 20
     style.paragraphSpacing = 2

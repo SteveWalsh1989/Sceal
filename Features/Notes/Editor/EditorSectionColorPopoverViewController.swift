@@ -8,10 +8,7 @@ import AppKit
 
 @MainActor final class EditorSectionColorPopoverViewController: NSViewController {
 
-  private let currentHeadingColorName: String?
-  private let currentBulletColorName: String?
-  private let currentUseSectionColor: Bool
-  private let onApply: (String?, String?, Bool) -> Void
+  private let onChange: (String?, String?, Bool) -> Void
 
   private var selectedHeadingColor: String?
   private var selectedBulletColor: String?
@@ -21,12 +18,9 @@ import AppKit
     headingColorName: String?,
     bulletColorName: String?,
     useSectionColor: Bool,
-    onApply: @escaping (String?, String?, Bool) -> Void
+    onChange: @escaping (String?, String?, Bool) -> Void
   ) {
-    self.currentHeadingColorName = headingColorName
-    self.currentBulletColorName = bulletColorName
-    self.currentUseSectionColor = useSectionColor
-    self.onApply = onApply
+    self.onChange = onChange
     self.selectedHeadingColor = headingColorName
     self.selectedBulletColor = bulletColorName
     self.useSectionColorToggle = useSectionColor
@@ -37,9 +31,9 @@ import AppKit
   required init?(coder: NSCoder) { fatalError() }
 
   override func loadView() {
-    let container = NSView(frame: NSRect(x: 0, y: 0, width: 264, height: 240))
+    let container = NSView(frame: NSRect(x: 0, y: 0, width: 264, height: 208))
 
-    var y: CGFloat = 220
+    var y: CGFloat = 188
 
     // Title
     let title = makeLabel("Section Colors", bold: true)
@@ -86,18 +80,6 @@ import AppKit
     toggle.sizeToFit()
     toggle.frame.origin = NSPoint(x: 16, y: y - 18)
     container.addSubview(toggle)
-    y -= 32
-
-    // Apply button
-    let applyBtn = NSButton(title: "Apply", target: self, action: #selector(applyClicked(_:)))
-    applyBtn.bezelStyle = .rounded
-    applyBtn.keyEquivalent = "\r"
-    applyBtn.sizeToFit()
-    let swatchRowTrailingX =
-      16 + 36 + 4 + CGFloat(ThemePalette.colors.count) * 20 + CGFloat(
-        max(ThemePalette.colors.count - 1, 0)) * 4
-    applyBtn.frame.origin = NSPoint(x: swatchRowTrailingX - applyBtn.frame.width, y: 8)
-    container.addSubview(applyBtn)
 
     self.view = container
   }
@@ -161,19 +143,18 @@ import AppKit
   @objc private func headingSwatchClicked(_ sender: NSButton) {
     selectedHeadingColor = sender.tag == -1 ? nil : ThemePalette.colors[sender.tag].name
     rebuildSwatches()
+    onChange(selectedHeadingColor, selectedBulletColor, useSectionColorToggle)
   }
 
   @objc private func bulletSwatchClicked(_ sender: NSButton) {
     selectedBulletColor = sender.tag == -1 ? nil : ThemePalette.colors[sender.tag].name
     rebuildSwatches()
+    onChange(selectedHeadingColor, selectedBulletColor, useSectionColorToggle)
   }
 
   @objc private func toggleChanged(_ sender: NSButton) {
     useSectionColorToggle = sender.state == .on
-  }
-
-  @objc private func applyClicked(_ sender: NSButton) {
-    onApply(selectedHeadingColor, selectedBulletColor, useSectionColorToggle)
+    onChange(selectedHeadingColor, selectedBulletColor, useSectionColorToggle)
   }
 
   private func rebuildSwatches() {
@@ -184,4 +165,3 @@ import AppKit
     view.frame = frame
   }
 }
-

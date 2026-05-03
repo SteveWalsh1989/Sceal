@@ -5,6 +5,27 @@ import XCTest
 
 @MainActor
 final class EditorTypingAttributeTests: EditorTestCase {
+  // Prevents neutral editor markers from letting TextKit infer right-to-left typing.
+  func testEditorTypingParagraphStylesStayLeftToRight() {
+    let bodyStyle = MarkdownEditorFormatter.bodyParagraphStyle(for: appearance)
+    let listStyle = MarkdownEditorFormatter.listParagraphStyle(for: appearance)
+    let blockquoteStyle = MarkdownEditorFormatter.blockquoteParagraphStyle(for: appearance)
+    let dividerStyle =
+      MarkdownEditorFormatter.sectionDividerDisplayString()
+      .attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+    let horizontalRuleStyle =
+      MarkdownEditorFormatter.styledHorizontalRule()
+      .attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+    let fixture = makeEditorFixture(markdown: "# Heading\n- Bullet")
+
+    XCTAssertEqual(fixture.textView.baseWritingDirection, .leftToRight)
+    XCTAssertEqual(bodyStyle.baseWritingDirection, .leftToRight)
+    XCTAssertEqual(listStyle.baseWritingDirection, .leftToRight)
+    XCTAssertEqual(blockquoteStyle.baseWritingDirection, .leftToRight)
+    XCTAssertEqual(dividerStyle?.baseWritingDirection, .leftToRight)
+    XCTAssertEqual(horizontalRuleStyle?.baseWritingDirection, .leftToRight)
+  }
+
   // Prevents checkbox attachment glyphs from seeding tiny default typing attributes.
   func testCheckboxLineStartSkipsAttachmentTypingSource() {
     let fixture = makeEditorFixture(markdown: "- [ ] Task")

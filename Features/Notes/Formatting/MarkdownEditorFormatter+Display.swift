@@ -399,6 +399,7 @@ extension MarkdownEditorFormatter {
     // separate card backgrounds for each section. This character occupies
     // a single line that becomes the gap between cards.
     let gapStyle = NSMutableParagraphStyle()
+    gapStyle.baseWritingDirection = .leftToRight
     gapStyle.paragraphSpacingBefore =
       sectionDividerSpacingBefore * appearance.sectionDividerGapScale
     gapStyle.paragraphSpacing = sectionDividerSpacingAfter * appearance.sectionDividerGapScale
@@ -435,6 +436,7 @@ extension MarkdownEditorFormatter {
   // The actual line is drawn by MarkdownEditorTextView; this marker reserves the vertical space.
   static func styledHorizontalRule() -> NSAttributedString {
     let style = NSMutableParagraphStyle()
+    style.baseWritingDirection = .leftToRight
     style.paragraphSpacingBefore = 8
     style.paragraphSpacing = 8
     style.maximumLineHeight = 1

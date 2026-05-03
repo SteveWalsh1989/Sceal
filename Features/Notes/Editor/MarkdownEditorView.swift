@@ -188,6 +188,7 @@ struct MarkdownEditorView: NSViewRepresentable {
     textView.isAutomaticDashSubstitutionEnabled = false
     textView.isAutomaticTextReplacementEnabled = false
     textView.isAutomaticSpellingCorrectionEnabled = false
+    textView.baseWritingDirection = .leftToRight
     textView.selectedTextAttributes = [
       .backgroundColor: NSColor.selectedTextBackgroundColor.withAlphaComponent(0.28)
     ]

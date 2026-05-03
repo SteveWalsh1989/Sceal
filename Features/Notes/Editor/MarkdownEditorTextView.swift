@@ -825,14 +825,13 @@ final class MarkdownEditorTextView: NSTextView {
 
     let popover = NSPopover()
     popover.behavior = .transient
-    popover.contentSize = NSSize(width: 264, height: 240)
+    popover.contentSize = NSSize(width: 264, height: 208)
 
     let controller = EditorSectionColorPopoverViewController(
       headingColorName: currentHeading,
       bulletColorName: currentBullet,
       useSectionColor: currentUseSC
-    ) { [weak self, weak popover] newHeading, newBullet, newUseSC in
-      popover?.performClose(nil)
+    ) { [weak self] newHeading, newBullet, newUseSC in
       self?.applySectionColorChange(
         dividerRange: dividerRange,
         headingColorName: newHeading,
