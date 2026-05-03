@@ -42,6 +42,7 @@ struct NoteAppearanceSettings: Codable, Equatable, Sendable {
   var accentColorName: String
   var sidebarShowsTags: Bool
   var sidebarDateFormat: SidebarDateFormat
+  var calendarHidesWeekends: Bool
   var themeID: String
   var colorOverrides: ThemeColorSet?
 
@@ -57,6 +58,7 @@ struct NoteAppearanceSettings: Codable, Equatable, Sendable {
     accentColorName: String = Self.defaultAccentColorName,
     sidebarShowsTags: Bool = false,
     sidebarDateFormat: SidebarDateFormat = .yearMonthDay,
+    calendarHidesWeekends: Bool = false,
     themeID: String = Self.defaultThemeID,
     colorOverrides: ThemeColorSet? = nil
   ) {
@@ -71,6 +73,7 @@ struct NoteAppearanceSettings: Codable, Equatable, Sendable {
     self.accentColorName = accentColorName
     self.sidebarShowsTags = sidebarShowsTags
     self.sidebarDateFormat = sidebarDateFormat
+    self.calendarHidesWeekends = calendarHidesWeekends
     self.themeID = themeID
     self.colorOverrides = colorOverrides
   }
@@ -93,6 +96,7 @@ struct NoteAppearanceSettings: Codable, Equatable, Sendable {
       accentColorName: normalizedAccentColorName,
       sidebarShowsTags: sidebarShowsTags,
       sidebarDateFormat: sidebarDateFormat,
+      calendarHidesWeekends: calendarHidesWeekends,
       themeID: themeID,
       colorOverrides: colorOverrides
     )
@@ -178,6 +182,7 @@ struct NoteAppearanceSettings: Codable, Equatable, Sendable {
     case accentColorName
     case sidebarShowsTags
     case sidebarDateFormat
+    case calendarHidesWeekends
     case themeID
     case colorOverrides
   }
@@ -214,6 +219,10 @@ struct NoteAppearanceSettings: Codable, Equatable, Sendable {
         SidebarDateFormat.self,
         forKey: .sidebarDateFormat
       ) ?? .yearMonthDay,
+      calendarHidesWeekends: try container.decodeIfPresent(
+        Bool.self,
+        forKey: .calendarHidesWeekends
+      ) ?? false,
       themeID: try container.decodeIfPresent(String.self, forKey: .themeID)
         ?? Self.defaultThemeID,
       colorOverrides: try container.decodeIfPresent(
@@ -234,6 +243,7 @@ struct NoteAppearanceSettings: Codable, Equatable, Sendable {
     try container.encode(accentColorName, forKey: .accentColorName)
     try container.encode(sidebarShowsTags, forKey: .sidebarShowsTags)
     try container.encode(sidebarDateFormat, forKey: .sidebarDateFormat)
+    try container.encode(calendarHidesWeekends, forKey: .calendarHidesWeekends)
     try container.encode(themeID, forKey: .themeID)
     try container.encodeIfPresent(colorOverrides, forKey: .colorOverrides)
   }

@@ -97,4 +97,20 @@ final class NotesStoreSettingsTests: NotesStoreTestCase {
 
     XCTAssertEqual(store.newNoteDefault, .copyPrevious)
   }
+
+  // Prevents the calendar weekend visibility toggle from updating UI without persisting the choice.
+  func testUpdatingCalendarHidesWeekendsPersistsChoice() throws {
+    let userDefaults = makeUserDefaults()
+    let store = makeStore(userDefaults: userDefaults)
+
+    store.updateCalendarHidesWeekends(true)
+
+    let data = try XCTUnwrap(
+      userDefaults.data(forKey: "sceal.noteAppearanceSettings")
+    )
+    let persisted = try JSONDecoder().decode(NoteAppearanceSettings.self, from: data)
+
+    XCTAssertTrue(store.appearanceSettings.calendarHidesWeekends)
+    XCTAssertTrue(persisted.calendarHidesWeekends)
+  }
 }

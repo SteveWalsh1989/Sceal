@@ -77,6 +77,12 @@ extension NotesStore {
     }
   }
 
+  func updateCalendarHidesWeekends(_ calendarHidesWeekends: Bool) {
+    updateAppearanceSettings { settings in
+      settings.calendarHidesWeekends = calendarHidesWeekends
+    }
+  }
+
   // Selects a built-in theme and clears any custom overrides.
   func updateThemeID(_ id: String) {
     updateAppearanceSettings { settings in

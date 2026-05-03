@@ -49,6 +49,7 @@ final class NoteAppearanceSettingsTests: XCTestCase {
     XCTAssertEqual(settings.bodyFontSize, NoteAppearanceSettings.defaultBodyFontSize)
     XCTAssertEqual(settings.lineHeight, NoteAppearanceSettings.defaultLineHeight)
     XCTAssertEqual(settings.sidebarDateFormat, .yearMonthDay)
+    XCTAssertFalse(settings.calendarHidesWeekends)
     XCTAssertEqual(settings.themeID, NoteAppearanceSettings.defaultThemeID)
   }
 

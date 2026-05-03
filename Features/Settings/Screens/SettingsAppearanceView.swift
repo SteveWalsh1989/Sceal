@@ -137,6 +137,14 @@ struct SettingsAppearanceView: View {
           )
         )
 
+        Toggle(
+          "Hide weekends in calendar",
+          isOn: Binding(
+            get: { store.appearanceSettings.calendarHidesWeekends },
+            set: { store.updateCalendarHidesWeekends($0) }
+          )
+        )
+
         Picker(
           "Sidebar date format",
           selection: Binding(
