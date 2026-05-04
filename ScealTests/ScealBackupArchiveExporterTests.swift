@@ -6,7 +6,13 @@ import XCTest
 @MainActor
 final class ScealBackupArchiveExporterTests: NotesStoreTestCase {
   func testBackupArchiveContainsDailyNotesListNotesManifestAndMetadata() throws {
-    let dailyNote = makeDailyNote(year: 2026, month: 4, day: 16, title: "Daily", body: "Daily body")
+    let dailyNote = makeDailyNote(
+      year: 2026,
+      month: 4,
+      day: 16,
+      title: "Daily",
+      body: "![Desk](../Attachments/2026-04-16/desk.png)"
+    )
     let listNote = makeListNote(
       id: "2026-04-16-abcdef",
       year: 2026,
@@ -19,13 +25,30 @@ final class ScealBackupArchiveExporterTests: NotesStoreTestCase {
       ungroupedNoteIDs: [listNote.id],
       groups: [NoteGroup(name: "Pinned", noteIDs: [listNote.id])]
     )
+    let attachmentsRootURL = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let dailyAttachmentDirectoryURL = attachmentsRootURL.appendingPathComponent(
+      dailyNote.id,
+      isDirectory: true
+    )
+    try FileManager.default.createDirectory(
+      at: dailyAttachmentDirectoryURL,
+      withIntermediateDirectories: true
+    )
+    try Data("image".utf8).write(
+      to: dailyAttachmentDirectoryURL.appendingPathComponent("desk.png")
+    )
+    addTeardownBlock {
+      try? FileManager.default.removeItem(at: attachmentsRootURL)
+    }
 
     let archiveURL = try ScealBackupArchiveExporter.exportBackup(
       dailyNotes: [dailyNote],
       listNotes: [listNote],
       manifest: manifest,
       kind: .manual,
-      createdAt: makeDate(year: 2026, month: 4, day: 16)
+      createdAt: makeDate(year: 2026, month: 4, day: 16),
+      attachmentsRootURL: attachmentsRootURL
     )
     defer {
       ZipArchiveWriter.cleanUp(zipURL: archiveURL)
@@ -46,11 +69,13 @@ final class ScealBackupArchiveExporterTests: NotesStoreTestCase {
     let listNoteURL = rootURL.appendingPathComponent("ListNotes/\(listNote.fileName)")
     let manifestURL = rootURL.appendingPathComponent("ListNotes/groups.json")
     let metadataURL = rootURL.appendingPathComponent("backup-metadata.json")
+    let attachmentURL = rootURL.appendingPathComponent("Attachments/\(dailyNote.id)/desk.png")
 
     XCTAssertTrue(FileManager.default.fileExists(atPath: dailyNoteURL.path))
     XCTAssertTrue(FileManager.default.fileExists(atPath: listNoteURL.path))
     XCTAssertTrue(FileManager.default.fileExists(atPath: manifestURL.path))
     XCTAssertTrue(FileManager.default.fileExists(atPath: metadataURL.path))
+    XCTAssertTrue(FileManager.default.fileExists(atPath: attachmentURL.path))
 
     let metadata = try JSONDecoder().decode(
       BackupArchiveMetadata.self,

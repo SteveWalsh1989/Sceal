@@ -564,10 +564,7 @@ extension MarkdownEditorFormatter {
   }
 
   private static func drawMissingImagePlaceholder(in rect: NSRect) {
-    let fillColor =
-      NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .vibrantDark]) != nil
-      ? NSColor.white.withAlphaComponent(0.08)
-      : NSColor.black.withAlphaComponent(0.06)
+    let fillColor = NSColor.quaternaryLabelColor.withAlphaComponent(0.22)
     fillColor.setFill()
     NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8).fill()
 
