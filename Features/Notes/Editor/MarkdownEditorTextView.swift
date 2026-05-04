@@ -1375,7 +1375,7 @@ final class MarkdownEditorTextView: NSTextView {
     let explicitWidth = imageWidthValue(from: attrs[.markdownImageWidth])
     let popover = NSPopover()
     popover.behavior = .transient
-    popover.contentSize = NSSize(width: 280, height: 126)
+    popover.contentSize = NSSize(width: 300, height: 144)
 
     let controller = EditorImagePopoverViewController(
       title: title,
@@ -1387,6 +1387,8 @@ final class MarkdownEditorTextView: NSTextView {
         title: newTitle,
         width: newWidth
       )
+    } onRemove: { [weak self] in
+      self?.removeImageBlock(imageRange: imageRange)
     }
 
     popover.contentViewController = controller
@@ -1417,6 +1419,39 @@ final class MarkdownEditorTextView: NSTextView {
       textStorage.replaceCharacters(in: safeRange, with: replacement)
       return NSRange(location: safeLocation + replacement.length, length: 0)
     }
+  }
+
+  private func removeImageBlock(imageRange: NSRange) {
+    guard let textStorage else { return }
+    let removalRange = imageLineRemovalRange(for: imageRange, in: textStorage)
+
+    _ = performEditorEdit(
+      affectedRange: removalRange,
+      replacementString: "",
+      actionName: "Remove Image"
+    ) { textStorage in
+      let safeLocation = min(removalRange.location, textStorage.length)
+      let safeLength = min(removalRange.length, max(textStorage.length - safeLocation, 0))
+      let safeRange = NSRange(location: safeLocation, length: safeLength)
+      textStorage.replaceCharacters(in: safeRange, with: "")
+      return NSRange(location: safeRange.location, length: 0)
+    }
+  }
+
+  private func imageLineRemovalRange(for imageRange: NSRange, in textStorage: NSTextStorage)
+    -> NSRange
+  {
+    let safeLocation = min(imageRange.location, textStorage.length)
+    let safeLength = min(imageRange.length, max(textStorage.length - safeLocation, 0))
+    let safeRange = NSRange(location: safeLocation, length: safeLength)
+    guard safeRange.length > 0 else { return safeRange }
+
+    let nsString = textStorage.string as NSString
+    let lineRange = nsString.lineRange(for: safeRange)
+    return NSRange(
+      location: lineRange.location,
+      length: min(lineRange.length, max(textStorage.length - lineRange.location, 0))
+    )
   }
 
   private func imageWidthValue(from value: Any?) -> CGFloat? {
