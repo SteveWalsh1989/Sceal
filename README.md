@@ -5,7 +5,7 @@ Scéal is a local-first macOS notes app built to make everyday writing feel beau
 It is for people who want more than a blank editor, but less than an overbuilt workspace app. Scéal gives you a focused place to journal, think, plan, and collect ideas, while still making your notes feel structured, expressive, and fully your own.
 
 
-<img width="1284" height="1175" alt="image" src="https://github.com/user-attachments/assets/476b2721-e491-4a83-9edc-c3e1dd15d7db" />
+<img width="1463" height="921" alt="image" src="https://github.com/user-attachments/assets/a92e5692-053d-463a-965f-528b7b316e7f" />
 
 
 ## A notes app that feels crafted
