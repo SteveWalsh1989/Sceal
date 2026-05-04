@@ -153,11 +153,6 @@ struct NoteAppearanceSettings: Codable, Equatable, Sendable {
     NSFontManager.shared.convert(resolvedFont(ofSize: size), toHaveTrait: .boldFontMask)
   }
 
-  // Italic variant of the body font at the given size.
-  func italicBodyFont(ofSize size: CGFloat) -> NSFont {
-    NSFontManager.shared.convert(resolvedFont(ofSize: size), toHaveTrait: .italicFontMask)
-  }
-
   // Falls back to the system font token when the name is empty.
   private var normalizedBodyFontName: String {
     bodyFontName.isEmpty ? Self.systemFontToken : bodyFontName

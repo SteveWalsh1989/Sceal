@@ -1,7 +1,5 @@
 import XCTest
 
-@testable import Sceal
-
 @MainActor
 final class MarkdownHeadingPreservationTests: MarkdownPreservationTestCase {
   // Prevents heading level 1 markers from being dropped on save.

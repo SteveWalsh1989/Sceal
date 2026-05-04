@@ -34,9 +34,4 @@ enum ThemePalette {
   static func color(named name: String) -> NSColor? {
     colors.first(where: { $0.name == name })?.color
   }
-
-  // Returns the palette name for an NSColor, or nil if not found.
-  static func name(for color: NSColor) -> String? {
-    colors.first(where: { $0.color == color })?.name
-  }
 }

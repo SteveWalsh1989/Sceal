@@ -1,7 +1,5 @@
 import XCTest
 
-@testable import Sceal
-
 @MainActor
 final class MarkdownInlinePreservationTests: MarkdownPreservationTestCase {
   // Prevents bold markdown from being stripped during display conversion.

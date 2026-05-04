@@ -140,51 +140,6 @@ extension NSTextView {
     return nil
   }
 
-  // Resolves a character index for a point already converted into text-container coordinates.
-  func editorCharacterIndex(forTextContainerPoint point: NSPoint) -> Int? {
-    guard
-      let textLayoutManager,
-      let textContentManager = textLayoutManager.textContentManager
-    else { return nil }
-
-    // Find the layout fragment containing the point by enumerating all fragments.
-    var matchedFragment: NSTextLayoutFragment?
-    textLayoutManager.enumerateTextLayoutFragments(
-      from: textContentManager.documentRange.location,
-      options: [.ensuresLayout]
-    ) { fragment in
-      if fragment.layoutFragmentFrame.contains(point) {
-        matchedFragment = fragment
-        return false
-      }
-      return fragment.layoutFragmentFrame.origin.y <= point.y
-    }
-
-    guard let fragment = matchedFragment else { return nil }
-
-    let localPoint = NSPoint(
-      x: point.x - fragment.layoutFragmentFrame.origin.x,
-      y: point.y - fragment.layoutFragmentFrame.origin.y
-    )
-
-    let resolvedLocation: NSTextLocation
-    if let lineFragment = fragment.textLineFragments.first(where: {
-      $0.typographicBounds.contains(localPoint)
-    }) {
-      let charOffset = lineFragment.characterIndex(for: localPoint)
-      resolvedLocation =
-        textContentManager.location(fragment.rangeInElement.location, offsetBy: charOffset)
-        ?? fragment.rangeInElement.location
-    } else {
-      resolvedLocation = fragment.rangeInElement.location
-    }
-
-    return textContentManager.offset(
-      from: textContentManager.documentRange.location,
-      to: resolvedLocation
-    )
-  }
-
   // Resolves a character index for a point in text-view coordinates.
   func editorCharacterIndex(forViewPoint point: NSPoint) -> Int? {
     let characterIndex = characterIndexForInsertion(at: point)

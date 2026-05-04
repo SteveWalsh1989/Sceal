@@ -1,7 +1,5 @@
 import XCTest
 
-@testable import Sceal
-
 @MainActor
 final class MarkdownBlockPreservationTests: MarkdownPreservationTestCase {
   // Prevents blockquotes from flattening into normal paragraphs.

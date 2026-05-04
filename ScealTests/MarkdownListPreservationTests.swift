@@ -1,7 +1,5 @@
 import XCTest
 
-@testable import Sceal
-
 @MainActor
 final class MarkdownListPreservationTests: MarkdownPreservationTestCase {
   // Prevents plain bullet items from changing marker style on save.

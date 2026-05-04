@@ -1,7 +1,5 @@
 import XCTest
 
-@testable import Sceal
-
 @MainActor
 final class MarkdownCompositePreservationTests: MarkdownPreservationTestCase {
   // Prevents headings from dropping nested bold styling on save.

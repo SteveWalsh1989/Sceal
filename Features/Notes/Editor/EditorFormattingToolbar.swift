@@ -907,26 +907,6 @@ import AppKit
     }
   }
 
-  // Removes the display bullet/checkbox/number prefix from a line.
-  private func stripDisplayListPrefix(_ text: String, listType: MarkdownListType) -> String {
-    switch listType {
-    case .bullet:
-      if text.hasPrefix("\(MarkdownEditorFormatter.bulletMarker) ") {
-        return String(text.dropFirst(2))
-      }
-    case .checkboxUnchecked, .checkboxChecked:
-      // Attachment character (U+FFFC) + space
-      if text.hasPrefix("\(MarkdownEditorFormatter.attachmentChar) ") {
-        return String(text.dropFirst(2))
-      }
-    case .numbered:
-      if let match = text.range(of: #"^\d+\.\s+"#, options: .regularExpression) {
-        return String(text[match.upperBound...])
-      }
-    }
-    return text
-  }
-
   // Applies the correct color and font to a list marker character.
   private func styleListMarker(in attrStr: NSMutableAttributedString, listType: MarkdownListType) {
     guard attrStr.length > 0 else { return }

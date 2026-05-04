@@ -68,19 +68,9 @@ enum MarkdownEditorFormatter {
   private static var blockquoteParagraphStyles: [BlockquoteParagraphStyleKey: NSParagraphStyle] =
     [:]
 
-  // MARK: - Heading Color Presets (backed by the shared palette)
-
-  static let headingColorPresets: [(name: String, color: NSColor)] =
-    ThemePalette.colors.map { ($0.name, $0.color) }
-
   // Returns the NSColor for a named heading color preset.
   static func headingColor(named name: String) -> NSColor? {
     ThemePalette.color(named: name)
-  }
-
-  // Returns the preset name matching an NSColor, or nil.
-  static func headingColorName(for color: NSColor) -> String? {
-    ThemePalette.name(for: color)
   }
 
   // Resolves the accent NSColor from appearance settings.

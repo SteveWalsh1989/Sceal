@@ -202,11 +202,6 @@ final class NotesStore: ObservableObject {
     #endif
   }
 
-  // Notes that match the current daily-note search query.
-  var filteredDailyNotes: [DayNote] {
-    filteredNotes
-  }
-
   // Fast lookup set for daily search matches in calendar mode.
   var filteredDailyNoteIDs: Set<DayNote.ID> {
     Set(filteredNotes.map(\.id))
@@ -438,11 +433,6 @@ final class NotesStore: ObservableObject {
   // Returns the daily note saved for a date, if one exists.
   func dailyNote(on date: Date) -> DayNote? {
     note(withID: dayID(for: date))
-  }
-
-  // Whether a saved daily note exists for the given date.
-  func hasDailyNote(on date: Date) -> Bool {
-    dailyNote(on: date) != nil
   }
 
   // Steps the visible calendar year while staying inside the available note range.

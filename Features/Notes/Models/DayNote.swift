@@ -77,16 +77,6 @@ struct DayNote: Identifiable, Equatable, Sendable {
       body: ""
     )
   }
-
-  // Duplicates this note's content onto today's date for the "copy previous" new-note default.
-  func copyForToday(calendar: Calendar = .current) -> DayNote {
-    DayNote(
-      date: calendar.startOfDay(for: .now),
-      title: title,
-      tags: tags,
-      body: body
-    )
-  }
 }
 
 extension DayNote {
@@ -196,12 +186,6 @@ extension DayNote {
       }
       .sorted(by: { $0.date > $1.date })
   }
-
-  // Static preview data for SwiftUI previews and testing.
-  static let previewNotes: [DayNote] = {
-    let previewDate = NoteDateFormatters.storageDate.date(from: "2026-04-01") ?? .now
-    return sampleSeedNotes(relativeTo: previewDate)
-  }()
 }
 
 #if DEBUG

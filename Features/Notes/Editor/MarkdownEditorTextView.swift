@@ -30,7 +30,6 @@ final class MarkdownEditorTextView: NSTextView {
   }
   private let cardRadius: CGFloat = 24
   private let cardHInset: CGFloat = 0
-  private let cardVPad: CGFloat = 10
 
   // Code block background rendering constants.
   private let codeBlockVPad: CGFloat = 4
@@ -44,9 +43,10 @@ final class MarkdownEditorTextView: NSTextView {
   private let promptCopyButtonHeight: CGFloat = 22
   private let promptCloseButtonSize: CGFloat = 22
   private let promptCopyButtonPadding: CGFloat = 10
-  private let promptButtonGap: CGFloat = 6
+  private var hoveredPromptBlockLocation: Int? = nil
   private var hoveredPromptCopyLocation: Int? = nil
   private var hoveredPromptCloseLocation: Int? = nil
+  private var promptBlockTrackingAreas: [NSTrackingArea] = []
   private var promptCopyTrackingAreas: [NSTrackingArea] = []
   private var promptCloseTrackingAreas: [NSTrackingArea] = []
 
@@ -456,10 +456,14 @@ final class MarkdownEditorTextView: NSTextView {
         in: promptCopyButtonRect(in: blockRect),
         hovered: hoveredPromptCopyLocation == range.location
       )
-      drawPromptCloseButton(
-        in: promptCloseButtonRect(in: blockRect),
-        hovered: hoveredPromptCloseLocation == range.location
-      )
+      if hoveredPromptBlockLocation == range.location
+        || hoveredPromptCloseLocation == range.location
+      {
+        drawPromptCloseButton(
+          in: promptCloseButtonRect(in: blockRect),
+          hovered: hoveredPromptCloseLocation == range.location
+        )
+      }
     }
   }
 
@@ -513,9 +517,8 @@ final class MarkdownEditorTextView: NSTextView {
   }
 
   private func promptCopyButtonRect(in blockRect: NSRect) -> NSRect {
-    let closeRect = promptCloseButtonRect(in: blockRect)
     return NSRect(
-      x: closeRect.minX - promptButtonGap - promptCopyButtonWidth,
+      x: blockRect.maxX - promptCopyButtonWidth - promptCopyButtonPadding,
       y: blockRect.minY + promptCopyButtonPadding,
       width: promptCopyButtonWidth,
       height: promptCopyButtonHeight
@@ -525,7 +528,7 @@ final class MarkdownEditorTextView: NSTextView {
   private func promptCloseButtonRect(in blockRect: NSRect) -> NSRect {
     return NSRect(
       x: blockRect.maxX - promptCloseButtonSize - promptCopyButtonPadding,
-      y: blockRect.minY + promptCopyButtonPadding,
+      y: blockRect.maxY - promptCloseButtonSize - promptCopyButtonPadding,
       width: promptCloseButtonSize,
       height: promptCloseButtonSize
     )
@@ -629,10 +632,10 @@ final class MarkdownEditorTextView: NSTextView {
         NSLocationInRange(location, $0) || location == NSMaxRange($0)
       })
     else { return false }
-    return deletePromptBlock(in: range, textStorage: textStorage)
+    return deletePromptBlock(in: range)
   }
 
-  private func deletePromptBlock(in range: NSRange, textStorage: NSTextStorage) -> Bool {
+  private func deletePromptBlock(in range: NSRange) -> Bool {
     let handled = performEditorEdit(
       affectedRange: range,
       replacementString: "",
@@ -643,6 +646,7 @@ final class MarkdownEditorTextView: NSTextView {
     }
 
     if handled {
+      hoveredPromptBlockLocation = nil
       hoveredPromptCopyLocation = nil
       hoveredPromptCloseLocation = nil
       updateTrackingAreas()
@@ -707,6 +711,8 @@ final class MarkdownEditorTextView: NSTextView {
 
     for area in sectionIconTrackingAreas { removeTrackingArea(area) }
     sectionIconTrackingAreas.removeAll()
+    for area in promptBlockTrackingAreas { removeTrackingArea(area) }
+    promptBlockTrackingAreas.removeAll()
     for area in promptCopyTrackingAreas { removeTrackingArea(area) }
     promptCopyTrackingAreas.removeAll()
     for area in promptCloseTrackingAreas { removeTrackingArea(area) }
@@ -746,12 +752,18 @@ final class MarkdownEditorTextView: NSTextView {
     }
   }
 
-  // Adds hover tracking over prompt copy and delete buttons.
+  // Adds hover tracking over prompt blocks and their action buttons.
   private func addPromptActionTrackingAreas() {
     guard let textStorage else { return }
     let nsString = textStorage.string as NSString
     for range in promptBlockVisualRanges(in: textStorage) {
       guard let blockRect = promptBlockRect(for: range, string: nsString) else { continue }
+      let blockArea = NSTrackingArea(
+        rect: blockRect,
+        options: [.mouseEnteredAndExited, .activeInActiveApp],
+        owner: self,
+        userInfo: ["promptBlockLocation": range.location]
+      )
       let copyArea = NSTrackingArea(
         rect: promptCopyButtonRect(in: blockRect),
         options: [.mouseEnteredAndExited, .activeInActiveApp],
@@ -764,8 +776,10 @@ final class MarkdownEditorTextView: NSTextView {
         owner: self,
         userInfo: ["promptCloseLocation": range.location]
       )
+      addTrackingArea(blockArea)
       addTrackingArea(copyArea)
       addTrackingArea(closeArea)
+      promptBlockTrackingAreas.append(blockArea)
       promptCopyTrackingAreas.append(copyArea)
       promptCloseTrackingAreas.append(closeArea)
     }
@@ -777,6 +791,11 @@ final class MarkdownEditorTextView: NSTextView {
       hoveredPromptCloseLocation = location
       setNeedsDisplay(bounds)
       NSCursor.pointingHand.push()
+      return
+    }
+    if let location = event.trackingArea?.userInfo?["promptBlockLocation"] as? Int {
+      hoveredPromptBlockLocation = location
+      setNeedsDisplay(bounds)
       return
     }
     if let location = event.trackingArea?.userInfo?["promptLocation"] as? Int {
@@ -800,6 +819,11 @@ final class MarkdownEditorTextView: NSTextView {
       hoveredPromptCloseLocation = nil
       setNeedsDisplay(bounds)
       NSCursor.pop()
+      return
+    }
+    if event.trackingArea?.userInfo?["promptBlockLocation"] != nil {
+      hoveredPromptBlockLocation = nil
+      setNeedsDisplay(bounds)
       return
     }
     if event.trackingArea?.userInfo?["promptLocation"] != nil {
@@ -1273,7 +1297,7 @@ final class MarkdownEditorTextView: NSTextView {
     let point = convert(event.locationInWindow, from: nil)
 
     if let promptRange = promptCloseHitTest(at: point) {
-      _ = deletePromptBlock(in: promptRange, textStorage: textStorage)
+      _ = deletePromptBlock(in: promptRange)
       return
     }
 

@@ -1,7 +1,5 @@
 import XCTest
 
-@testable import Sceal
-
 @MainActor
 final class MarkdownImagePreservationTests: MarkdownPreservationTestCase {
   func testImageMarkdownPreserved() {

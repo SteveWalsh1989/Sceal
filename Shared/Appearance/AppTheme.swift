@@ -79,11 +79,6 @@ struct AppTheme: Identifiable, Codable, Equatable, Sendable {
     allBuiltIn.first(where: { $0.id == id })
   }
 
-  // Returns the default theme for the given light/dark mode.
-  static func defaultTheme(for mode: ThemeMode) -> AppTheme {
-    mode == .dark ? defaultDark : defaultLight
-  }
-
   // Returns all built-in dark themes.
   static func darkThemes() -> [AppTheme] {
     allBuiltIn.filter { $0.mode == .dark }

@@ -54,10 +54,6 @@ nonisolated enum DayOneImporter {
     var audios: Int = 0
     var pdfs: Int = 0
 
-    var total: Int {
-      photos + videos + audios + pdfs
-    }
-
     mutating func add(_ other: MediaCounts) {
       photos += other.photos
       videos += other.videos

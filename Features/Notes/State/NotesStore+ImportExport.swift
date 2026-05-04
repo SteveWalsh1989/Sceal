@@ -369,16 +369,6 @@ extension NotesStore {
     return panel.url
   }
 
-  // Persists imported notes, then updates in-memory state and index in one place.
-  private func persistImportedNotes(_ imported: [DayNote]) throws {
-    for note in imported {
-      try save(note)
-    }
-
-    notes = (notes + imported).sorted(by: { $0.date > $1.date })
-    rebuildNoteIndex()
-  }
-
   // Shows the user-facing import result message with consistent formatting across importers.
   private func showImportMessage(_ outcome: ImportOutcome, emptyMessage: String) {
     if outcome.imported.isEmpty && outcome.skipped > 0 {
