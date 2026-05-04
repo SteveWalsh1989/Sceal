@@ -766,6 +766,27 @@ extension MarkdownEditorView {
             flushPendingMarkdownPushIfNeeded(from: textStorage)
           }
           return handled
+
+        case .promptBlock:
+          let snippet =
+            "\(MarkdownEditorFormatter.promptBlockStartMarker)\n\n\(MarkdownEditorFormatter.promptBlockEndMarker)"
+          let displaySnippet = MarkdownEditorFormatter.formatForDisplay(
+            snippet, appearance: parent.appearanceSettings)
+          let insertionLocation = lineRange.location + 2
+          let handled = textView.performEditorEdit(
+            affectedRange: lineRange,
+            replacementString: snippet,
+            actionName: "Insert Prompt Block"
+          ) { textStorage in
+            textStorage.replaceCharacters(in: lineRange, with: displaySnippet)
+            return NSRange(location: insertionLocation, length: 0)
+          }
+          if handled {
+            textView.typingAttributes = promptBlockTypingAttributes()
+            textView.setNeedsDisplay(textView.bounds)
+            flushPendingMarkdownPushIfNeeded(from: textStorage)
+          }
+          return handled
         }
       }
 
@@ -776,6 +797,11 @@ extension MarkdownEditorView {
         lineRange.length > 0
         && textStorage.attribute(.markdownCodeBlock, at: lineRange.location, effectiveRange: nil)
           as? Bool == true
+      let continuedPromptBlock =
+        (lineRange.length > 0
+          && textStorage.attribute(
+            .markdownPromptBlock, at: lineRange.location, effectiveRange: nil) as? Bool == true)
+        || textView.typingAttributes[.markdownPromptBlock] as? Bool == true
       let currentIndentLevel: Int = {
         guard lineRange.length > 0 else { return 0 }
         return textStorage.attribute(
@@ -819,8 +845,10 @@ extension MarkdownEditorView {
           splitPoint = lineRange.location + adjustedOffset
         }
 
-        let newlineAttrs = MarkdownEditorFormatter.baseTypingAttributes(
-          for: parent.appearanceSettings)
+        let newlineAttrs =
+          continuedPromptBlock
+          ? promptBlockTypingAttributes()
+          : MarkdownEditorFormatter.baseTypingAttributes(for: parent.appearanceSettings)
         textStorage.insert(
           NSAttributedString(string: "\n", attributes: newlineAttrs), at: splitPoint)
         var nextInsertionLocation = splitPoint + 1
@@ -861,6 +889,8 @@ extension MarkdownEditorView {
 
       if continuedCodeBlock {
         textView.typingAttributes = codeBlockTypingAttributes()
+      } else if continuedPromptBlock {
+        textView.typingAttributes = promptBlockTypingAttributes()
       } else if continuedBlockquote, continuedListType == nil {
         textView.typingAttributes = [
           .font: parent.appearanceSettings.bodyFont,
@@ -1542,6 +1572,16 @@ extension MarkdownEditorView {
         .backgroundColor: NSColor.quaternaryLabelColor,
         .foregroundColor: NSColor.labelColor,
         .markdownCodeBlock: true,
+      ]
+    }
+
+    private func promptBlockTypingAttributes() -> [NSAttributedString.Key: Any] {
+      [
+        .font: parent.appearanceSettings.bodyFont,
+        .foregroundColor: NSColor.labelColor,
+        .paragraphStyle: MarkdownEditorFormatter.promptBlockParagraphStyle(
+          for: parent.appearanceSettings),
+        .markdownPromptBlock: true,
       ]
     }
 

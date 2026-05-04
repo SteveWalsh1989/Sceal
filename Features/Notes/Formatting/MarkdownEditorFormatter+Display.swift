@@ -388,6 +388,42 @@ extension MarkdownEditorFormatter {
       ])
   }
 
+  // Creates a hidden prompt marker line so prompt blocks can round-trip without visible delimiters.
+  static func styledPromptBoundaryLine(
+    kind: String,
+    appearance _: NoteAppearanceSettings
+  ) -> NSAttributedString {
+    let style = NSMutableParagraphStyle()
+    style.baseWritingDirection = .leftToRight
+    style.minimumLineHeight = 6
+    style.maximumLineHeight = 6
+
+    return NSAttributedString(
+      string: " ",
+      attributes: [
+        .font: NSFont.systemFont(ofSize: 1),
+        .foregroundColor: NSColor.clear,
+        .paragraphStyle: style,
+        .markdownPromptBoundary: true,
+        .markdownPromptBoundaryKind: kind,
+      ])
+  }
+
+  // Styles prompt block content as plain text inside a copyable editor box.
+  static func styledPromptBlockLine(
+    _ line: String,
+    appearance: NoteAppearanceSettings
+  ) -> NSAttributedString {
+    NSAttributedString(
+      string: line,
+      attributes: [
+        .font: appearance.bodyFont,
+        .foregroundColor: NSColor.labelColor,
+        .paragraphStyle: promptBlockParagraphStyle(for: appearance),
+        .markdownPromptBlock: true,
+      ])
+  }
+
   // Creates an invisible marker that MarkdownEditorTextView renders as a card gap.
   static func styledSectionDivider(
     appearance: NoteAppearanceSettings = .default,

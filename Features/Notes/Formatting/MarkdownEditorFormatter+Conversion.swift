@@ -17,6 +17,7 @@ extension MarkdownEditorFormatter {
 
     var markdownLines: [String] = []
     var lineStart = 0
+    var insidePromptBlock = false
 
     while lineStart <= nsString.length {
       if lineStart == nsString.length {
@@ -33,7 +34,29 @@ extension MarkdownEditorFormatter {
         textRange.length -= 1
       }
 
-      let markdownLine = reconstructLine(from: attributedString, textRange: textRange)
+      let lineText =
+        textRange.length > 0 ? nsString.substring(with: textRange) : ""
+      let attrs =
+        textRange.length > 0
+        ? attributedString.attributes(at: textRange.location, effectiveRange: nil)
+        : [:]
+
+      let markdownLine: String
+      if attrs[.markdownPromptBoundary] as? Bool == true,
+        let kind = attrs[.markdownPromptBoundaryKind] as? String
+      {
+        if kind == promptBoundaryStartKind {
+          insidePromptBlock = true
+          markdownLine = promptBlockStartMarker
+        } else {
+          insidePromptBlock = false
+          markdownLine = promptBlockEndMarker
+        }
+      } else if insidePromptBlock {
+        markdownLine = lineText
+      } else {
+        markdownLine = reconstructLine(from: attributedString, textRange: textRange)
+      }
       markdownLines.append(markdownLine)
       lineStart = NSMaxRange(lineRange)
     }
@@ -80,6 +103,18 @@ extension MarkdownEditorFormatter {
     let nsString = attributedString.string as NSString
     let lineText = nsString.substring(with: textRange)
     let attrs = attributedString.attributes(at: textRange.location, effectiveRange: nil)
+
+    // Prompt boundary — hidden Sceal-specific marker.
+    if attrs[.markdownPromptBoundary] as? Bool == true,
+      let kind = attrs[.markdownPromptBoundaryKind] as? String
+    {
+      return kind == promptBoundaryStartKind ? promptBlockStartMarker : promptBlockEndMarker
+    }
+
+    // Prompt block — pass through without inline markdown reconstruction.
+    if attrs[.markdownPromptBlock] as? Bool == true {
+      return lineText
+    }
 
     // Code fence — pass through
     if attrs[.markdownCodeFence] as? Bool == true {

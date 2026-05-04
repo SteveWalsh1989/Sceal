@@ -19,4 +19,15 @@ final class MarkdownBlockPreservationTests: MarkdownPreservationTestCase {
   func testSectionDivider() {
     XCTAssertEqual(preservedMarkdown("<!-- section -->"), "<!-- section -->")
   }
+
+  // Prevents prompt blocks from gaining code fences or losing plain prompt text.
+  func testPromptBlock() {
+    let markdown = """
+      <!-- prompt -->
+      Write a concise release note.
+      Include risks and validation.
+      <!-- /prompt -->
+      """
+    XCTAssertEqual(preservedMarkdown(markdown), markdown)
+  }
 }

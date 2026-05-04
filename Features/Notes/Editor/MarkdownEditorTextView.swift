@@ -32,6 +32,20 @@ final class MarkdownEditorTextView: NSTextView {
   private let codeBlockVPad: CGFloat = 4
   private let codeBlockRadius: CGFloat = 6
 
+  // Prompt block rendering and hit testing constants.
+  private let promptBlockHInset: CGFloat = 18
+  private let promptBlockVPad: CGFloat = 8
+  private let promptBlockRadius: CGFloat = 8
+  private let promptCopyButtonWidth: CGFloat = 58
+  private let promptCopyButtonHeight: CGFloat = 22
+  private let promptCloseButtonSize: CGFloat = 22
+  private let promptCopyButtonPadding: CGFloat = 10
+  private let promptButtonGap: CGFloat = 6
+  private var hoveredPromptCopyLocation: Int? = nil
+  private var hoveredPromptCloseLocation: Int? = nil
+  private var promptCopyTrackingAreas: [NSTrackingArea] = []
+  private var promptCloseTrackingAreas: [NSTrackingArea] = []
+
   // Section icon rendering and hit testing constants.
   private let sectionIconSize: CGFloat = 18
   private let sectionIconPadding: CGFloat = 24
@@ -112,6 +126,7 @@ final class MarkdownEditorTextView: NSTextView {
     let attributes = textStorage.attributes(at: location, effectiveRange: nil)
     guard attributes[.markdownSectionDivider] as? Bool != true else { return false }
     guard attributes[.markdownHorizontalRule] as? Bool != true else { return false }
+    guard attributes[.markdownPromptBoundary] as? Bool != true else { return false }
     guard attributes[.font] != nil, attributes[.foregroundColor] != nil else { return false }
     return !isListMarkerTypingAttributeSource(
       at: location,
@@ -245,6 +260,7 @@ final class MarkdownEditorTextView: NSTextView {
     guard let layoutSnapshot = sectionLayoutSnapshot() else {
       drawSingleCard(in: rect)
       drawCodeBlocks(in: rect, textStorage: textStorage)
+      drawPromptBlocks(in: rect, textStorage: textStorage)
       drawHorizontalRules(hrLineRanges, in: rect)
       return
     }
@@ -298,6 +314,7 @@ final class MarkdownEditorTextView: NSTextView {
       }
     }
     drawCodeBlocks(in: rect, textStorage: textStorage)
+    drawPromptBlocks(in: rect, textStorage: textStorage)
     drawHorizontalRules(hrLineRanges, in: rect)
   }
 
@@ -404,6 +421,260 @@ final class MarkdownEditorTextView: NSTextView {
     return result
   }
 
+  // Draws copyable prompt boxes using hidden prompt marker lines as the block boundaries.
+  private func drawPromptBlocks(in rect: NSRect, textStorage: NSTextStorage) {
+    let ranges = promptBlockVisualRanges(in: textStorage)
+    guard !ranges.isEmpty else { return }
+
+    let nsString = textStorage.string as NSString
+    let fillColor =
+      isDarkAppearance
+      ? NSColor.white.withAlphaComponent(0.07)
+      : NSColor.black.withAlphaComponent(0.045)
+    let strokeColor =
+      MarkdownEditorFormatter.accentColor(for: appearanceSettings)
+      .withAlphaComponent(isDarkAppearance ? 0.24 : 0.18)
+
+    for range in ranges {
+      guard let blockRect = promptBlockRect(for: range, string: nsString) else { continue }
+      guard blockRect.intersects(rect) else { continue }
+
+      let path = NSBezierPath(
+        roundedRect: blockRect, xRadius: promptBlockRadius, yRadius: promptBlockRadius)
+      fillColor.setFill()
+      path.fill()
+      strokeColor.setStroke()
+      path.lineWidth = 1
+      path.stroke()
+
+      drawPromptCopyButton(
+        in: promptCopyButtonRect(in: blockRect),
+        hovered: hoveredPromptCopyLocation == range.location
+      )
+      drawPromptCloseButton(
+        in: promptCloseButtonRect(in: blockRect),
+        hovered: hoveredPromptCloseLocation == range.location
+      )
+    }
+  }
+
+  // Pairs hidden prompt start/end marker lines into visual block ranges.
+  private func promptBlockVisualRanges(in textStorage: NSTextStorage) -> [NSRange] {
+    let fullRange = NSRange(location: 0, length: textStorage.length)
+    var result: [NSRange] = []
+    var openingLineRange: NSRange?
+    let nsString = textStorage.string as NSString
+
+    textStorage.enumerateAttribute(.markdownPromptBoundaryKind, in: fullRange, options: []) {
+      value, range, _ in
+      guard let kind = value as? String else { return }
+      let lineRange = nsString.lineRange(for: range)
+      if kind == MarkdownEditorFormatter.promptBoundaryStartKind {
+        openingLineRange = lineRange
+      } else if kind == MarkdownEditorFormatter.promptBoundaryEndKind,
+        let startLineRange = openingLineRange
+      {
+        result.append(
+          NSRange(
+            location: startLineRange.location,
+            length: NSMaxRange(lineRange) - startLineRange.location
+          ))
+        openingLineRange = nil
+      }
+    }
+
+    return result
+  }
+
+  // Computes the full prompt box frame from the hidden boundary lines.
+  private func promptBlockRect(for range: NSRange, string nsString: NSString) -> NSRect? {
+    guard range.length > 0 else { return nil }
+
+    let firstLine = nsString.lineRange(for: NSRange(location: range.location, length: 0))
+    let lastLocation = min(max(NSMaxRange(range) - 1, range.location), max(nsString.length - 1, 0))
+    let lastLine = nsString.lineRange(for: NSRange(location: lastLocation, length: 0))
+
+    guard
+      let firstRect = editorRectInViewCoordinates(forCharacterRange: firstLine),
+      let lastRect = editorRectInViewCoordinates(forCharacterRange: lastLine)
+    else { return nil }
+
+    return NSRect(
+      x: promptBlockHInset,
+      y: firstRect.minY - promptBlockVPad,
+      width: bounds.width - promptBlockHInset * 2,
+      height: lastRect.maxY - firstRect.minY + promptBlockVPad * 2
+    )
+  }
+
+  private func promptCopyButtonRect(in blockRect: NSRect) -> NSRect {
+    let closeRect = promptCloseButtonRect(in: blockRect)
+    return NSRect(
+      x: closeRect.minX - promptButtonGap - promptCopyButtonWidth,
+      y: blockRect.minY + promptCopyButtonPadding,
+      width: promptCopyButtonWidth,
+      height: promptCopyButtonHeight
+    )
+  }
+
+  private func promptCloseButtonRect(in blockRect: NSRect) -> NSRect {
+    return NSRect(
+      x: blockRect.maxX - promptCloseButtonSize - promptCopyButtonPadding,
+      y: blockRect.minY + promptCopyButtonPadding,
+      width: promptCloseButtonSize,
+      height: promptCloseButtonSize
+    )
+  }
+
+  private func drawPromptCopyButton(in buttonRect: NSRect, hovered: Bool) {
+    let buttonPath = NSBezierPath(roundedRect: buttonRect, xRadius: 5, yRadius: 5)
+    let buttonFill =
+      hovered
+      ? MarkdownEditorFormatter.accentColor(for: appearanceSettings).withAlphaComponent(0.24)
+      : NSColor.controlBackgroundColor.withAlphaComponent(isDarkAppearance ? 0.38 : 0.72)
+    buttonFill.setFill()
+    buttonPath.fill()
+
+    let title = "Copy" as NSString
+    let attributes: [NSAttributedString.Key: Any] = [
+      .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
+      .foregroundColor: NSColor.secondaryLabelColor,
+    ]
+    let titleSize = title.size(withAttributes: attributes)
+    let titleRect = NSRect(
+      x: buttonRect.midX - titleSize.width / 2,
+      y: buttonRect.midY - titleSize.height / 2,
+      width: titleSize.width,
+      height: titleSize.height
+    )
+    title.draw(in: titleRect, withAttributes: attributes)
+  }
+
+  private func drawPromptCloseButton(in buttonRect: NSRect, hovered: Bool) {
+    let buttonPath = NSBezierPath(roundedRect: buttonRect, xRadius: 5, yRadius: 5)
+    let buttonFill =
+      hovered
+      ? NSColor.systemRed.withAlphaComponent(isDarkAppearance ? 0.28 : 0.18)
+      : NSColor.controlBackgroundColor.withAlphaComponent(isDarkAppearance ? 0.3 : 0.62)
+    buttonFill.setFill()
+    buttonPath.fill()
+
+    guard
+      let image = NSImage(
+        systemSymbolName: "xmark",
+        accessibilityDescription: "Delete prompt block"
+      )?
+      .withSymbolConfiguration(
+        NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
+          .applying(
+            NSImage.SymbolConfiguration(paletteColors: [.secondaryLabelColor]))
+      )
+    else { return }
+
+    let imageSize = NSSize(width: 9, height: 9)
+    let imageRect = NSRect(
+      x: buttonRect.midX - imageSize.width / 2,
+      y: buttonRect.midY - imageSize.height / 2,
+      width: imageSize.width,
+      height: imageSize.height
+    )
+    image.draw(
+      in: imageRect, from: .zero, operation: .sourceOver, fraction: 1,
+      respectFlipped: true, hints: nil
+    )
+  }
+
+  private func promptCopyHitTest(at point: NSPoint) -> NSRange? {
+    guard let textStorage else { return nil }
+    let nsString = textStorage.string as NSString
+    for range in promptBlockVisualRanges(in: textStorage) {
+      guard let blockRect = promptBlockRect(for: range, string: nsString) else { continue }
+      if promptCopyButtonRect(in: blockRect).contains(point) {
+        return range
+      }
+    }
+    return nil
+  }
+
+  private func promptCloseHitTest(at point: NSPoint) -> NSRange? {
+    guard let textStorage else { return nil }
+    let nsString = textStorage.string as NSString
+    for range in promptBlockVisualRanges(in: textStorage) {
+      guard let blockRect = promptBlockRect(for: range, string: nsString) else { continue }
+      if promptCloseButtonRect(in: blockRect).contains(point) {
+        return range
+      }
+    }
+    return nil
+  }
+
+  private func copyPromptBlock(in range: NSRange, textStorage: NSTextStorage) {
+    let promptText = promptBlockText(in: range, textStorage: textStorage)
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(promptText, forType: .string)
+  }
+
+  // Deletes a whole prompt block, including hidden boundary markers and its content.
+  @discardableResult
+  func deletePromptBlock(containing location: Int) -> Bool {
+    guard let textStorage else { return false }
+    let ranges = promptBlockVisualRanges(in: textStorage)
+    guard
+      let range = ranges.first(where: {
+        NSLocationInRange(location, $0) || location == NSMaxRange($0)
+      })
+    else { return false }
+    return deletePromptBlock(in: range, textStorage: textStorage)
+  }
+
+  private func deletePromptBlock(in range: NSRange, textStorage: NSTextStorage) -> Bool {
+    let handled = performEditorEdit(
+      affectedRange: range,
+      replacementString: "",
+      actionName: "Delete Prompt Block"
+    ) { textStorage in
+      textStorage.replaceCharacters(in: range, with: "")
+      return NSRange(location: range.location, length: 0)
+    }
+
+    if handled {
+      hoveredPromptCopyLocation = nil
+      hoveredPromptCloseLocation = nil
+      updateTrackingAreas()
+      setNeedsDisplay(bounds)
+    }
+    return handled
+  }
+
+  private func promptBlockText(in range: NSRange, textStorage: NSTextStorage) -> String {
+    let nsString = textStorage.string as NSString
+    let rangeEnd = min(NSMaxRange(range), nsString.length)
+    var lines: [String] = []
+    var lineStart = range.location
+
+    while lineStart < rangeEnd {
+      let lineRange = nsString.lineRange(for: NSRange(location: lineStart, length: 0))
+      var textRange = lineRange
+      if textRange.length > 0,
+        nsString.character(at: textRange.location + textRange.length - 1) == 0x0A
+      {
+        textRange.length -= 1
+      }
+
+      let isBoundary =
+        textRange.length > 0
+        && textStorage.attribute(
+          .markdownPromptBoundary, at: textRange.location, effectiveRange: nil) as? Bool == true
+      if !isBoundary {
+        lines.append(textRange.length > 0 ? nsString.substring(with: textRange) : "")
+      }
+
+      lineStart = NSMaxRange(lineRange)
+    }
+
+    return lines.joined(separator: "\n")
+  }
+
   // Draws the small palette icon — faint by default, full opacity on hover.
   private func drawSectionIcon(in rect: NSRect, hovered: Bool) {
     let color: NSColor = hovered ? .secondaryLabelColor : .quaternaryLabelColor
@@ -431,6 +702,12 @@ final class MarkdownEditorTextView: NSTextView {
 
     for area in sectionIconTrackingAreas { removeTrackingArea(area) }
     sectionIconTrackingAreas.removeAll()
+    for area in promptCopyTrackingAreas { removeTrackingArea(area) }
+    promptCopyTrackingAreas.removeAll()
+    for area in promptCloseTrackingAreas { removeTrackingArea(area) }
+    promptCloseTrackingAreas.removeAll()
+
+    addPromptActionTrackingAreas()
 
     guard let layoutSnapshot = sectionLayoutSnapshot() else { return }
 
@@ -464,8 +741,45 @@ final class MarkdownEditorTextView: NSTextView {
     }
   }
 
+  // Adds hover tracking over prompt copy and delete buttons.
+  private func addPromptActionTrackingAreas() {
+    guard let textStorage else { return }
+    let nsString = textStorage.string as NSString
+    for range in promptBlockVisualRanges(in: textStorage) {
+      guard let blockRect = promptBlockRect(for: range, string: nsString) else { continue }
+      let copyArea = NSTrackingArea(
+        rect: promptCopyButtonRect(in: blockRect),
+        options: [.mouseEnteredAndExited, .activeInActiveApp],
+        owner: self,
+        userInfo: ["promptLocation": range.location]
+      )
+      let closeArea = NSTrackingArea(
+        rect: promptCloseButtonRect(in: blockRect),
+        options: [.mouseEnteredAndExited, .activeInActiveApp],
+        owner: self,
+        userInfo: ["promptCloseLocation": range.location]
+      )
+      addTrackingArea(copyArea)
+      addTrackingArea(closeArea)
+      promptCopyTrackingAreas.append(copyArea)
+      promptCloseTrackingAreas.append(closeArea)
+    }
+  }
+
   // Shows the pointing hand cursor when hovering a section icon.
   override func mouseEntered(with event: NSEvent) {
+    if let location = event.trackingArea?.userInfo?["promptCloseLocation"] as? Int {
+      hoveredPromptCloseLocation = location
+      setNeedsDisplay(bounds)
+      NSCursor.pointingHand.push()
+      return
+    }
+    if let location = event.trackingArea?.userInfo?["promptLocation"] as? Int {
+      hoveredPromptCopyLocation = location
+      setNeedsDisplay(bounds)
+      NSCursor.pointingHand.push()
+      return
+    }
     if let location = event.trackingArea?.userInfo?["dividerLocation"] as? Int {
       hoveredSectionIconLocation = location
       setNeedsDisplay(bounds)
@@ -477,6 +791,18 @@ final class MarkdownEditorTextView: NSTextView {
 
   // Restores the default cursor when leaving a section icon.
   override func mouseExited(with event: NSEvent) {
+    if event.trackingArea?.userInfo?["promptCloseLocation"] != nil {
+      hoveredPromptCloseLocation = nil
+      setNeedsDisplay(bounds)
+      NSCursor.pop()
+      return
+    }
+    if event.trackingArea?.userInfo?["promptLocation"] != nil {
+      hoveredPromptCopyLocation = nil
+      setNeedsDisplay(bounds)
+      NSCursor.pop()
+      return
+    }
     if event.trackingArea?.userInfo?["dividerLocation"] != nil {
       hoveredSectionIconLocation = nil
       setNeedsDisplay(bounds)
@@ -616,6 +942,27 @@ final class MarkdownEditorTextView: NSTextView {
   // otherwise falls back to plain text.
   override func paste(_ sender: Any?) {
     let pasteRange = selectedRange()
+    if selectionIsInsidePromptBlock(pasteRange),
+      let plainText = NSPasteboard.general.string(forType: .string)
+    {
+      let attributed = NSAttributedString(
+        string: plainText,
+        attributes: promptBlockTypingAttributes()
+      )
+      performEditorEdit(
+        affectedRange: pasteRange,
+        replacementString: plainText,
+        actionName: "Paste"
+      ) { textStorage in
+        let safeLocation = min(pasteRange.location, textStorage.length)
+        let safeLength = min(pasteRange.length, max(textStorage.length - safeLocation, 0))
+        let safeRange = NSRange(location: safeLocation, length: safeLength)
+        textStorage.replaceCharacters(in: safeRange, with: attributed)
+        return NSRange(location: safeLocation + attributed.length, length: 0)
+      }
+      return
+    }
+
     if pasteRange.length > 0,
       let pastedURL = pastedURLStringFromGeneralPasteboard(),
       performEditorEdit(
@@ -673,6 +1020,49 @@ final class MarkdownEditorTextView: NSTextView {
       textStorage.replaceCharacters(in: safeRange, with: attributed)
       return NSRange(location: safeLocation + attributed.length, length: 0)
     }
+  }
+
+  private func selectionIsInsidePromptBlock(_ range: NSRange) -> Bool {
+    if typingAttributes[.markdownPromptBlock] as? Bool == true {
+      return true
+    }
+
+    guard let textStorage, textStorage.length > 0 else { return false }
+    if range.length == 0 {
+      let beforeLocation = range.location > 0 ? range.location - 1 : nil
+      let afterLocation = range.location < textStorage.length ? range.location : nil
+      return [beforeLocation, afterLocation].contains { location in
+        guard let location else { return false }
+        return textStorage.attribute(.markdownPromptBlock, at: location, effectiveRange: nil)
+          as? Bool == true
+      }
+    }
+
+    let safeLocation = min(range.location, textStorage.length)
+    let safeLength = min(range.length, max(textStorage.length - safeLocation, 0))
+    guard safeLength > 0 else { return false }
+
+    var isPromptBlock = false
+    textStorage.enumerateAttribute(
+      .markdownPromptBlock,
+      in: NSRange(location: safeLocation, length: safeLength),
+      options: []
+    ) { value, _, stop in
+      if value as? Bool == true {
+        isPromptBlock = true
+        stop.pointee = true
+      }
+    }
+    return isPromptBlock
+  }
+
+  private func promptBlockTypingAttributes() -> [NSAttributedString.Key: Any] {
+    [
+      .font: appearanceSettings.bodyFont,
+      .foregroundColor: NSColor.labelColor,
+      .paragraphStyle: MarkdownEditorFormatter.promptBlockParagraphStyle(for: appearanceSettings),
+      .markdownPromptBlock: true,
+    ]
   }
 
   // MARK: - Keyboard Shortcuts
@@ -748,6 +1138,16 @@ final class MarkdownEditorTextView: NSTextView {
     }
 
     let point = convert(event.locationInWindow, from: nil)
+
+    if let promptRange = promptCloseHitTest(at: point) {
+      _ = deletePromptBlock(in: promptRange, textStorage: textStorage)
+      return
+    }
+
+    if let promptRange = promptCopyHitTest(at: point) {
+      copyPromptBlock(in: promptRange, textStorage: textStorage)
+      return
+    }
 
     // Section color icon click — computed fresh each time.
     if let dividerRange = sectionIconHitTest(at: point) {

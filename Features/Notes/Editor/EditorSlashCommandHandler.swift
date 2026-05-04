@@ -17,13 +17,12 @@ enum SlashCommandAction: Equatable {
   case sectionDivider
   case heading(level: Int)
   case codeBlock
+  case promptBlock
 }
 
 enum EditorSlashCommandHandler {
 
   static let commands: [SlashCommandEntry] = [
-    SlashCommandEntry(
-      command: "/section", description: "Insert section divider", action: .sectionDivider),
     SlashCommandEntry(
       command: "/div", description: "Insert section divider", action: .sectionDivider),
     SlashCommandEntry(
@@ -34,7 +33,18 @@ enum EditorSlashCommandHandler {
       command: "/heading-3", description: "Start heading 3", action: .heading(level: 3)),
     SlashCommandEntry(
       command: "/code", description: "Insert fenced code block", action: .codeBlock),
+    SlashCommandEntry(
+      command: "/prompt", description: "Insert copyable prompt block", action: .promptBlock),
   ]
+
+  private static let hiddenCommands: [SlashCommandEntry] = [
+    SlashCommandEntry(
+      command: "/section", description: "Insert section divider", action: .sectionDivider)
+  ]
+
+  private static var matchableCommands: [SlashCommandEntry] {
+    commands + hiddenCommands
+  }
 
   // Returns commands whose name starts with the given prefix (e.g. "/" or "/d").
   static func filteredCommands(for prefix: String) -> [SlashCommandEntry] {
@@ -50,6 +60,6 @@ enum EditorSlashCommandHandler {
     let lineText = (textStorage.string as NSString).substring(with: lineRange)
     let trimmed = lineText.trimmingCharacters(in: .whitespaces)
 
-    return commands.first { $0.command.caseInsensitiveCompare(trimmed) == .orderedSame }
+    return matchableCommands.first { $0.command.caseInsensitiveCompare(trimmed) == .orderedSame }
   }
 }

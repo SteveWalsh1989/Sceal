@@ -32,6 +32,10 @@ enum MarkdownEditorFormatter {
   static let sectionDividerSpacingBefore: CGFloat = 10
   static let sectionDividerSpacingAfter: CGFloat = 6
   static let sectionDividerLineHeight: CGFloat = 1
+  static let promptBlockStartMarker = "<!-- prompt -->"
+  static let promptBlockEndMarker = "<!-- /prompt -->"
+  static let promptBoundaryStartKind = "start"
+  static let promptBoundaryEndKind = "end"
 
   // Cached regex patterns to avoid recreation per format pass.
   static let hcolorRegex = try! NSRegularExpression(pattern: #"^<!-- hcolor:(\w+) -->$"#)
@@ -39,6 +43,8 @@ enum MarkdownEditorFormatter {
     pattern:
       #"^<!-- section(?:\s+heading:(\w+))?(?:\s+bullet:(\w+))?(?:\s+usesectioncolor:(true|false))? -->$"#
   )
+  static let promptBlockStartRegex = try! NSRegularExpression(pattern: #"^<!-- prompt -->$"#)
+  static let promptBlockEndRegex = try! NSRegularExpression(pattern: #"^<!-- /prompt -->$"#)
   static let boldRegex = try! NSRegularExpression(pattern: #"\*\*(.+?)\*\*"#)
   static let italicRegex = try! NSRegularExpression(
     pattern: #"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)"#)
@@ -155,6 +161,20 @@ enum MarkdownEditorFormatter {
     return cachedStyle
   }
 
+  // Paragraph style for prompt blocks; the trailing inset leaves room for the copy button.
+  static func promptBlockParagraphStyle(for appearance: NoteAppearanceSettings)
+    -> NSParagraphStyle
+  {
+    let style = NSMutableParagraphStyle()
+    style.baseWritingDirection = .leftToRight
+    style.firstLineHeadIndent = 18
+    style.headIndent = 18
+    style.tailIndent = -114
+    style.paragraphSpacing = 2
+    style.lineHeightMultiple = appearance.lineHeight
+    return style.copy() as! NSParagraphStyle
+  }
+
   // Default typing attributes applied to new text in the editor.
   static func baseTypingAttributes(for appearance: NoteAppearanceSettings)
     -> [NSAttributedString.Key: Any]
@@ -213,10 +233,13 @@ enum MarkdownEditorFormatter {
     let lines = rawMarkdown.split(separator: "\n", omittingEmptySubsequences: false).map(
       String.init)
     var insideCodeBlock = false
+    var insidePromptBlock = false
     var pendingHeadingColor: NSColor? = nil
     var pendingHeadingColorName: String? = nil
     let hcolorRegex = Self.hcolorRegex
     let sectionRegex = Self.sectionDividerRegex
+    let promptStartRegex = Self.promptBlockStartRegex
+    let promptEndRegex = Self.promptBlockEndRegex
     // Per-section color state — applies to content after the most recent divider.
     var currentSectionHeadingColorName: String? = nil
     var currentSectionBulletColorName: String? = nil
@@ -236,6 +259,36 @@ enum MarkdownEditorFormatter {
 
       if index > 0 {
         result.append(NSAttributedString(string: "\n", attributes: newlineAttrs))
+      }
+
+      if !insideCodeBlock,
+        promptStartRegex.firstMatch(
+          in: line, range: NSRange(location: 0, length: line.utf16.count)) != nil
+      {
+        if let colorName = pendingHeadingColorName {
+          result.append(NSAttributedString(string: "<!-- hcolor:\(colorName) -->\n"))
+          pendingHeadingColor = nil
+          pendingHeadingColorName = nil
+        }
+        insidePromptBlock = true
+        result.append(
+          styledPromptBoundaryLine(kind: promptBoundaryStartKind, appearance: appearance))
+        continue
+      }
+
+      if !insideCodeBlock, insidePromptBlock,
+        promptEndRegex.firstMatch(
+          in: line, range: NSRange(location: 0, length: line.utf16.count)) != nil
+      {
+        insidePromptBlock = false
+        result.append(
+          styledPromptBoundaryLine(kind: promptBoundaryEndKind, appearance: appearance))
+        continue
+      }
+
+      if insidePromptBlock {
+        result.append(styledPromptBlockLine(line, appearance: appearance))
+        continue
       }
 
       // Check for heading color comment
@@ -374,13 +427,15 @@ enum MarkdownEditorFormatter {
       // Section dividers and horizontal rules are fully styled — no further processing needed
       if attrs[.markdownSectionDivider] as? Bool == true
         || attrs[.markdownHorizontalRule] as? Bool == true
+        || attrs[.markdownPromptBoundary] as? Bool == true
       {
         return nil
       }
 
-      // Code block content and fence lines are pre-styled — skip reformatting
+      // Code and prompt block content is pre-styled — skip reformatting.
       if attrs[.markdownCodeBlock] as? Bool == true
         || attrs[.markdownCodeFence] as? Bool == true
+        || attrs[.markdownPromptBlock] as? Bool == true
       {
         return nil
       }

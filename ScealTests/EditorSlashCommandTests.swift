@@ -152,6 +152,48 @@ final class EditorSlashCommandTests: EditorTestCase {
       textView.selectedRange(), NSRange(location: 4, length: 0), file: file, line: line)
   }
 
+  // Confirms prompt slash commands insert a hidden-marker block and place typing inside it.
+  private func assertPromptBlockCommand(
+    command: String,
+    primesSlashPopup: Bool,
+    file: StaticString = #filePath,
+    line: UInt = #line
+  ) {
+    let markdown = MarkdownBox(command)
+    let coordinator = makeCoordinator(markdown: markdown)
+    let fixture = makeRawEditorFixture(string: command)
+    let textView = fixture.textView
+    let expectedMarkdown =
+      "\(MarkdownEditorFormatter.promptBlockStartMarker)\n\n\(MarkdownEditorFormatter.promptBlockEndMarker)"
+
+    textView.delegate = coordinator
+    textView.setSelectedRange(NSRange(location: command.utf16.count, length: 0))
+
+    if primesSlashPopup {
+      coordinator.textDidChange(
+        Notification(name: NSText.didChangeNotification, object: textView)
+      )
+    }
+
+    let handled = coordinator.textView(
+      textView, doCommandBy: #selector(NSResponder.insertNewline(_:)))
+
+    XCTAssertTrue(handled, file: file, line: line)
+    XCTAssertEqual(markdown.value, expectedMarkdown, file: file, line: line)
+    XCTAssertEqual(
+      MarkdownEditorFormatter.convertToMarkdown(from: textView.textStorage!),
+      expectedMarkdown,
+      file: file,
+      line: line
+    )
+    XCTAssertFalse(textView.string.contains(MarkdownEditorFormatter.promptBlockStartMarker))
+    XCTAssertFalse(textView.string.contains(MarkdownEditorFormatter.promptBlockEndMarker))
+    XCTAssertEqual(
+      textView.typingAttributes[.markdownPromptBlock] as? Bool, true, file: file, line: line)
+    XCTAssertEqual(
+      textView.selectedRange(), NSRange(location: 2, length: 0), file: file, line: line)
+  }
+
   // Prevents the direct divider command from drifting away from the shipped insertion path.
   func testDirectDivider() {
     assertSectionDividerInserted(command: "/div", primesSlashPopup: false)
@@ -162,9 +204,16 @@ final class EditorSlashCommandTests: EditorTestCase {
     assertSectionDividerInserted(command: "/di", primesSlashPopup: true)
   }
 
-  // Prevents the section alias from diverging from the main divider command.
-  func testSectionAliasMatchesDivider() {
+  // Keeps the hidden section alias compatible with direct slash entry.
+  func testHiddenSectionAliasMatchesDivider() {
     assertSectionDividerInserted(command: "/section", primesSlashPopup: false)
+  }
+
+  // Prevents the deprecated section alias from appearing in the visible popup list.
+  func testSectionAliasIsHiddenFromPopup() {
+    let commands = EditorSlashCommandHandler.filteredCommands(for: "/").map(\.command)
+    XCTAssertTrue(commands.contains("/div"))
+    XCTAssertFalse(commands.contains("/section"))
   }
 
   // Prevents the direct heading command from losing heading level 1 typing state.
@@ -290,5 +339,147 @@ final class EditorSlashCommandTests: EditorTestCase {
   // Prevents popup code block confirmation from diverging from direct slash entry.
   func testPopupCodeBlock() {
     assertCodeBlockCommand(command: "/co", primesSlashPopup: true)
+  }
+
+  // Prevents direct prompt block slash entry from exposing hidden storage markers.
+  func testDirectPromptBlock() {
+    assertPromptBlockCommand(command: "/prompt", primesSlashPopup: false)
+  }
+
+  // Prevents popup prompt block confirmation from diverging from direct slash entry.
+  func testPopupPromptBlock() {
+    assertPromptBlockCommand(command: "/pro", primesSlashPopup: true)
+  }
+
+  // Confirms prompt blocks grow as users add lines inside the box.
+  func testPromptBlockContinuesPlainTextOnNewline() {
+    let command = "/prompt"
+    let markdown = MarkdownBox(command)
+    let coordinator = makeCoordinator(markdown: markdown)
+    let fixture = makeRawEditorFixture(string: command)
+    let textView = fixture.textView
+
+    textView.delegate = coordinator
+    textView.setSelectedRange(NSRange(location: command.utf16.count, length: 0))
+
+    XCTAssertTrue(
+      coordinator.textView(textView, doCommandBy: #selector(NSResponder.insertNewline(_:))))
+
+    let firstInsertLocation = textView.selectedRange().location
+    XCTAssertTrue(
+      textView.performEditorEdit(
+        replacementString: "First line",
+        actionName: "Insert Prompt Text"
+      ) { textStorage in
+        let text = NSAttributedString(
+          string: "First line",
+          attributes: textView.typingAttributes
+        )
+        textStorage.replaceCharacters(
+          in: NSRange(location: firstInsertLocation, length: 0),
+          with: text
+        )
+        return NSRange(location: firstInsertLocation + text.length, length: 0)
+      }
+    )
+
+    XCTAssertTrue(
+      coordinator.textView(textView, doCommandBy: #selector(NSResponder.insertNewline(_:))))
+    XCTAssertEqual(textView.typingAttributes[.markdownPromptBlock] as? Bool, true)
+
+    let secondInsertLocation = textView.selectedRange().location
+    XCTAssertTrue(
+      textView.performEditorEdit(
+        replacementString: "Second line",
+        actionName: "Insert Prompt Text"
+      ) { textStorage in
+        let text = NSAttributedString(
+          string: "Second line",
+          attributes: textView.typingAttributes
+        )
+        textStorage.replaceCharacters(
+          in: NSRange(location: secondInsertLocation, length: 0),
+          with: text
+        )
+        return NSRange(location: secondInsertLocation + text.length, length: 0)
+      }
+    )
+
+    XCTAssertEqual(
+      MarkdownEditorFormatter.convertToMarkdown(from: textView.textStorage!),
+      """
+      <!-- prompt -->
+      First line
+      Second line
+      <!-- /prompt -->
+      """
+    )
+  }
+
+  // Prevents pasted prompt text from being interpreted as markdown formatting.
+  func testPromptBlockPastePreservesMarkdownCharacters() {
+    let command = "/prompt"
+    let markdown = MarkdownBox(command)
+    let coordinator = makeCoordinator(markdown: markdown)
+    let fixture = makeRawEditorFixture(string: command)
+    let textView = fixture.textView
+
+    textView.delegate = coordinator
+    textView.setSelectedRange(NSRange(location: command.utf16.count, length: 0))
+
+    XCTAssertTrue(
+      coordinator.textView(textView, doCommandBy: #selector(NSResponder.insertNewline(_:))))
+
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString("**literal**", forType: .string)
+    textView.paste(nil)
+
+    XCTAssertEqual(
+      MarkdownEditorFormatter.convertToMarkdown(from: textView.textStorage!),
+      """
+      <!-- prompt -->
+      **literal**
+      <!-- /prompt -->
+      """
+    )
+  }
+
+  // Prevents the prompt close button path from leaving hidden markers or block text behind.
+  func testPromptBlockDeleteRemovesWholeBlock() {
+    let markdown = """
+      Intro
+      <!-- prompt -->
+      Delete this
+      <!-- /prompt -->
+      Outro
+      """
+    let fixture = makeEditorFixture(markdown: markdown)
+    let textView = fixture.textView
+
+    guard let textStorage = textView.textStorage else {
+      return XCTFail("Expected editor text storage.")
+    }
+
+    let fullRange = NSRange(location: 0, length: textStorage.length)
+    var promptLocation: Int?
+    textStorage.enumerateAttribute(.markdownPromptBoundary, in: fullRange, options: []) {
+      value, range, stop in
+      guard value as? Bool == true else { return }
+      promptLocation = range.location
+      stop.pointee = true
+    }
+
+    guard let promptLocation else {
+      return XCTFail("Expected rendered prompt block.")
+    }
+
+    XCTAssertTrue(textView.deletePromptBlock(containing: promptLocation))
+    XCTAssertEqual(
+      MarkdownEditorFormatter.convertToMarkdown(from: textView.textStorage!),
+      """
+      Intro
+      Outro
+      """
+    )
   }
 }

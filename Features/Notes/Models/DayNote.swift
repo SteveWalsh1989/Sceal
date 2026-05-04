@@ -291,7 +291,7 @@ extension DayNote {
           "",
           "The current setup works best when the title is short and the first section starts high enough to show the card shape.",
           "",
-          "`/section` inserts a divider while writing; saved notes store it as `<!-- section -->`.",
+          "`/div` inserts a divider while writing; saved notes store it as `<!-- section -->`.",
         ].joined(separator: "\n")
       ),
       DemoModeDefinition(
