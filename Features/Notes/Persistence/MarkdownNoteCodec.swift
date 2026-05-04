@@ -9,7 +9,8 @@ import Foundation
 import OSLog
 
 enum MarkdownNoteCodec {
-  nonisolated private static let logger = Logger(subsystem: "com.sceal.app", category: "persistence")
+  nonisolated private static let logger = Logger(
+    subsystem: "com.sceal.app", category: "persistence")
   nonisolated private static let frontMatterMarker = "---"
 
   // Serializes a note to markdown with a JSON front-matter header.
@@ -29,7 +30,9 @@ enum MarkdownNoteCodec {
 
   // Parses markdown file contents into a DayNote, extracting front matter.
   // When idOverride is provided, it is used as the note ID instead of auto-generating from the date.
-  nonisolated static func decode(contents: String, sourceURL: URL, idOverride: String? = nil) throws -> DayNote {
+  nonisolated static func decode(contents: String, sourceURL: URL, idOverride: String? = nil) throws
+    -> DayNote
+  {
     let contents = contents.replacingOccurrences(of: "\r\n", with: "\n")
     let prefix = "\(frontMatterMarker)\n"
     guard contents.hasPrefix(prefix) else {
@@ -77,7 +80,8 @@ enum MarkdownNoteCodec {
   }
 
   // Extracts title and tags from the `---` delimited front-matter block.
-  nonisolated private static func parseMetadataBlock(_ block: String, sourceURL: URL) throws -> [String: String]
+  nonisolated private static func parseMetadataBlock(_ block: String, sourceURL: URL) throws
+    -> [String: String]
   {
     var metadata: [String: String] = [:]
 
@@ -106,7 +110,9 @@ enum MarkdownNoteCodec {
   }
 
   // Decodes a JSON-encoded string from front matter.
-  nonisolated private static func decodeJSONString(_ value: String?, sourceURL: URL) throws -> String {
+  nonisolated private static func decodeJSONString(_ value: String?, sourceURL: URL) throws
+    -> String
+  {
     guard let value else {
       throw MarkdownNoteCodecError.missingMetadata("title", sourceURL)
     }
@@ -116,7 +122,9 @@ enum MarkdownNoteCodec {
   }
 
   // Decodes a JSON-encoded string array of tags from front matter.
-  nonisolated private static func decodeJSONTags(_ value: String?, sourceURL: URL) throws -> [String] {
+  nonisolated private static func decodeJSONTags(_ value: String?, sourceURL: URL) throws
+    -> [String]
+  {
     guard let value else {
       throw MarkdownNoteCodecError.missingMetadata("tags", sourceURL)
     }

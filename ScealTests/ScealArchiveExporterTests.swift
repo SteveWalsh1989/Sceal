@@ -50,7 +50,8 @@ final class ScealArchiveExporterTests: NotesStoreTestCase {
     let rootURL = exportedRootURL(in: unzipDirectoryURL)
     XCTAssertTrue(
       FileManager.default.fileExists(
-        atPath: rootURL
+        atPath:
+          rootURL
           .appendingPathComponent("Attachments/2026-05-04/desk.png")
           .path
       )

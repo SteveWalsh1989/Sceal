@@ -135,9 +135,13 @@ import AppKit
 
   // Rebuilds the row subviews from the filtered command list.
   private func rebuildRows() {
-    rowViews.forEach { $0.removeFromSuperview() }
+    for rowView in rowViews {
+      rowView.removeFromSuperview()
+    }
     rowViews.removeAll()
-    stackView.arrangedSubviews.forEach { $0.removeFromSuperview() }
+    for arrangedSubview in stackView.arrangedSubviews {
+      arrangedSubview.removeFromSuperview()
+    }
 
     for (index, entry) in filteredCommands.enumerated() {
       let row = SlashCommandRowView(entry: entry, isSelected: index == selectedIndex)

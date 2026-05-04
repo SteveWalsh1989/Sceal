@@ -1302,7 +1302,8 @@ final class MarkdownEditorTextView: NSTextView {
 
     if let imageRange = imageBlockRange(at: charIndex) {
       super.setSelectedRange(imageRange)
-      let imageRect = editorRectInViewCoordinates(forCharacterRange: imageRange)
+      let imageRect =
+        editorRectInViewCoordinates(forCharacterRange: imageRange)
         ?? NSRect(origin: point, size: NSSize(width: 1, height: 1))
       showImagePopover(for: imageRange, at: imageRect)
       return
@@ -1358,11 +1359,12 @@ final class MarkdownEditorTextView: NSTextView {
   private func imageBlockRange(at location: Int) -> NSRange? {
     guard let textStorage, location >= 0, location < textStorage.length else { return nil }
     var effectiveRange = NSRange(location: 0, length: 0)
-    let isImage = textStorage.attribute(
-      .markdownImageBlock,
-      at: location,
-      effectiveRange: &effectiveRange
-    ) as? Bool == true
+    let isImage =
+      textStorage.attribute(
+        .markdownImageBlock,
+        at: location,
+        effectiveRange: &effectiveRange
+      ) as? Bool == true
     return isImage ? effectiveRange : nil
   }
 

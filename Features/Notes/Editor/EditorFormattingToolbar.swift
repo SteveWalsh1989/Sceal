@@ -612,12 +612,12 @@ import AppKit
           ? textStorage.attribute(.markdownListType, at: lineRange.location, effectiveRange: nil)
             as? String
           : nil
-          let existingMarkerLen: Int = {
-            if let rawType = currentTypeRaw, let listType = MarkdownListType(rawValue: rawType) {
-              return displayMarkerUTF16Length(in: lineText, listType: listType)
-            }
-            return 0
-          }()
+        let existingMarkerLen: Int = {
+          if let rawType = currentTypeRaw, let listType = MarkdownListType(rawValue: rawType) {
+            return displayMarkerUTF16Length(in: lineText, listType: listType)
+          }
+          return 0
+        }()
         let contentLoc = lineRange.location + existingMarkerLen
         let contentLen = max(0, lineRange.length - existingMarkerLen)
         let content: NSMutableAttributedString =
@@ -748,12 +748,13 @@ import AppKit
                 appearance: appearanceSettings
               ))
             // Space separator between attachment and content
-            result.append(NSAttributedString(
-              string: " ",
-              attributes: [
-                .font: appearanceSettings.bodyFont,
-                .foregroundColor: NSColor.labelColor,
-              ]))
+            result.append(
+              NSAttributedString(
+                string: " ",
+                attributes: [
+                  .font: appearanceSettings.bodyFont,
+                  .foregroundColor: NSColor.labelColor,
+                ]))
             result.append(existingContent)
             result.addAttributes(
               [

@@ -79,7 +79,9 @@ extension NSTextView {
       textRange.length -= 1
     }
 
-    let indentLevel = textStorage.attribute(.markdownIndentLevel, at: textRange.location, effectiveRange: nil) as? Int ?? 0
+    let indentLevel =
+      textStorage.attribute(.markdownIndentLevel, at: textRange.location, effectiveRange: nil)
+      as? Int ?? 0
 
     let currentTypeRaw =
       textStorage.attribute(.markdownListType, at: charIndex, effectiveRange: nil) as? String
@@ -255,4 +257,3 @@ extension NSTextView {
     return trimmedRange
   }
 }
-

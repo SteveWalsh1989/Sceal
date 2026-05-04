@@ -8,7 +8,8 @@ final class NoteImageAttachmentStoreTests: XCTestCase {
   func testCopyingImageFileStoresUnderNoteAttachmentFolder() throws {
     let temporaryDirectoryURL = FileManager.default.temporaryDirectory
       .appendingPathComponent(UUID().uuidString, isDirectory: true)
-    let sourceDirectoryURL = temporaryDirectoryURL.appendingPathComponent("Source", isDirectory: true)
+    let sourceDirectoryURL = temporaryDirectoryURL.appendingPathComponent(
+      "Source", isDirectory: true)
     let attachmentsRootURL = temporaryDirectoryURL.appendingPathComponent(
       "Attachments",
       isDirectory: true
@@ -37,7 +38,8 @@ final class NoteImageAttachmentStoreTests: XCTestCase {
     XCTAssertEqual(stored.title, "Desk Photo")
     XCTAssertTrue(
       FileManager.default.fileExists(
-        atPath: attachmentsRootURL
+        atPath:
+          attachmentsRootURL
           .appendingPathComponent("2026-05-04/Desk-Photo.png")
           .path
       )

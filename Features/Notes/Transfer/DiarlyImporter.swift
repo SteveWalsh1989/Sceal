@@ -119,7 +119,9 @@ enum DiarlyImporter {
   // MARK: - Parsing Helpers
 
   // Derives a date from a Diarly note path like `.../2026/03-27.md`.
-  nonisolated private static func parseDate(from fileURL: URL, year: Int, calendar: Calendar) -> Date? {
+  nonisolated private static func parseDate(from fileURL: URL, year: Int, calendar: Calendar)
+    -> Date?
+  {
     let filename = fileURL.deletingPathExtension().lastPathComponent
     let parts = filename.split(separator: "-")
     guard parts.count == 2,
@@ -144,7 +146,9 @@ enum DiarlyImporter {
   }
 
   // Splits file contents into title (first line) and body (remaining content).
-  nonisolated private static func extractTitleAndBody(from contents: String) -> (title: String, body: String) {
+  nonisolated private static func extractTitleAndBody(from contents: String) -> (
+    title: String, body: String
+  ) {
     let lines = contents.split(separator: "\n", omittingEmptySubsequences: false)
 
     guard let firstLine = lines.first else {
