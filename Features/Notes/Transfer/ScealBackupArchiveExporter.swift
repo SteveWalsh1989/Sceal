@@ -15,7 +15,8 @@ nonisolated enum ScealBackupArchiveExporter {
     listNotes: [DayNote],
     manifest: ListNotesManifest,
     kind: BackupArchiveKind,
-    createdAt: Date = .now
+    createdAt: Date = .now,
+    attachmentsRootURL: URL? = nil
   ) throws -> URL {
     let temporaryDirectories = try ZipArchiveWriter.makeTemporaryStagingDirectory(
       prefix: "sceal-backup",
@@ -53,6 +54,21 @@ nonisolated enum ScealBackupArchiveExporter {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     try encoder.encode(manifest).write(to: manifestURL, options: .atomic)
+
+    if let sourceAttachmentRootURL = try? NoteImageAttachmentStore.attachmentRootDirectoryURL(
+      rootURL: attachmentsRootURL,
+      createIfNeeded: false
+    ) {
+      let targetAttachmentRootURL = stagingDirectoryURL.appendingPathComponent(
+        NoteImageAttachmentStore.attachmentsFolderName,
+        isDirectory: true
+      )
+      try NoteImageAttachmentStore.copyAttachmentFolders(
+        for: Set((dailyNotes + listNotes).map(\.id)),
+        from: sourceAttachmentRootURL,
+        to: targetAttachmentRootURL
+      )
+    }
 
     let metadata = BackupArchiveMetadata(
       appVersion: appVersionDescription(),

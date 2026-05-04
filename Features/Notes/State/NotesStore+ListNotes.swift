@@ -212,6 +212,7 @@ extension NotesStore {
       if fileManager.fileExists(atPath: noteURL.path) {
         try fileManager.removeItem(at: noteURL)
       }
+      try NoteImageAttachmentStore.deleteAttachments(for: note.id, fileManager: fileManager)
     } catch {
       report(error, context: "Deleting list note failed")
       return

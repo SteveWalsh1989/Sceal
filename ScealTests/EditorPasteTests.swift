@@ -119,4 +119,47 @@ final class EditorPasteTests: EditorTestCase {
       "https://example.com/docs"
     )
   }
+
+  func testPastingImageFileCopiesAttachmentAndInsertsMarkdownImage() throws {
+    let temporaryDirectoryURL = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let sourceDirectoryURL = temporaryDirectoryURL.appendingPathComponent("Source", isDirectory: true)
+    let attachmentsRootURL = temporaryDirectoryURL.appendingPathComponent(
+      "Attachments",
+      isDirectory: true
+    )
+    try FileManager.default.createDirectory(
+      at: sourceDirectoryURL,
+      withIntermediateDirectories: true
+    )
+    addTeardownBlock {
+      try? FileManager.default.removeItem(at: temporaryDirectoryURL)
+    }
+
+    let sourceURL = sourceDirectoryURL.appendingPathComponent("Desk Photo.png")
+    try Data("image".utf8).write(to: sourceURL)
+
+    let fixture = makeRawEditorFixture(string: "")
+    let textView = fixture.textView
+    textView.noteID = "2026-05-04"
+    textView.imageAttachmentRootURL = attachmentsRootURL
+
+    let pasteboard = NSPasteboard.general
+    pasteboard.clearContents()
+    XCTAssertTrue(pasteboard.writeObjects([sourceURL as NSURL]))
+
+    textView.paste(nil)
+
+    XCTAssertEqual(
+      MarkdownEditorFormatter.convertToMarkdown(from: textView.textStorage!),
+      "![Desk Photo](../Attachments/2026-05-04/Desk-Photo.png)"
+    )
+    XCTAssertTrue(
+      FileManager.default.fileExists(
+        atPath: attachmentsRootURL
+          .appendingPathComponent("2026-05-04/Desk-Photo.png")
+          .path
+      )
+    )
+  }
 }

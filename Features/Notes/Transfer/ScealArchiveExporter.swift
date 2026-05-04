@@ -9,7 +9,10 @@ import Foundation
 // Exports notes to a year-organized zip archive using the native markdown format.
 enum ScealArchiveExporter {
   // Writes the given notes into a temp directory and zips it, returning the zip URL.
-  nonisolated static func exportNotes(_ notes: [DayNote]) throws -> URL {
+  nonisolated static func exportNotes(
+    _ notes: [DayNote],
+    attachmentsRootURL: URL? = nil
+  ) throws -> URL {
     guard !notes.isEmpty else {
       throw ScealArchiveExporterError.noNotesToExport
     }
@@ -32,6 +35,21 @@ enum ScealArchiveExporter {
       let fileURL = yearDir.appendingPathComponent(note.fileName)
       let contents = try MarkdownNoteCodec.encode(note)
       try contents.write(to: fileURL, atomically: true, encoding: .utf8)
+    }
+
+    if let sourceAttachmentRootURL = try? NoteImageAttachmentStore.attachmentRootDirectoryURL(
+      rootURL: attachmentsRootURL,
+      createIfNeeded: false
+    ) {
+      let targetAttachmentRootURL = stagingDir.appendingPathComponent(
+        NoteImageAttachmentStore.attachmentsFolderName,
+        isDirectory: true
+      )
+      try NoteImageAttachmentStore.copyAttachmentFolders(
+        for: Set(notes.map(\.id)),
+        from: sourceAttachmentRootURL,
+        to: targetAttachmentRootURL
+      )
     }
 
     let zipURL = temporaryDirectories.temporaryBaseURL.appendingPathComponent("sceal-export.zip")

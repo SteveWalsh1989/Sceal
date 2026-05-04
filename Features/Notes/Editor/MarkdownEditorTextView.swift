@@ -937,7 +937,15 @@ final class MarkdownEditorTextView: NSTextView {
     ]
     let objects = pasteboard.readObjects(forClasses: [NSURL.self], options: options) ?? []
     return objects.compactMap { object in
-      guard let url = object as? URL else { return nil }
+      let url: URL?
+      if let swiftURL = object as? URL {
+        url = swiftURL
+      } else if let nsURL = object as? NSURL {
+        url = nsURL as URL
+      } else {
+        url = nil
+      }
+      guard let url else { return nil }
       return imageFileURLIfSupported(url)
     }
   }
@@ -1292,6 +1300,14 @@ final class MarkdownEditorTextView: NSTextView {
       return
     }
 
+    if let imageRange = imageBlockRange(at: charIndex) {
+      super.setSelectedRange(imageRange)
+      let imageRect = editorRectInViewCoordinates(forCharacterRange: imageRange)
+        ?? NSRect(origin: point, size: NSSize(width: 1, height: 1))
+      showImagePopover(for: imageRange, at: imageRect)
+      return
+    }
+
     // Divider line click — resolve to nearest editable side.
     if let dividerSelectionLocation = editorDividerSelectionLocation(
       for: charIndex,
@@ -1335,6 +1351,82 @@ final class MarkdownEditorTextView: NSTextView {
     }
 
     super.mouseDown(with: event)
+  }
+
+  // MARK: - Image Popover
+
+  private func imageBlockRange(at location: Int) -> NSRange? {
+    guard let textStorage, location >= 0, location < textStorage.length else { return nil }
+    var effectiveRange = NSRange(location: 0, length: 0)
+    let isImage = textStorage.attribute(
+      .markdownImageBlock,
+      at: location,
+      effectiveRange: &effectiveRange
+    ) as? Bool == true
+    return isImage ? effectiveRange : nil
+  }
+
+  private func showImagePopover(for imageRange: NSRange, at imageRect: NSRect) {
+    guard let textStorage, imageRange.location < textStorage.length else { return }
+    let attrs = textStorage.attributes(at: imageRange.location, effectiveRange: nil)
+    guard let path = attrs[.markdownImagePath] as? String else { return }
+
+    let title = attrs[.markdownImageTitle] as? String ?? ""
+    let explicitWidth = imageWidthValue(from: attrs[.markdownImageWidth])
+    let popover = NSPopover()
+    popover.behavior = .transient
+    popover.contentSize = NSSize(width: 280, height: 126)
+
+    let controller = EditorImagePopoverViewController(
+      title: title,
+      explicitWidth: explicitWidth
+    ) { [weak self] newTitle, newWidth in
+      self?.applyImageChange(
+        imageRange: imageRange,
+        path: path,
+        title: newTitle,
+        width: newWidth
+      )
+    }
+
+    popover.contentViewController = controller
+    popover.show(relativeTo: imageRect, of: self, preferredEdge: .maxY)
+  }
+
+  private func applyImageChange(
+    imageRange: NSRange,
+    path: String,
+    title: String,
+    width: CGFloat?
+  ) {
+    let replacement = MarkdownEditorFormatter.styledImageBlock(
+      title: title,
+      path: path,
+      width: width,
+      appearance: appearanceSettings
+    )
+
+    _ = performEditorEdit(
+      affectedRange: imageRange,
+      replacementString: replacement.string,
+      actionName: "Edit Image"
+    ) { textStorage in
+      let safeLocation = min(imageRange.location, textStorage.length)
+      let safeLength = min(imageRange.length, max(textStorage.length - safeLocation, 0))
+      let safeRange = NSRange(location: safeLocation, length: safeLength)
+      textStorage.replaceCharacters(in: safeRange, with: replacement)
+      return NSRange(location: safeLocation + replacement.length, length: 0)
+    }
+  }
+
+  private func imageWidthValue(from value: Any?) -> CGFloat? {
+    if let width = value as? CGFloat {
+      return width
+    }
+    if let number = value as? NSNumber {
+      return CGFloat(truncating: number)
+    }
+    return nil
   }
 
   // MARK: - Section Color Popover

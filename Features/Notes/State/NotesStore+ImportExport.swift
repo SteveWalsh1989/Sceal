@@ -172,7 +172,10 @@ extension NotesStore {
       return ImportOutcome(
         imported: result.imported,
         skipped: result.skipped,
-        extraDetail: result.failed > 0 ? "\(result.failed) failed to parse" : nil
+        extraDetail: result.failed > 0 ? "\(result.failed) failed to parse" : nil,
+        attachmentSourceRootURL: NoteImageAttachmentStore.attachmentRootInArchive(
+          rootURL: folderURL
+        )
       )
     }
   }
@@ -182,6 +185,7 @@ extension NotesStore {
     let imported: [DayNote]
     let skipped: Int
     let extraDetail: String?
+    var attachmentSourceRootURL: URL? = nil
   }
 
   // Runs a folder-import flow with shared panel, persistence, and user-message handling.
@@ -248,8 +252,12 @@ extension NotesStore {
 
     // Resolve notes directory on main actor and start background work.
     let notesDir: URL
+    let attachmentsDir: URL
     do {
       notesDir = try notesDirectoryURL()
+      attachmentsDir = try NoteImageAttachmentStore.attachmentRootDirectoryURL(
+        fileManager: fileManager
+      )
     } catch {
       report(error, context: context)
       return
@@ -257,6 +265,7 @@ extension NotesStore {
 
     isPerformingFileOperation = true
     progressMessage = "Importing…"
+    let fm = fileManager
 
     // Explicitly acquire security-scoped access so the detached task can
     // read the user-selected source inside the App Sandbox.
@@ -292,6 +301,15 @@ extension NotesStore {
               self?.progressMessage = "Saving \(idx + 1)/\(outcome.imported.count)…"
             }
           }
+        }
+
+        if let sourceRootURL = outcome.attachmentSourceRootURL {
+          try NoteImageAttachmentStore.copyAttachmentFolders(
+            for: Set(outcome.imported.map(\.id)),
+            from: sourceRootURL,
+            to: attachmentsDir,
+            fileManager: fm
+          )
         }
 
         // Step 3: Update in-memory state and notify the user on the main actor.

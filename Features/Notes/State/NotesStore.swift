@@ -559,11 +559,20 @@ final class NotesStore: ObservableObject {
       date: targetDate,
       title: sourceNote.title,
       tags: sourceNote.tags,
-      body: sourceNote.body
+      body: NoteImageAttachmentStore.rewritingAttachmentReferences(
+        in: sourceNote.body,
+        from: sourceNote.id,
+        to: targetID
+      )
     )
 
     do {
       try save(movedNote)
+      try NoteImageAttachmentStore.moveAttachments(
+        from: sourceNote.id,
+        to: movedNote.id,
+        fileManager: fileManager
+      )
       try deleteFile(for: sourceNote)
     } catch {
       report(error, context: "Changing note date failed")
@@ -595,6 +604,7 @@ final class NotesStore: ObservableObject {
 
     do {
       try deleteFile(for: note)
+      try NoteImageAttachmentStore.deleteAttachments(for: note.id, fileManager: fileManager)
     } catch {
       report(error, context: "Deleting note failed")
       return
