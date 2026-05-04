@@ -28,7 +28,8 @@ Scéal is built to make writing feel clearer, more visual, and more rewarding.
 
 - Markdown-based editing with support for headings, lists, checkboxes, links, quotes, code blocks, and inline formatting
 - Visual section dividers that break long notes into cleaner, more readable sections
-- Slash commands for quickly inserting dividers, headings, and code blocks without breaking writing flow
+- Slash commands for quickly inserting dividers, headings, code blocks, and copy-ready prompt areas without breaking writing flow
+- Prompt areas give reusable prompts a polished, growing text box with quick Copy and delete controls
 - Section-level styling that lets headings, bullets, and checkboxes carry their own colour identity
 - A note editor that feels polished and expressive rather than raw and mechanical
 

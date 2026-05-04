@@ -5,6 +5,7 @@
 // Custom TextKit 2 NSTextView subclass handling section cards, divider navigation, and checkboxes.
 
 import AppKit
+import UniformTypeIdentifiers
 
 @MainActor
 final class MarkdownEditorTextView: NSTextView {
@@ -15,6 +16,9 @@ final class MarkdownEditorTextView: NSTextView {
   }
 
   var appearanceSettings = NoteAppearanceSettings.default
+  var noteID: DayNote.ID?
+  var imageAttachmentRootURL: URL?
+  var imageAttachmentFileManager: FileManager = .default
 
   // Section card rendering constants.
   private let sectionCardBaseGapOffset: CGFloat = 4
@@ -127,6 +131,7 @@ final class MarkdownEditorTextView: NSTextView {
     guard attributes[.markdownSectionDivider] as? Bool != true else { return false }
     guard attributes[.markdownHorizontalRule] as? Bool != true else { return false }
     guard attributes[.markdownPromptBoundary] as? Bool != true else { return false }
+    guard attributes[.markdownImageBlock] as? Bool != true else { return false }
     guard attributes[.font] != nil, attributes[.foregroundColor] != nil else { return false }
     return !isListMarkerTypingAttributeSource(
       at: location,
@@ -902,6 +907,94 @@ final class MarkdownEditorTextView: NSTextView {
     return trimmedText
   }
 
+  private func storedImageAttachment(from pasteboard: NSPasteboard) -> StoredImageAttachment? {
+    guard let noteID else { return nil }
+
+    if let imageURL = imageFileURLs(from: pasteboard).first {
+      return try? NoteImageAttachmentStore.storeImageFile(
+        from: imageURL,
+        for: noteID,
+        fileManager: imageAttachmentFileManager,
+        rootURL: imageAttachmentRootURL
+      )
+    }
+
+    if let image = NSImage(pasteboard: pasteboard) {
+      return try? NoteImageAttachmentStore.storePastedImage(
+        image,
+        for: noteID,
+        fileManager: imageAttachmentFileManager,
+        rootURL: imageAttachmentRootURL
+      )
+    }
+
+    return nil
+  }
+
+  private func imageFileURLs(from pasteboard: NSPasteboard) -> [URL] {
+    let options: [NSPasteboard.ReadingOptionKey: Any] = [
+      .urlReadingFileURLsOnly: true
+    ]
+    let objects = pasteboard.readObjects(forClasses: [NSURL.self], options: options) ?? []
+    return objects.compactMap { object in
+      guard let url = object as? URL else { return nil }
+      return imageFileURLIfSupported(url)
+    }
+  }
+
+  private func imageFileURLIfSupported(_ url: URL) -> URL? {
+    guard
+      let type = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType,
+      type.conforms(to: .image)
+    else {
+      let knownExtensions = ["png", "jpg", "jpeg", "gif", "tiff", "tif", "heic", "webp"]
+      return knownExtensions.contains(url.pathExtension.lowercased()) ? url : nil
+    }
+
+    return url
+  }
+
+  private func insertImageAttachment(
+    _ attachment: StoredImageAttachment,
+    replacementRange: NSRange,
+    actionName: String
+  ) -> Bool {
+    let imageMarkdown = MarkdownEditorFormatter.imageMarkdownLine(
+      title: attachment.title,
+      path: attachment.relativePath
+    )
+    let markdown = blockMarkdownForInsertion(imageMarkdown, replacing: replacementRange)
+    let attributed = MarkdownEditorFormatter.formatForDisplay(
+      markdown,
+      appearance: appearanceSettings
+    )
+
+    return performEditorEdit(
+      affectedRange: replacementRange,
+      replacementString: attributed.string,
+      actionName: actionName
+    ) { textStorage in
+      let safeLocation = min(replacementRange.location, textStorage.length)
+      let safeLength = min(replacementRange.length, max(textStorage.length - safeLocation, 0))
+      let safeRange = NSRange(location: safeLocation, length: safeLength)
+      textStorage.replaceCharacters(in: safeRange, with: attributed)
+      return NSRange(location: safeLocation + attributed.length, length: 0)
+    }
+  }
+
+  private func blockMarkdownForInsertion(_ markdown: String, replacing range: NSRange) -> String {
+    guard let textStorage else { return markdown }
+    let nsString = textStorage.string as NSString
+    let safeLocation = min(range.location, nsString.length)
+    let rangeEnd = min(NSMaxRange(range), nsString.length)
+    let needsLeadingNewline =
+      safeLocation > 0 && nsString.character(at: safeLocation - 1) != 0x0A
+    let needsTrailingNewline =
+      rangeEnd < nsString.length && nsString.character(at: rangeEnd) != 0x0A
+
+    return "\(needsLeadingNewline ? "\n" : "")\(markdown)\(needsTrailingNewline ? "\n" : "")"
+  }
+
   // Returns the raw markdown for the current selection if it starts at a line boundary,
   // nil otherwise — partial-line selections don't have reliable line structure.
   private func markdownForCurrentSelection() -> String? {
@@ -963,6 +1056,12 @@ final class MarkdownEditorTextView: NSTextView {
       return
     }
 
+    if let storedImage = storedImageAttachment(from: NSPasteboard.general),
+      insertImageAttachment(storedImage, replacementRange: pasteRange, actionName: "Paste Image")
+    {
+      return
+    }
+
     if pasteRange.length > 0,
       let pastedURL = pastedURLStringFromGeneralPasteboard(),
       performEditorEdit(
@@ -1020,6 +1119,32 @@ final class MarkdownEditorTextView: NSTextView {
       textStorage.replaceCharacters(in: safeRange, with: attributed)
       return NSRange(location: safeLocation + attributed.length, length: 0)
     }
+  }
+
+  override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+    pasteboardContainsSupportedImage(sender.draggingPasteboard) == false
+      ? super.draggingEntered(sender)
+      : .copy
+  }
+
+  override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+    guard let storedImage = storedImageAttachment(from: sender.draggingPasteboard) else {
+      return super.performDragOperation(sender)
+    }
+
+    let point = convert(sender.draggingLocation, from: nil)
+    let insertionLocation = editorCharacterIndex(forViewPoint: point) ?? string.utf16.count
+    let insertionRange = NSRange(location: insertionLocation, length: 0)
+    setSelectedRange(insertionRange)
+    return insertImageAttachment(
+      storedImage,
+      replacementRange: insertionRange,
+      actionName: "Drop Image"
+    )
+  }
+
+  private func pasteboardContainsSupportedImage(_ pasteboard: NSPasteboard) -> Bool {
+    !imageFileURLs(from: pasteboard).isEmpty || NSImage(pasteboard: pasteboard) != nil
   }
 
   private func selectionIsInsidePromptBlock(_ range: NSRange) -> Bool {

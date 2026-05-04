@@ -116,6 +116,17 @@ extension MarkdownEditorFormatter {
       return lineText
     }
 
+    if attrs[.markdownImageBlock] as? Bool == true,
+      let path = attrs[.markdownImagePath] as? String
+    {
+      let title = attrs[.markdownImageTitle] as? String ?? ""
+      let imageLine = imageMarkdownLine(title: title, path: path)
+      if let width = imageWidthValue(from: attrs[.markdownImageWidth]) {
+        return "\(imageWidthMarker(for: width))\n\(imageLine)"
+      }
+      return imageLine
+    }
+
     // Code fence — pass through
     if attrs[.markdownCodeFence] as? Bool == true {
       return lineText
@@ -218,6 +229,17 @@ extension MarkdownEditorFormatter {
       let isCode = attrs[.markdownInlineCode] as? Bool == true
       let linkURL = attrs[.markdownLinkURL] as? String
 
+      if attrs[.markdownImageBlock] as? Bool == true,
+        let path = attrs[.markdownImagePath] as? String
+      {
+        let title = attrs[.markdownImageTitle] as? String ?? ""
+        if let width = imageWidthValue(from: attrs[.markdownImageWidth]) {
+          result += "\(imageWidthMarker(for: width))\n"
+        }
+        result += imageMarkdownLine(title: title, path: path)
+        return
+      }
+
       // Build the inner content with bold/italic/link wrapping
       var inner: String
       if isCode {
@@ -276,5 +298,15 @@ extension MarkdownEditorFormatter {
     }
 
     return markdownLines.joined(separator: "\n")
+  }
+
+  private static func imageWidthValue(from value: Any?) -> CGFloat? {
+    if let width = value as? CGFloat {
+      return width
+    }
+    if let number = value as? NSNumber {
+      return CGFloat(truncating: number)
+    }
+    return nil
   }
 }

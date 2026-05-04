@@ -162,6 +162,7 @@ struct MarkdownEditorView: NSViewRepresentable {
   private func configure(_ textView: NSTextView, coordinator: Coordinator) {
     Self.configureTextView(
       textView,
+      noteID: noteID,
       appearanceSettings: appearanceSettings,
       continuousSpellCheckingEnabled: continuousSpellCheckingEnabled,
       delegate: coordinator
@@ -170,12 +171,15 @@ struct MarkdownEditorView: NSViewRepresentable {
 
   static func configureTextView(
     _ textView: NSTextView,
+    noteID: DayNote.ID? = nil,
     appearanceSettings: NoteAppearanceSettings,
     continuousSpellCheckingEnabled: Bool,
     delegate: NSTextViewDelegate?
   ) {
     if let interactiveTextView = textView as? MarkdownEditorTextView {
       interactiveTextView.appearanceSettings = appearanceSettings
+      interactiveTextView.noteID = noteID
+      interactiveTextView.registerForDraggedTypes([.fileURL, .tiff, .png])
     }
     textView.isRichText = true
     textView.isEditable = true
@@ -374,6 +378,7 @@ enum MarkdownEditorSpellChecking {
       || attributes[.link] != nil
       || attributes[.markdownSectionDivider] as? Bool == true
       || attributes[.markdownHorizontalRule] as? Bool == true
+      || attributes[.markdownImageBlock] as? Bool == true
   }
 
   // Coalesces adjacent ignored spans so result filtering stays cheap and deterministic.

@@ -13,7 +13,11 @@ extension MarkdownEditorFormatter {
   // MARK: - Build Display Line (single raw markdown line → attributed string)
 
   // Converts a single raw markdown line into a styled NSAttributedString.
-  static func buildDisplayLine(_ rawLine: String, appearance: NoteAppearanceSettings)
+  static func buildDisplayLine(
+    _ rawLine: String,
+    appearance: NoteAppearanceSettings,
+    imageWidth: CGFloat? = nil
+  )
     -> NSAttributedString
   {
     // Detect and strip leading whitespace for list indentation (2 spaces or 1 tab = 1 indent level)
@@ -33,6 +37,15 @@ extension MarkdownEditorFormatter {
       .foregroundColor: NSColor.labelColor,
       .paragraphStyle: bodyParagraphStyle(for: appearance),
     ]
+
+    if let image = parseMarkdownImage(trimmedLine) {
+      return styledImageBlock(
+        title: image.title,
+        path: image.path,
+        width: imageWidth,
+        appearance: appearance
+      )
+    }
 
     // Section divider — Sceal card-gap marker
     if trimmedLine == "<!-- section -->" {
@@ -422,6 +435,169 @@ extension MarkdownEditorFormatter {
         .paragraphStyle: promptBlockParagraphStyle(for: appearance),
         .markdownPromptBlock: true,
       ])
+  }
+
+  // Creates a single attachment character that renders an image plus its optional title.
+  static func styledImageBlock(
+    title: String,
+    path: String,
+    width: CGFloat?,
+    appearance: NoteAppearanceSettings
+  ) -> NSAttributedString {
+    let resolvedWidth = clampedImageWidth(width ?? imageDefaultWidth)
+    let renderedImage = renderedImageAttachment(title: title, path: path, width: resolvedWidth)
+    let attachment = NSTextAttachment()
+    attachment.image = renderedImage
+    attachment.bounds = NSRect(origin: .zero, size: renderedImage.size)
+
+    let result = NSMutableAttributedString(attachment: attachment)
+    var attrs: [NSAttributedString.Key: Any] = [
+      .markdownImageBlock: true,
+      .markdownImagePath: path,
+      .markdownImageTitle: title,
+      .paragraphStyle: imageParagraphStyle(for: appearance),
+    ]
+    if let width {
+      attrs[.markdownImageWidth] = clampedImageWidth(width)
+    }
+    result.addAttributes(attrs, range: NSRange(location: 0, length: result.length))
+    return result
+  }
+
+  static func clampedImageWidth(_ width: CGFloat) -> CGFloat {
+    min(max(width, imageMinimumWidth), imageMaximumWidth)
+  }
+
+  static func parseImageWidthMarker(_ line: String) -> CGFloat? {
+    guard
+      let match = imageWidthRegex.firstMatch(
+        in: line,
+        range: NSRange(location: 0, length: line.utf16.count)
+      ),
+      let widthRange = Range(match.range(at: 1), in: line),
+      let width = Double(line[widthRange])
+    else { return nil }
+
+    return clampedImageWidth(CGFloat(width))
+  }
+
+  static func parseMarkdownImage(_ line: String) -> (title: String, path: String)? {
+    guard
+      let match = imageRegex.firstMatch(
+        in: line,
+        range: NSRange(location: 0, length: line.utf16.count)
+      ),
+      let titleRange = Range(match.range(at: 1), in: line),
+      let pathRange = Range(match.range(at: 2), in: line)
+    else { return nil }
+
+    return (
+      title: unescapedImageText(String(line[titleRange])),
+      path: String(line[pathRange])
+    )
+  }
+
+  static func imageWidthMarker(for width: CGFloat) -> String {
+    "<!-- sceal-image-width:\(Int(clampedImageWidth(width).rounded())) -->"
+  }
+
+  static func imageMarkdownLine(title: String, path: String) -> String {
+    "![\(escapedImageText(title))](\(path))"
+  }
+
+  private static func imageParagraphStyle(for appearance: NoteAppearanceSettings)
+    -> NSParagraphStyle
+  {
+    let style = NSMutableParagraphStyle()
+    style.baseWritingDirection = .leftToRight
+    style.paragraphSpacingBefore = 8
+    style.paragraphSpacing = 10
+    style.lineHeightMultiple = appearance.lineHeight
+    return style.copy() as! NSParagraphStyle
+  }
+
+  private static func renderedImageAttachment(
+    title: String,
+    path: String,
+    width: CGFloat
+  ) -> NSImage {
+    let sourceImage = NoteImageAttachmentStore.resolvedImageURL(for: path)
+      .flatMap { NSImage(contentsOf: $0) }
+    let imageSize = sourceImage?.size ?? NSSize(width: width, height: width * 0.58)
+    let safeImageWidth = max(imageSize.width, 1)
+    let imageHeight = max(width * (imageSize.height / safeImageWidth), 80)
+    let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+    let captionHeight: CGFloat = trimmedTitle.isEmpty ? 0 : 24
+    let canvasSize = NSSize(width: width, height: imageHeight + captionHeight)
+
+    let rendered = NSImage(size: canvasSize)
+    rendered.lockFocus()
+
+    let imageRect = NSRect(x: 0, y: captionHeight, width: width, height: imageHeight)
+    if let sourceImage {
+      sourceImage.draw(
+        in: imageRect,
+        from: .zero,
+        operation: .sourceOver,
+        fraction: 1,
+        respectFlipped: true,
+        hints: [.interpolation: NSImageInterpolation.high]
+      )
+    } else {
+      drawMissingImagePlaceholder(in: imageRect)
+    }
+
+    if !trimmedTitle.isEmpty {
+      let caption = trimmedTitle as NSString
+      let attrs: [NSAttributedString.Key: Any] = [
+        .font: NSFont.systemFont(ofSize: 12, weight: .medium),
+        .foregroundColor: NSColor.secondaryLabelColor,
+      ]
+      caption.draw(
+        in: NSRect(x: 0, y: 2, width: width, height: 18),
+        withAttributes: attrs
+      )
+    }
+
+    rendered.unlockFocus()
+    return rendered
+  }
+
+  private static func drawMissingImagePlaceholder(in rect: NSRect) {
+    let fillColor =
+      NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .vibrantDark]) != nil
+      ? NSColor.white.withAlphaComponent(0.08)
+      : NSColor.black.withAlphaComponent(0.06)
+    fillColor.setFill()
+    NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8).fill()
+
+    let label = "Image unavailable" as NSString
+    let attrs: [NSAttributedString.Key: Any] = [
+      .font: NSFont.systemFont(ofSize: 12, weight: .medium),
+      .foregroundColor: NSColor.secondaryLabelColor,
+    ]
+    let labelSize = label.size(withAttributes: attrs)
+    label.draw(
+      in: NSRect(
+        x: rect.midX - labelSize.width / 2,
+        y: rect.midY - labelSize.height / 2,
+        width: labelSize.width,
+        height: labelSize.height
+      ),
+      withAttributes: attrs
+    )
+  }
+
+  private static func escapedImageText(_ text: String) -> String {
+    text
+      .replacingOccurrences(of: "\\", with: "\\\\")
+      .replacingOccurrences(of: "]", with: "\\]")
+  }
+
+  private static func unescapedImageText(_ text: String) -> String {
+    text
+      .replacingOccurrences(of: "\\]", with: "]")
+      .replacingOccurrences(of: "\\\\", with: "\\")
   }
 
   // Creates an invisible marker that MarkdownEditorTextView renders as a card gap.

@@ -36,6 +36,10 @@ enum MarkdownEditorFormatter {
   static let promptBlockEndMarker = "<!-- /prompt -->"
   static let promptBoundaryStartKind = "start"
   static let promptBoundaryEndKind = "end"
+  static let imageDefaultWidth: CGFloat = 420
+  static let imageMinimumWidth: CGFloat = 160
+  static let imageMaximumWidth: CGFloat = 760
+  static let imageResizeStep: CGFloat = 80
 
   // Cached regex patterns to avoid recreation per format pass.
   static let hcolorRegex = try! NSRegularExpression(pattern: #"^<!-- hcolor:(\w+) -->$"#)
@@ -45,6 +49,10 @@ enum MarkdownEditorFormatter {
   )
   static let promptBlockStartRegex = try! NSRegularExpression(pattern: #"^<!-- prompt -->$"#)
   static let promptBlockEndRegex = try! NSRegularExpression(pattern: #"^<!-- /prompt -->$"#)
+  static let imageWidthRegex = try! NSRegularExpression(
+    pattern: #"^<!-- sceal-image-width:([0-9]+(?:\.[0-9]+)?) -->$"#)
+  static let imageRegex = try! NSRegularExpression(
+    pattern: #"^!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)$"#)
   static let boldRegex = try! NSRegularExpression(pattern: #"\*\*(.+?)\*\*"#)
   static let italicRegex = try! NSRegularExpression(
     pattern: #"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)"#)
@@ -248,6 +256,8 @@ enum MarkdownEditorFormatter {
     let newlineAttrs = baseTypingAttributes(for: appearance)
     // Track when we just emitted a section divider so we can collapse trailing blank lines.
     var justEmittedDivider = false
+    var pendingImageWidth: CGFloat? = nil
+    var skippedPreviousImageWidthMarker = false
 
     for (index, line) in lines.enumerated() {
       // Skip blank lines immediately after a section divider — the divider's own
@@ -257,9 +267,10 @@ enum MarkdownEditorFormatter {
       }
       justEmittedDivider = false
 
-      if index > 0 {
+      if index > 0, !skippedPreviousImageWidthMarker {
         result.append(NSAttributedString(string: "\n", attributes: newlineAttrs))
       }
+      skippedPreviousImageWidthMarker = false
 
       if !insideCodeBlock,
         promptStartRegex.firstMatch(
@@ -328,6 +339,15 @@ enum MarkdownEditorFormatter {
         continue
       }
 
+      if let imageWidth = parseImageWidthMarker(line),
+        lines.indices.contains(index + 1),
+        parseMarkdownImage(lines[index + 1]) != nil
+      {
+        pendingImageWidth = imageWidth
+        skippedPreviousImageWidthMarker = true
+        continue
+      }
+
       // Section divider — Sceal-specific card-gap marker with optional per-section colors
       if let sectionMatch = sectionRegex.firstMatch(
         in: line, range: NSRange(location: 0, length: line.utf16.count))
@@ -369,7 +389,14 @@ enum MarkdownEditorFormatter {
         continue
       }
 
-      let displayLine = buildDisplayLine(line, appearance: appearance)
+      let displayLine = buildDisplayLine(
+        line,
+        appearance: appearance,
+        imageWidth: pendingImageWidth
+      )
+      if parseMarkdownImage(line) != nil {
+        pendingImageWidth = nil
+      }
 
       // Apply pending heading color if this line is a heading
       if let color = pendingHeadingColor, let colorName = pendingHeadingColorName {
@@ -428,6 +455,7 @@ enum MarkdownEditorFormatter {
       if attrs[.markdownSectionDivider] as? Bool == true
         || attrs[.markdownHorizontalRule] as? Bool == true
         || attrs[.markdownPromptBoundary] as? Bool == true
+        || attrs[.markdownImageBlock] as? Bool == true
       {
         return nil
       }
