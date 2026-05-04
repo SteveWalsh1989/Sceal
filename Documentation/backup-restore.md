@@ -46,4 +46,4 @@ Only after that safety archive is written does Scéal replace:
 - Restore accepts full-library Scéal zip archives, not generic Markdown folders.
 - Restore replaces the current library snapshot.
 - Existing non-destructive imports remain available for Markdown, Diarly, Day One, and unzipped Scéal folder imports.
-- Step 3 signing, notarization, Sparkle, StoreKit, and paid-feature work is intentionally separate from this restore implementation.
+- Signing/notarization, Sparkle, StoreKit, and paid-feature work are separate from the restore implementation.

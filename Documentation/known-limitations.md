@@ -4,7 +4,7 @@ These are the release-readiness limitations to keep visible before broader distr
 
 ## Distribution
 
-- Developer ID signing and notarization are not implemented in this pass.
+- Direct-download signing and notarization infrastructure exists, but a public build still requires local Apple Developer setup: Developer ID Application certificate, notary profile, accepted notarization, stapling, and Gatekeeper verification.
 - Mac App Store setup, App Store Connect metadata, sandbox review, and potential StoreKit paid features are not implemented in this pass.
 - Auto-update support, such as Sparkle for direct downloads, is not implemented in this pass.
 
