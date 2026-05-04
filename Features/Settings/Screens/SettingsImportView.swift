@@ -52,6 +52,22 @@ struct SettingsImportView: View {
             store.importFromSceal()
           }
         }
+
+        HStack {
+          VStack(alignment: .leading, spacing: 4) {
+            Text("Restore full library")
+              .font(.body)
+            Text("Replaces the current library from a full-library Scéal zip archive.")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+
+          Spacer()
+
+          Button("Restore...") {
+            store.restoreFullLibraryFromArchive()
+          }
+        }
       }
 
       Section("Diarly") {

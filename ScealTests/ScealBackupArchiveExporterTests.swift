@@ -19,10 +19,10 @@ final class ScealBackupArchiveExporterTests: NotesStoreTestCase {
       month: 4,
       day: 16,
       title: "List",
-      body: "List body"
+      body: "![Plan](../Attachments/2026-04-16-abcdef/plan.png)"
     )
     let manifest = ListNotesManifest(
-      ungroupedNoteIDs: [listNote.id],
+      ungroupedNoteIDs: [],
       groups: [NoteGroup(name: "Pinned", noteIDs: [listNote.id])]
     )
     let attachmentsRootURL = FileManager.default.temporaryDirectory
@@ -37,6 +37,17 @@ final class ScealBackupArchiveExporterTests: NotesStoreTestCase {
     )
     try Data("image".utf8).write(
       to: dailyAttachmentDirectoryURL.appendingPathComponent("desk.png")
+    )
+    let listAttachmentDirectoryURL = attachmentsRootURL.appendingPathComponent(
+      listNote.id,
+      isDirectory: true
+    )
+    try FileManager.default.createDirectory(
+      at: listAttachmentDirectoryURL,
+      withIntermediateDirectories: true
+    )
+    try Data("plan".utf8).write(
+      to: listAttachmentDirectoryURL.appendingPathComponent("plan.png")
     )
     addTeardownBlock {
       try? FileManager.default.removeItem(at: attachmentsRootURL)
@@ -70,12 +81,16 @@ final class ScealBackupArchiveExporterTests: NotesStoreTestCase {
     let manifestURL = rootURL.appendingPathComponent("ListNotes/groups.json")
     let metadataURL = rootURL.appendingPathComponent("backup-metadata.json")
     let attachmentURL = rootURL.appendingPathComponent("Attachments/\(dailyNote.id)/desk.png")
+    let listAttachmentURL = rootURL.appendingPathComponent(
+      "Attachments/\(listNote.id)/plan.png"
+    )
 
     XCTAssertTrue(FileManager.default.fileExists(atPath: dailyNoteURL.path))
     XCTAssertTrue(FileManager.default.fileExists(atPath: listNoteURL.path))
     XCTAssertTrue(FileManager.default.fileExists(atPath: manifestURL.path))
     XCTAssertTrue(FileManager.default.fileExists(atPath: metadataURL.path))
     XCTAssertTrue(FileManager.default.fileExists(atPath: attachmentURL.path))
+    XCTAssertTrue(FileManager.default.fileExists(atPath: listAttachmentURL.path))
 
     let metadata = try JSONDecoder().decode(
       BackupArchiveMetadata.self,

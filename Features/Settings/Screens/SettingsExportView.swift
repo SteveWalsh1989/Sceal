@@ -14,8 +14,26 @@ struct SettingsExportView: View {
   var body: some View {
     Form {
       Section {
-        Text("Export your notes as a zip archive of markdown files.")
+        Text("Export your notes as zip archives of markdown files.")
           .foregroundStyle(.secondary)
+      }
+
+      Section("Full Library") {
+        HStack {
+          VStack(alignment: .leading, spacing: 4) {
+            Text("Export full library")
+              .font(.body)
+            Text("Includes daily notes, list notes, groups, attachments, and metadata.")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+
+          Spacer()
+
+          Button("Export...") {
+            store.exportFullLibrary()
+          }
+        }
       }
 
       Section("Date Range") {
@@ -35,7 +53,7 @@ struct SettingsExportView: View {
 
           Spacer()
 
-          Button("Export\u{2026}") {
+          Button("Export...") {
             store.exportNotes(startDate: startDate, endDate: endDate)
           }
         }

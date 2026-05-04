@@ -156,6 +156,90 @@ extension NotesStore {
     }
   }
 
+  // Exports the whole library, including list notes, groups, metadata, and attachments.
+  func exportFullLibrary() {
+    #if DEBUG
+      if isDemoModeEnabled {
+        userMessage = (
+          text: "Turn off Demo Library before exporting your real library.", kind: .info
+        )
+        return
+      }
+    #endif
+
+    guard !isPerformingFileOperation else {
+      userMessage = (text: "Wait for the current file operation to finish.", kind: .info)
+      return
+    }
+
+    flushPendingSaves()
+
+    let dailyNotesSnapshot = notes
+    let listNotesSnapshot = listNotes
+    let manifestSnapshot = listNoteManifest
+    guard !dailyNotesSnapshot.isEmpty || !listNotesSnapshot.isEmpty else {
+      userMessage = (text: "There are no notes to export.", kind: .info)
+      return
+    }
+
+    let panel = NSSavePanel()
+    panel.title = "Export Full Library"
+    panel.nameFieldStringValue = "sceal-library-export.zip"
+    panel.allowedContentTypes = [.zip]
+
+    guard panel.runModal() == .OK, let saveURL = panel.url else { return }
+
+    let attachmentsRootURL: URL?
+    do {
+      attachmentsRootURL = try NoteImageAttachmentStore.attachmentRootDirectoryURL(
+        fileManager: fileManager,
+        createIfNeeded: false
+      )
+    } catch {
+      report(error, context: "Preparing full-library export failed")
+      return
+    }
+
+    isPerformingFileOperation = true
+    progressMessage = "Exporting library..."
+
+    let fm = fileManager
+    Task.detached { [weak self] in
+      do {
+        let zipURL = try ScealBackupArchiveExporter.exportBackup(
+          dailyNotes: dailyNotesSnapshot,
+          listNotes: listNotesSnapshot,
+          manifest: manifestSnapshot,
+          kind: .manual,
+          attachmentsRootURL: attachmentsRootURL
+        )
+
+        if fm.fileExists(atPath: saveURL.path) {
+          try fm.removeItem(at: saveURL)
+        }
+        try fm.moveItem(at: zipURL, to: saveURL)
+
+        ZipArchiveWriter.cleanUp(zipURL: zipURL)
+
+        await MainActor.run { [weak self] in
+          self?.userMessage = (
+            text:
+              "Exported \(dailyNotesSnapshot.count) daily notes and \(listNotesSnapshot.count) list notes.",
+            kind: .info
+          )
+          self?.isPerformingFileOperation = false
+          self?.progressMessage = nil
+        }
+      } catch {
+        await MainActor.run { [weak self] in
+          self?.report(error, context: "Exporting full library failed")
+          self?.isPerformingFileOperation = false
+          self?.progressMessage = nil
+        }
+      }
+    }
+  }
+
   // Opens a folder picker and imports notes from an unzipped Scéal export.
   func importFromSceal() {
     importFromFolder(
@@ -177,6 +261,118 @@ extension NotesStore {
           rootURL: folderURL
         )
       )
+    }
+  }
+
+  // Restores a full-library archive after confirmation, replacing current note storage.
+  func restoreFullLibraryFromArchive() {
+    #if DEBUG
+      if isDemoModeEnabled {
+        userMessage = (
+          text: "Turn off Demo Library before restoring your real library.", kind: .info
+        )
+        return
+      }
+    #endif
+
+    guard !isPerformingFileOperation else {
+      userMessage = (text: "Wait for the current file operation to finish.", kind: .info)
+      return
+    }
+
+    guard !isBackupRunning else {
+      userMessage = (text: "Wait for the current backup to finish before restoring.", kind: .info)
+      return
+    }
+
+    guard
+      let archiveURL = selectImportFile(
+        title: "Select Scéal Library Archive",
+        message: "Choose a full-library Scéal backup or library export zip.",
+        allowedContentTypes: [.zip]
+      )
+    else {
+      return
+    }
+
+    guard confirmLibraryRestore() else {
+      return
+    }
+
+    flushPendingSaves()
+
+    let storageURLs: ScealLibraryStorageURLs
+    let safetyArchiveDirectoryURL: URL
+    do {
+      storageURLs = try libraryStorageURLs()
+      safetyArchiveDirectoryURL = try restoreSafetyArchiveDirectoryURL()
+    } catch {
+      report(error, context: "Preparing library restore failed")
+      return
+    }
+
+    let currentDailyNotes = notes
+    let currentListNotes = listNotes
+    let currentManifest = listNoteManifest
+    let fm = fileManager
+    let didStartAccessing = archiveURL.startAccessingSecurityScopedResource()
+
+    isPerformingFileOperation = true
+    progressMessage = "Restoring library..."
+
+    Task.detached { [weak self] in
+      defer {
+        if didStartAccessing {
+          archiveURL.stopAccessingSecurityScopedResource()
+        }
+      }
+
+      do {
+        let result = try ScealBackupArchiveImporter.restoreLibrary(
+          from: archiveURL,
+          currentDailyNotes: currentDailyNotes,
+          currentListNotes: currentListNotes,
+          currentManifest: currentManifest,
+          destinationURLs: storageURLs,
+          safetyArchiveDirectoryURL: safetyArchiveDirectoryURL,
+          fileManager: fm
+        )
+
+        await MainActor.run { [weak self] in
+          guard let self else { return }
+          self.notes = result.dailyNotes
+          self.listNotes = result.listNotes
+          self.listNoteManifest = result.manifest
+          self.rebuildNoteIndex()
+          self.rebuildListNoteIndex()
+          self.selectedNoteID = result.dailyNotes.first?.id
+          self.selectedListNoteID = result.listNotes.first?.id
+          self.searchText = ""
+          self.listSearchText = ""
+
+          if self.sidebarMode == .list, result.listNotes.isEmpty {
+            self.sidebarMode = .daily
+          } else if self.sidebarMode != .list, result.dailyNotes.isEmpty, !result.listNotes.isEmpty
+          {
+            self.sidebarMode = .list
+          }
+
+          self.userMessage = (
+            text:
+              "Restored \(result.dailyNotes.count) daily notes and \(result.listNotes.count) list notes. Safety backup: \(result.safetyArchiveURL.lastPathComponent).",
+            kind: .info
+          )
+          self.checkAndRunBackupIfDue(trigger: .postImport)
+          self.isPerformingFileOperation = false
+          self.progressMessage = nil
+        }
+      } catch {
+        await MainActor.run { [weak self] in
+          self?.report(error, context: "Restoring library failed")
+          self?.isPerformingFileOperation = false
+          self?.progressMessage = nil
+        }
+      }
     }
   }
 
@@ -367,6 +563,47 @@ extension NotesStore {
     }
 
     return panel.url
+  }
+
+  private func confirmLibraryRestore() -> Bool {
+    let alert = NSAlert()
+    alert.alertStyle = .warning
+    alert.messageText = "Restore Scéal Library?"
+    alert.informativeText =
+      "This replaces all current daily notes, list notes, groups, and attachments with the selected archive. Scéal will write a safety backup before replacing anything."
+    alert.addButton(withTitle: "Restore Library")
+    alert.addButton(withTitle: "Cancel")
+    return alert.runModal() == .alertFirstButtonReturn
+  }
+
+  private func libraryStorageURLs() throws -> ScealLibraryStorageURLs {
+    let notesURL = try notesDirectoryURL()
+    let listNotesURL = try listNotesDirectoryURL()
+    let attachmentsURL = try NoteImageAttachmentStore.attachmentRootDirectoryURL(
+      fileManager: fileManager
+    )
+
+    return ScealLibraryStorageURLs(
+      notesDirectoryURL: notesURL,
+      listNotesDirectoryURL: listNotesURL,
+      attachmentsRootURL: attachmentsURL
+    )
+  }
+
+  private func restoreSafetyArchiveDirectoryURL() throws -> URL {
+    let appSupportURL = try fileManager.url(
+      for: .applicationSupportDirectory,
+      in: .userDomainMask,
+      appropriateFor: nil,
+      create: true
+    )
+    let directoryURL =
+      appSupportURL
+      .appendingPathComponent("Sceal", isDirectory: true)
+      .appendingPathComponent("Restore Safety Backups", isDirectory: true)
+
+    try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+    return directoryURL
   }
 
   // Shows the user-facing import result message with consistent formatting across importers.

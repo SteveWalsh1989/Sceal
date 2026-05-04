@@ -4,6 +4,27 @@ Scéal is a local-first macOS notes app built to make everyday writing feel beau
 
 It is for people who want more than a blank editor, but less than an overbuilt workspace app. Scéal gives you a focused place to journal, think, plan, and collect ideas, while still making your notes feel structured, expressive, and fully your own.
 
+## Requirements
+
+- macOS 14 or newer
+- Xcode installed locally when building from source
+
+## Data ownership
+
+Scéal stores notes locally under `~/Library/Application Support/Sceal/`.
+
+Public docs:
+
+- [Privacy](Documentation/privacy.md)
+- [Data storage](Documentation/data-storage.md)
+- [Backup and restore](Documentation/backup-restore.md)
+- [Import and export](Documentation/import-export.md)
+- [Uninstall](Documentation/uninstall.md)
+- [Known limitations](Documentation/known-limitations.md)
+- [Support routes](Documentation/support.md)
+
+Support is still release-route dependent: GitHub Issues for an open-source release, support email or form for website/direct download, or a Support URL/contact page for Mac App Store.
+
 
 <img width="1463" height="921" alt="image" src="https://github.com/user-attachments/assets/a92e5692-053d-463a-965f-528b7b316e7f" />
 
@@ -61,9 +82,10 @@ The result is an app that can feel minimal, warm, sharp, soft, dense, airy, dark
 Scéal is for people who do not want their notes trapped inside a cloud-first product.
 
 - Notes are stored locally
-- Export is built in
+- Date-range export and full-library export are built in
+- Full-library restore validates the archive and writes a pre-restore safety backup
 - Local backups are supported
-- Import from Diarly is supported
+- Import from Markdown folders, Scéal exports, Diarly, and Day One is supported
 
 ## Build the app locally
 
