@@ -408,8 +408,8 @@ extension MarkdownEditorFormatter {
   ) -> NSAttributedString {
     let style = NSMutableParagraphStyle()
     style.baseWritingDirection = .leftToRight
-    style.minimumLineHeight = 6
-    style.maximumLineHeight = 6
+    style.minimumLineHeight = 12
+    style.maximumLineHeight = 12
 
     return NSAttributedString(
       string: " ",

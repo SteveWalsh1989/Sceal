@@ -37,11 +37,11 @@ final class MarkdownEditorTextView: NSTextView {
 
   // Prompt block rendering and hit testing constants.
   private let promptBlockHInset: CGFloat = 18
-  private let promptBlockVPad: CGFloat = 8
   private let promptBlockRadius: CGFloat = 8
   private let promptCopyButtonWidth: CGFloat = 58
   private let promptCopyButtonHeight: CGFloat = 22
   private let promptCloseButtonSize: CGFloat = 22
+  private let promptCloseButtonGap: CGFloat = 8
   private let promptCopyButtonPadding: CGFloat = 10
   private var hoveredPromptBlockLocation: Int? = nil
   private var hoveredPromptCopyLocation: Int? = nil
@@ -442,7 +442,8 @@ final class MarkdownEditorTextView: NSTextView {
 
     for range in ranges {
       guard let blockRect = promptBlockRect(for: range, string: nsString) else { continue }
-      guard blockRect.intersects(rect) else { continue }
+      let closeButtonRect = promptCloseButtonRect(in: blockRect)
+      guard blockRect.union(closeButtonRect).intersects(rect) else { continue }
 
       let path = NSBezierPath(
         roundedRect: blockRect, xRadius: promptBlockRadius, yRadius: promptBlockRadius)
@@ -460,7 +461,7 @@ final class MarkdownEditorTextView: NSTextView {
         || hoveredPromptCloseLocation == range.location
       {
         drawPromptCloseButton(
-          in: promptCloseButtonRect(in: blockRect),
+          in: closeButtonRect,
           hovered: hoveredPromptCloseLocation == range.location
         )
       }
@@ -508,11 +509,12 @@ final class MarkdownEditorTextView: NSTextView {
       let lastRect = editorRectInViewCoordinates(forCharacterRange: lastLine)
     else { return nil }
 
+    let closeButtonLaneWidth = promptCloseButtonGap + promptCloseButtonSize
     return NSRect(
       x: promptBlockHInset,
-      y: firstRect.minY - promptBlockVPad,
-      width: bounds.width - promptBlockHInset * 2,
-      height: lastRect.maxY - firstRect.minY + promptBlockVPad * 2
+      y: firstRect.minY,
+      width: max(bounds.width - promptBlockHInset * 2 - closeButtonLaneWidth, 0),
+      height: lastRect.maxY - firstRect.minY
     )
   }
 
@@ -527,8 +529,8 @@ final class MarkdownEditorTextView: NSTextView {
 
   private func promptCloseButtonRect(in blockRect: NSRect) -> NSRect {
     return NSRect(
-      x: blockRect.maxX - promptCloseButtonSize - promptCopyButtonPadding,
-      y: blockRect.maxY - promptCloseButtonSize - promptCopyButtonPadding,
+      x: blockRect.maxX + promptCloseButtonGap,
+      y: blockRect.midY - promptCloseButtonSize / 2,
       width: promptCloseButtonSize,
       height: promptCloseButtonSize
     )
