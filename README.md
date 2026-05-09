@@ -94,7 +94,7 @@ Tables are stored in Scéal's markdown-backed document format so they remain par
 - Hide weekends in the calendar
 - Enable or disable spell checking while typing
 
-<img width="849" height="803" alt="image" src="https://github.com/user-attachments/assets/ec5d63af-1554-4146-9a27-2fb4f432c012" />
+<img width="970" height="857" alt="image" src="https://github.com/user-attachments/assets/86f04ee2-750d-4850-863b-eb34e0630193" />
 
 ## Local data and portability
 
