@@ -269,6 +269,9 @@ struct MarkdownEditorView: NSViewRepresentable {
     if let scrollView = textView.enclosingScrollView {
       Self.applyBottomOverscroll(to: textView, in: scrollView)
     }
+    if let editorTextView = textView as? MarkdownEditorTextView {
+      editorTextView.syncTableBlockViews()
+    }
     textView.setNeedsDisplay(textView.bounds)
   }
 
@@ -503,6 +506,7 @@ enum MarkdownEditorSpellChecking {
       || attributes[.markdownSectionDivider] as? Bool == true
       || attributes[.markdownHorizontalRule] as? Bool == true
       || attributes[.markdownImageBlock] as? Bool == true
+      || attributes[.markdownTableBlock] as? Bool == true
   }
 
   // Coalesces adjacent ignored spans so result filtering stays cheap and deterministic.
@@ -663,6 +667,7 @@ extension MarkdownEditorView {
         if dividerCount != lastDividerCount {
           editorTextView.refreshSectionLayout()
         } else {
+          editorTextView.syncTableBlockViews()
           editorTextView.updateTrackingAreas()
           textView.setNeedsDisplay(textView.bounds)
         }
@@ -928,6 +933,44 @@ extension MarkdownEditorView {
           if handled {
             textView.typingAttributes = promptBlockTypingAttributes()
             textView.setNeedsDisplay(textView.bounds)
+            flushPendingMarkdownPushIfNeeded(from: textStorage)
+          }
+          return handled
+
+        case .table:
+          let replacementRange =
+            fullLineRange.length > lineRange.length ? fullLineRange : lineRange
+          let table = MarkdownEditorTable.empty()
+          let baseAttrs = MarkdownEditorFormatter.baseTypingAttributes(
+            for: parent.appearanceSettings)
+          let displaySnippet = NSMutableAttributedString(
+            attributedString: MarkdownEditorFormatter.styledTableBlock(
+              table,
+              appearance: parent.appearanceSettings
+            ))
+          displaySnippet.append(NSAttributedString(string: "\n", attributes: baseAttrs))
+          displaySnippet.append(NSAttributedString(string: "\n", attributes: baseAttrs))
+          let markdownSnippet = "\(MarkdownEditorTableMarkdown.serialize(table))\n\n"
+
+          let handled = textView.performEditorEdit(
+            affectedRange: replacementRange,
+            replacementString: markdownSnippet,
+            actionName: "Insert Table"
+          ) { textStorage in
+            textStorage.replaceCharacters(in: replacementRange, with: displaySnippet)
+            return NSRange(location: replacementRange.location + displaySnippet.length, length: 0)
+          }
+
+          if handled {
+            if let editorTextView = textView as? MarkdownEditorTextView {
+              editorTextView.refreshSectionLayout()
+              DispatchQueue.main.async { [weak editorTextView] in
+                editorTextView?.focusTableCell(tableID: table.runtimeID)
+              }
+            } else {
+              textView.ensureEditorLayoutForEntireDocument()
+              textView.setNeedsDisplay(textView.bounds)
+            }
             flushPendingMarkdownPushIfNeeded(from: textStorage)
           }
           return handled

@@ -34,6 +34,9 @@ extension NSAttributedString.Key {
   static let markdownSectionBulletColor = NSAttributedString.Key("sceal.sectionBulletColor")
   static let markdownSectionUseSectionColor = NSAttributedString.Key(
     "sceal.sectionUseSectionColor")
+  static let markdownTableBlock = NSAttributedString.Key("sceal.tableBlock")
+  static let markdownTableID = NSAttributedString.Key("sceal.tableID")
+  static let markdownTableModel = NSAttributedString.Key("sceal.tableModel")
 }
 
 enum MarkdownListType: String {

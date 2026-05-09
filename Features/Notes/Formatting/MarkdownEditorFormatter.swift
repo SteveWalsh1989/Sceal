@@ -244,6 +244,8 @@ enum MarkdownEditorFormatter {
     let sectionRegex = Self.sectionDividerRegex
     let promptStartRegex = Self.promptBlockStartRegex
     let promptEndRegex = Self.promptBlockEndRegex
+    let tableBlocks = tableBlocks(in: lines)
+    var skippingTableUntilIndex: Int? = nil
     // Per-section color state — applies to content after the most recent divider.
     var currentSectionHeadingColorName = initialSectionHeadingColorName
     var currentSectionBulletColorName = initialSectionBulletColorName
@@ -256,12 +258,38 @@ enum MarkdownEditorFormatter {
     var skippedPreviousImageWidthMarker = false
 
     for (index, line) in lines.enumerated() {
+      if let skipEndIndex = skippingTableUntilIndex {
+        if index <= skipEndIndex {
+          if index == skipEndIndex {
+            skippingTableUntilIndex = nil
+          }
+          continue
+        }
+        skippingTableUntilIndex = nil
+      }
+
       // Skip blank lines immediately after a section divider — the divider's own
       // paragraph spacing provides the visual gap, so extra blanks just accumulate.
       if justEmittedDivider && line.trimmingCharacters(in: .whitespaces).isEmpty {
         continue
       }
       justEmittedDivider = false
+
+      if let tableBlock = tableBlocks[index], !insideCodeBlock, !insidePromptBlock {
+        if index > 0, !skippedPreviousImageWidthMarker {
+          result.append(NSAttributedString(string: "\n", attributes: newlineAttrs))
+        }
+        skippedPreviousImageWidthMarker = false
+        skippingTableUntilIndex = tableBlock.endIndex
+
+        if let colorName = pendingHeadingColorName {
+          result.append(NSAttributedString(string: "<!-- hcolor:\(colorName) -->\n"))
+          pendingHeadingColor = nil
+          pendingHeadingColorName = nil
+        }
+        result.append(styledTableBlock(tableBlock.table, appearance: appearance))
+        continue
+      }
 
       if index > 0, !skippedPreviousImageWidthMarker {
         result.append(NSAttributedString(string: "\n", attributes: newlineAttrs))
@@ -434,6 +462,40 @@ enum MarkdownEditorFormatter {
     return result
   }
 
+  private static func tableBlocks(
+    in lines: [String]
+  ) -> [Int: (endIndex: Int, table: MarkdownEditorTable)] {
+    var blocks: [Int: (endIndex: Int, table: MarkdownEditorTable)] = [:]
+    var index = 0
+
+    while index < lines.count {
+      guard MarkdownEditorTableMarkdown.isStartLine(lines[index]) else {
+        index += 1
+        continue
+      }
+
+      var endIndex = index
+      while endIndex < lines.count {
+        if MarkdownEditorTableMarkdown.isEndLine(lines[endIndex]) {
+          break
+        }
+        endIndex += 1
+      }
+
+      guard endIndex < lines.count,
+        let table = MarkdownEditorTableMarkdown.parseBlock(lines[index...endIndex])
+      else {
+        index += 1
+        continue
+      }
+
+      blocks[index] = (endIndex, table)
+      index = endIndex + 1
+    }
+
+    return blocks
+  }
+
   // MARK: - Live Line Formatting (called on Enter)
 
   // Re-formats a single line in-place after Enter, returning the detected list type.
@@ -452,6 +514,7 @@ enum MarkdownEditorFormatter {
         || attrs[.markdownHorizontalRule] as? Bool == true
         || attrs[.markdownPromptBoundary] as? Bool == true
         || attrs[.markdownImageBlock] as? Bool == true
+        || attrs[.markdownTableBlock] as? Bool == true
       {
         return nil
       }

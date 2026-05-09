@@ -464,6 +464,29 @@ extension MarkdownEditorFormatter {
     return result
   }
 
+  static func styledTableBlock(
+    _ table: MarkdownEditorTable,
+    appearance: NoteAppearanceSettings
+  ) -> NSAttributedString {
+    let normalized = table.normalized()
+    let size = MarkdownEditorTableMetrics.tableSize(for: normalized, appearance: appearance)
+    let attachment = NSTextAttachment()
+    attachment.image = transparentTablePlaceholder(size: size)
+    attachment.bounds = NSRect(origin: .zero, size: size)
+
+    let result = NSMutableAttributedString(attachment: attachment)
+    result.addAttributes(
+      [
+        .markdownTableBlock: true,
+        .markdownTableID: normalized.runtimeID,
+        .markdownTableModel: normalized,
+        .paragraphStyle: tableParagraphStyle(for: appearance),
+      ],
+      range: NSRange(location: 0, length: result.length)
+    )
+    return result
+  }
+
   static func clampedImageWidth(_ width: CGFloat) -> CGFloat {
     min(max(width, imageMinimumWidth), imageMaximumWidth)
   }
@@ -514,6 +537,53 @@ extension MarkdownEditorFormatter {
     style.paragraphSpacing = 10
     style.lineHeightMultiple = appearance.lineHeight
     return style.copy() as! NSParagraphStyle
+  }
+
+  static func updateTableAttachment(
+    in attributedString: NSMutableAttributedString,
+    range: NSRange,
+    table: MarkdownEditorTable,
+    appearance: NoteAppearanceSettings
+  ) {
+    guard range.length > 0, range.location < attributedString.length else { return }
+    let normalized = table.normalized()
+    let size = MarkdownEditorTableMetrics.tableSize(for: normalized, appearance: appearance)
+    if let attachment = attributedString.attribute(
+      .attachment, at: range.location, effectiveRange: nil)
+      as? NSTextAttachment
+    {
+      attachment.image = transparentTablePlaceholder(size: size)
+      attachment.bounds = NSRect(origin: .zero, size: size)
+    }
+    attributedString.addAttributes(
+      [
+        .markdownTableBlock: true,
+        .markdownTableID: normalized.runtimeID,
+        .markdownTableModel: normalized,
+        .paragraphStyle: tableParagraphStyle(for: appearance),
+      ],
+      range: range
+    )
+  }
+
+  private static func tableParagraphStyle(for appearance: NoteAppearanceSettings)
+    -> NSParagraphStyle
+  {
+    let style = NSMutableParagraphStyle()
+    style.baseWritingDirection = .leftToRight
+    style.paragraphSpacingBefore = 8
+    style.paragraphSpacing = 10
+    style.lineHeightMultiple = appearance.lineHeight
+    return style.copy() as! NSParagraphStyle
+  }
+
+  private static func transparentTablePlaceholder(size: NSSize) -> NSImage {
+    let rendered = NSImage(size: size)
+    rendered.lockFocus()
+    NSColor.clear.setFill()
+    NSRect(origin: .zero, size: size).fill()
+    rendered.unlockFocus()
+    return rendered
   }
 
   private static func renderedImageAttachment(

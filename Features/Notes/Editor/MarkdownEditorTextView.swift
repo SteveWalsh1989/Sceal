@@ -71,6 +71,8 @@ final class MarkdownEditorTextView: NSTextView {
   private var promptBlockTrackingAreas: [NSTrackingArea] = []
   private var promptCopyTrackingAreas: [NSTrackingArea] = []
   private var promptCloseTrackingAreas: [NSTrackingArea] = []
+  private var tableBlockViews: [String: EditorTableBlockView] = [:]
+  private var isSyncingTableBlockViews = false
 
   // Section icon rendering and hit testing constants.
   private let sectionIconSize: CGFloat = 18
@@ -172,6 +174,7 @@ final class MarkdownEditorTextView: NSTextView {
     guard attributes[.markdownHorizontalRule] as? Bool != true else { return false }
     guard attributes[.markdownPromptBoundary] as? Bool != true else { return false }
     guard attributes[.markdownImageBlock] as? Bool != true else { return false }
+    guard attributes[.markdownTableBlock] as? Bool != true else { return false }
     guard attributes[.font] != nil, attributes[.foregroundColor] != nil else { return false }
     return !isListMarkerTypingAttributeSource(
       at: location,
@@ -209,9 +212,82 @@ final class MarkdownEditorTextView: NSTextView {
   // Forces layout recalculation and redraws section card backgrounds.
   func refreshSectionLayout() {
     ensureEditorLayoutForEntireDocument()
+    syncTableBlockViews()
     updateTrackingAreas()
     setNeedsDisplay(bounds)
     enclosingScrollView?.contentView.needsDisplay = true
+  }
+
+  override func layout() {
+    super.layout()
+    syncTableBlockViews()
+  }
+
+  func syncTableBlockViews() {
+    guard !isSyncingTableBlockViews else { return }
+    isSyncingTableBlockViews = true
+    defer { isSyncingTableBlockViews = false }
+
+    guard let textStorage else {
+      removeAllTableBlockViews()
+      return
+    }
+
+    ensureEditorLayoutForEntireDocument()
+    var activeIDs = Set<String>()
+    let fullRange = NSRange(location: 0, length: textStorage.length)
+    textStorage.enumerateAttribute(.markdownTableBlock, in: fullRange, options: []) {
+      [weak self] value, range, _ in
+      guard let self, value as? Bool == true, range.length > 0 else { return }
+      let attrs = textStorage.attributes(at: range.location, effectiveRange: nil)
+      guard let table = attrs[.markdownTableModel] as? MarkdownEditorTable,
+        let tableID = attrs[.markdownTableID] as? String,
+        let tableRect = self.editorRectInViewCoordinates(forCharacterRange: range)
+      else { return }
+
+      activeIDs.insert(tableID)
+      let tableView =
+        self.tableBlockViews[tableID]
+        ?? EditorTableBlockView(table: table, appearanceSettings: self.appearanceSettings)
+      if tableView.superview == nil {
+        tableView.delegate = self
+        self.addSubview(tableView)
+      }
+      tableView.frame = tableRect
+      tableView.update(table: table)
+      self.tableBlockViews[tableID] = tableView
+    }
+
+    let staleIDs = tableBlockViews.keys.filter { !activeIDs.contains($0) }
+    for tableID in staleIDs {
+      tableBlockViews[tableID]?.removeFromSuperview()
+      tableBlockViews.removeValue(forKey: tableID)
+    }
+  }
+
+  func focusTableCell(tableID: String, row: Int = 0, column: Int = 0) {
+    syncTableBlockViews()
+    tableBlockViews[tableID]?.focusCell(row: row, column: column)
+  }
+
+  func applyTableAction(
+    _ action: EditorTableAction,
+    tableID: String,
+    row: Int,
+    column: Int
+  ) {
+    syncTableBlockViews()
+    tableBlockViews[tableID]?.apply(
+      action,
+      relativeTo: MarkdownEditorTableCell(row: row, column: column)
+    )
+  }
+
+  private func removeAllTableBlockViews() {
+    for tableView in tableBlockViews.values {
+      tableView.removeFromSuperview()
+    }
+    tableBlockViews.removeAll()
   }
 
   // Walks backward from a character position to find the enclosing section's color settings.
@@ -1232,6 +1308,35 @@ final class MarkdownEditorTextView: NSTextView {
     }
   }
 
+  private func insertTableBlock(
+    _ table: MarkdownEditorTable,
+    replacementRange: NSRange,
+    actionName: String
+  ) -> Bool {
+    let tableMarkdown = MarkdownEditorTableMarkdown.serialize(table)
+    let markdown = blockMarkdownForInsertion(tableMarkdown, replacing: replacementRange)
+    let attributed = MarkdownEditorFormatter.formatForDisplay(
+      markdown,
+      appearance: appearanceSettings
+    )
+
+    let inserted = performEditorEdit(
+      affectedRange: replacementRange,
+      replacementString: markdown,
+      actionName: actionName
+    ) { textStorage in
+      let safeLocation = min(replacementRange.location, textStorage.length)
+      let safeLength = min(replacementRange.length, max(textStorage.length - safeLocation, 0))
+      let safeRange = NSRange(location: safeLocation, length: safeLength)
+      textStorage.replaceCharacters(in: safeRange, with: attributed)
+      return NSRange(location: safeLocation + attributed.length, length: 0)
+    }
+    if inserted {
+      syncTableBlockViews()
+    }
+    return inserted
+  }
+
   private func blockMarkdownForInsertion(_ markdown: String, replacing range: NSRange) -> String {
     guard let textStorage else { return markdown }
     let nsString = textStorage.string as NSString
@@ -1355,6 +1460,13 @@ final class MarkdownEditorTextView: NSTextView {
       }
       return
     }
+
+    if let table = MarkdownEditorTableImport.table(from: NSPasteboard.general),
+      insertTableBlock(table, replacementRange: pasteRange, actionName: "Paste Table")
+    {
+      return
+    }
+
     guard let plainText = NSPasteboard.general.string(forType: .string) else { return }
     let attributed = MarkdownEditorFormatter.formatForDisplay(
       plainText, appearance: appearanceSettings)
@@ -1907,5 +2019,47 @@ final class MarkdownEditorTextView: NSTextView {
     }
 
     setNeedsDisplay(bounds)
+  }
+}
+
+extension MarkdownEditorTextView: EditorTableBlockViewDelegate {
+  func tableBlockView(_ tableBlockView: EditorTableBlockView, didChange table: MarkdownEditorTable)
+  {
+    guard let textStorage,
+      let tableRange = tableRange(for: table.runtimeID, in: textStorage)
+    else { return }
+
+    textStorage.beginEditing()
+    MarkdownEditorFormatter.updateTableAttachment(
+      in: textStorage,
+      range: tableRange,
+      table: table,
+      appearance: appearanceSettings
+    )
+    textStorage.endEditing()
+    invalidateEditorLayout(forCharacterRange: tableRange)
+    ensureEditorLayoutForEntireDocument()
+    syncTableBlockViews()
+    setNeedsDisplay(bounds)
+    didChangeText()
+  }
+
+  func tableBlockView(
+    _ tableBlockView: EditorTableBlockView,
+    didFocus cell: MarkdownEditorTableCell?
+  ) {
+    updateTrackingAreas()
+  }
+
+  private func tableRange(for tableID: String, in textStorage: NSTextStorage) -> NSRange? {
+    let fullRange = NSRange(location: 0, length: textStorage.length)
+    var result: NSRange?
+    textStorage.enumerateAttribute(.markdownTableID, in: fullRange, options: []) {
+      value, range, stop in
+      guard value as? String == tableID else { return }
+      result = range
+      stop.pointee = true
+    }
+    return result
   }
 }

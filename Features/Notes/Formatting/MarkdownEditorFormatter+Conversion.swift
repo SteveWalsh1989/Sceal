@@ -116,6 +116,12 @@ extension MarkdownEditorFormatter {
       return lineText
     }
 
+    if attrs[.markdownTableBlock] as? Bool == true,
+      let table = attrs[.markdownTableModel] as? MarkdownEditorTable
+    {
+      return MarkdownEditorTableMarkdown.serialize(table)
+    }
+
     if attrs[.markdownImageBlock] as? Bool == true,
       let path = attrs[.markdownImagePath] as? String
     {
@@ -228,6 +234,13 @@ extension MarkdownEditorFormatter {
       let isStrike = attrs[.markdownStrikethrough] as? Bool == true
       let isCode = attrs[.markdownInlineCode] as? Bool == true
       let linkURL = attrs[.markdownLinkURL] as? String
+
+      if attrs[.markdownTableBlock] as? Bool == true,
+        let table = attrs[.markdownTableModel] as? MarkdownEditorTable
+      {
+        result += MarkdownEditorTableMarkdown.serialize(table)
+        return
+      }
 
       if attrs[.markdownImageBlock] as? Bool == true,
         let path = attrs[.markdownImagePath] as? String

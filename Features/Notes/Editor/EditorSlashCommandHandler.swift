@@ -18,6 +18,7 @@ enum SlashCommandAction: Equatable {
   case heading(level: Int)
   case codeBlock
   case promptBlock
+  case table
   case template(NoteTemplate)
 }
 
@@ -36,6 +37,8 @@ enum EditorSlashCommandHandler {
       command: "/code", description: "Insert fenced code block", action: .codeBlock),
     SlashCommandEntry(
       command: "/prompt", description: "Insert copyable prompt block", action: .promptBlock),
+    SlashCommandEntry(
+      command: "/table", description: "Insert table", action: .table),
   ]
 
   private static let hiddenCommands: [SlashCommandEntry] = [

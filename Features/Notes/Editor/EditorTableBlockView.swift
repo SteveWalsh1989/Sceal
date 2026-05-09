@@ -1,0 +1,842 @@
+//
+//  EditorTableBlockView.swift
+//
+
+// Interactive NSView overlay for one rich table block inside the markdown editor.
+
+import AppKit
+
+@MainActor
+protocol EditorTableBlockViewDelegate: AnyObject {
+  func tableBlockView(_ tableBlockView: EditorTableBlockView, didChange table: MarkdownEditorTable)
+  func tableBlockView(
+    _ tableBlockView: EditorTableBlockView, didFocus cell: MarkdownEditorTableCell?)
+}
+
+@MainActor
+final class EditorTableBlockView: NSView, NSTextViewDelegate {
+  weak var delegate: EditorTableBlockViewDelegate?
+
+  private(set) var table: MarkdownEditorTable
+  private let appearanceSettings: NoteAppearanceSettings
+  private var cellTextViews: [MarkdownEditorTableCell: EditorTableCellTextView] = [:]
+  private var toolbarButtons: [EditorTableAction: NSButton] = [:]
+  private let toolbarContainer = NSVisualEffectView()
+  private let toolbarActions: [EditorTableAction] = [
+    .toggleHeader,
+    .addColumnBefore,
+    .addColumnAfter,
+    .deleteColumn,
+    .addRowAbove,
+    .addRowBelow,
+    .deleteRow,
+  ]
+  private var activeCell = MarkdownEditorTableCell(row: 0, column: 0)
+  private var isApplyingModel = false
+  private var isHovering = false
+  private var isHoveringCell = false
+  private var resizingColumnIndex: Int?
+  private var resizeStartX: CGFloat = 0
+  private var resizeStartWidths: [CGFloat] = []
+  private var trackingArea: NSTrackingArea?
+
+  private let cornerRadius: CGFloat = 6
+  private let gridLineWidth: CGFloat = 1
+  private let resizeHitWidth: CGFloat = 8
+  private let toolbarHeight: CGFloat = 30
+  private let toolbarButtonSize: CGFloat = 24
+
+  override var isFlipped: Bool { true }
+  override var acceptsFirstResponder: Bool { true }
+
+  init(table: MarkdownEditorTable, appearanceSettings: NoteAppearanceSettings) {
+    self.table = table.normalized()
+    self.appearanceSettings = appearanceSettings
+    super.init(frame: .zero)
+    wantsLayer = true
+    buildToolbar()
+    rebuildCells()
+    updateToolbarVisibility()
+  }
+
+  @available(*, unavailable)
+  required init?(coder: NSCoder) {
+    nil
+  }
+
+  func update(table newTable: MarkdownEditorTable) {
+    let normalized = newTable.normalized()
+    let oldShape = (table.rows.count, table.columnCount)
+    let newShape = (normalized.rows.count, normalized.columnCount)
+    table = normalized
+
+    if oldShape != newShape {
+      rebuildCells()
+    } else {
+      syncCellContentsFromModel()
+    }
+    updateToolbarState()
+    needsDisplay = true
+    needsLayout = true
+  }
+
+  func focusCell(row: Int, column: Int) {
+    let safeCell = clampedCell(row: row, column: column)
+    activeCell = safeCell
+    updateToolbarVisibility()
+    delegate?.tableBlockView(self, didFocus: safeCell)
+    window?.makeFirstResponder(cellTextViews[safeCell])
+  }
+
+  func textViewForCell(row: Int, column: Int) -> EditorTableCellTextView? {
+    cellTextViews[MarkdownEditorTableCell(row: row, column: column)]
+  }
+
+  func apply(_ action: EditorTableAction, relativeTo cell: MarkdownEditorTableCell? = nil) {
+    let target = clampedCell(
+      row: cell?.row ?? activeCell.row,
+      column: cell?.column ?? activeCell.column
+    )
+    var updated = table.normalized()
+
+    switch action {
+    case .toggleHeader:
+      updated.hasHeader.toggle()
+
+    case .addColumnBefore:
+      updated = insertingColumn(in: updated, at: target.column)
+
+    case .addColumnAfter:
+      updated = insertingColumn(in: updated, at: target.column + 1)
+
+    case .deleteColumn:
+      guard updated.columnCount > 1 else { return }
+      updated = deletingColumn(in: updated, at: target.column)
+      activeCell = clampedCell(row: target.row, column: min(target.column, updated.columnCount - 1))
+
+    case .addRowAbove:
+      updated = insertingRow(in: updated, at: target.row)
+
+    case .addRowBelow:
+      updated = insertingRow(in: updated, at: target.row + 1)
+
+    case .deleteRow:
+      guard canDeleteRow(target.row, in: updated) else { return }
+      updated = deletingRow(in: updated, at: target.row)
+      activeCell = clampedCell(row: min(target.row, updated.rows.count - 1), column: target.column)
+    }
+
+    table = updated.normalized()
+    rebuildCells()
+    delegate?.tableBlockView(self, didChange: table)
+  }
+
+  override func updateTrackingAreas() {
+    super.updateTrackingAreas()
+    if let trackingArea {
+      removeTrackingArea(trackingArea)
+    }
+    let options: NSTrackingArea.Options = [
+      .activeInKeyWindow,
+      .mouseEnteredAndExited,
+      .mouseMoved,
+      .inVisibleRect,
+    ]
+    let area = NSTrackingArea(rect: bounds, options: options, owner: self, userInfo: nil)
+    addTrackingArea(area)
+    trackingArea = area
+  }
+
+  override func layout() {
+    super.layout()
+    layoutToolbar()
+    layoutCells()
+  }
+
+  override func draw(_ dirtyRect: NSRect) {
+    super.draw(dirtyRect)
+    drawTableBackground()
+    drawGridLines()
+  }
+
+  override func mouseEntered(with event: NSEvent) {
+    isHovering = true
+    updateToolbarVisibility()
+  }
+
+  override func mouseExited(with event: NSEvent) {
+    isHovering = false
+    updateToolbarVisibility()
+  }
+
+  override func mouseMoved(with event: NSEvent) {
+    let point = convert(event.locationInWindow, from: nil)
+    NSCursor.setHiddenUntilMouseMoves(false)
+    if columnResizeIndex(at: point) != nil {
+      NSCursor.resizeLeftRight.set()
+    } else {
+      NSCursor.arrow.set()
+    }
+  }
+
+  override func mouseDown(with event: NSEvent) {
+    let point = convert(event.locationInWindow, from: nil)
+    guard let resizeIndex = columnResizeIndex(at: point) else {
+      super.mouseDown(with: event)
+      return
+    }
+
+    resizingColumnIndex = resizeIndex
+    resizeStartX = point.x
+    resizeStartWidths = table.columnWidths
+  }
+
+  override func mouseDragged(with event: NSEvent) {
+    guard let resizingColumnIndex else {
+      super.mouseDragged(with: event)
+      return
+    }
+
+    let point = convert(event.locationInWindow, from: nil)
+    let delta = point.x - resizeStartX
+    var updated = table.normalized()
+    updated.columnWidths = resizeStartWidths
+    updated.columnWidths[resizingColumnIndex] = MarkdownEditorTable.clampedColumnWidth(
+      resizeStartWidths[resizingColumnIndex] + delta
+    )
+    table = updated.normalized()
+    layoutCells()
+    needsDisplay = true
+    delegate?.tableBlockView(self, didChange: table)
+  }
+
+  override func mouseUp(with event: NSEvent) {
+    resizingColumnIndex = nil
+  }
+
+  func textDidBeginEditing(_ notification: Notification) {
+    guard let textView = notification.object as? EditorTableCellTextView,
+      let cell = cellForTextView(textView)
+    else { return }
+
+    activeCell = cell
+    updateToolbarVisibility()
+    delegate?.tableBlockView(self, didFocus: cell)
+  }
+
+  func textDidChange(_ notification: Notification) {
+    guard !isApplyingModel,
+      let textView = notification.object as? EditorTableCellTextView,
+      let cell = cellForTextView(textView),
+      let textStorage = textView.textStorage
+    else { return }
+
+    table.rows[cell.row][cell.column] = MarkdownEditorFormatter.convertToMarkdown(
+      from: textStorage
+    )
+    layoutCells()
+    needsDisplay = true
+    delegate?.tableBlockView(self, didChange: table)
+  }
+
+  func textView(
+    _ textView: NSTextView,
+    doCommandBy commandSelector: Selector
+  ) -> Bool {
+    guard commandSelector == #selector(NSResponder.insertNewline(_:)),
+      let textStorage = textView.textStorage
+    else { return false }
+
+    let cursorLocation = textView.selectedRange().location
+    let nsString = textStorage.string as NSString
+    let fullLineRange = nsString.lineRange(for: NSRange(location: cursorLocation, length: 0))
+    var lineRange = fullLineRange
+    if lineRange.length > 0,
+      nsString.character(at: lineRange.location + lineRange.length - 1) == 0x0A
+    {
+      lineRange.length -= 1
+    }
+
+    let lineText = nsString.substring(with: lineRange)
+    if isEmptyListItem(lineText) {
+      return textView.performEditorEdit(
+        affectedRange: lineRange,
+        replacementString: "",
+        actionName: "Remove List Marker"
+      ) { textStorage in
+        textStorage.replaceCharacters(in: lineRange, with: "")
+        return NSRange(location: lineRange.location, length: 0)
+      }
+    }
+
+    var continuedListType: MarkdownListType?
+    let currentIndentLevel =
+      lineRange.length > 0
+      ? textStorage.attribute(.markdownIndentLevel, at: lineRange.location, effectiveRange: nil)
+        as? Int ?? 0
+      : 0
+
+    return textView.performEditorEdit(
+      affectedRange: lineRange,
+      replacementString: "\n",
+      actionName: "Insert Newline"
+    ) { textStorage in
+      continuedListType = MarkdownEditorFormatter.formatCurrentLine(
+        in: textStorage,
+        lineRange: lineRange,
+        appearance: appearanceSettings
+      )
+      let updatedString = textStorage.string as NSString
+      let updatedLine = updatedString.lineRange(
+        for: NSRange(location: min(lineRange.location, max(updatedString.length - 1, 0)), length: 0)
+      )
+      var insertionLocation = NSMaxRange(updatedLine)
+      if insertionLocation > 0,
+        updatedString.character(at: insertionLocation - 1) == 0x0A
+      {
+        insertionLocation -= 1
+      }
+
+      textStorage.insert(
+        NSAttributedString(
+          string: "\n",
+          attributes: MarkdownEditorFormatter.baseTypingAttributes(for: appearanceSettings)
+        ),
+        at: insertionLocation
+      )
+      var nextInsertionLocation = insertionLocation + 1
+
+      if let listType = continuedListType {
+        let marker = continuationAttributedMarker(
+          for: listType,
+          previousLineText: lineText,
+          indentLevel: currentIndentLevel
+        )
+        textStorage.insert(marker, at: nextInsertionLocation)
+        nextInsertionLocation += marker.length
+      }
+
+      return NSRange(location: nextInsertionLocation, length: 0)
+    }
+  }
+
+  private func buildToolbar() {
+    toolbarContainer.material = .popover
+    toolbarContainer.blendingMode = .withinWindow
+    toolbarContainer.state = .active
+    toolbarContainer.wantsLayer = true
+    toolbarContainer.layer?.cornerRadius = 7
+    toolbarContainer.layer?.masksToBounds = true
+    addSubview(toolbarContainer)
+
+    let buttons: [(EditorTableAction, String, String)] = [
+      (.toggleHeader, "tablecells.badge.ellipsis", "Add table header"),
+      (.addColumnBefore, "rectangle.insert.badge.plus", "Add column before"),
+      (.addColumnAfter, "rectangle.badge.plus", "Add column after"),
+      (.deleteColumn, "rectangle.badge.minus", "Delete column"),
+      (.addRowAbove, "tablecells.badge.plus", "Add row above"),
+      (.addRowBelow, "tablecells.badge.plus", "Add row below"),
+      (.deleteRow, "tablecells.badge.minus", "Delete row"),
+    ]
+
+    for (action, symbolName, tooltip) in buttons {
+      let button = EditorTableToolbarButton(action: action)
+      button.title = ""
+      button.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: tooltip)
+      button.imagePosition = .imageOnly
+      button.toolTip = tooltip
+      button.bezelStyle = .texturedRounded
+      button.isBordered = false
+      button.target = self
+      button.action = #selector(toolbarButtonPressed(_:))
+      button.contentTintColor = .secondaryLabelColor
+      toolbarContainer.addSubview(button)
+      toolbarButtons[action] = button
+    }
+  }
+
+  private func rebuildCells() {
+    isApplyingModel = true
+    for view in cellTextViews.values {
+      view.removeFromSuperview()
+    }
+    cellTextViews.removeAll()
+
+    let normalized = table.normalized()
+    table = normalized
+    for rowIndex in normalized.rows.indices {
+      for columnIndex in 0..<normalized.columnCount {
+        let cell = MarkdownEditorTableCell(row: rowIndex, column: columnIndex)
+        let textView = EditorTableCellTextView(usingTextLayoutManager: true)
+        configureCellTextView(textView, isHeader: normalized.hasHeader && rowIndex == 0)
+        textView.textStorage?.setAttributedString(
+          MarkdownEditorFormatter.formatForDisplay(
+            normalized.rows[rowIndex][columnIndex],
+            appearance: appearanceSettings
+          )
+        )
+        addSubview(textView)
+        cellTextViews[cell] = textView
+      }
+    }
+
+    isApplyingModel = false
+    bringToolbarToFront()
+    updateToolbarState()
+    needsLayout = true
+  }
+
+  private func syncCellContentsFromModel() {
+    isApplyingModel = true
+    for (cell, textView) in cellTextViews {
+      let modelMarkdown = table.rows[cell.row][cell.column]
+      let currentMarkdown =
+        textView.textStorage.map {
+          MarkdownEditorFormatter.convertToMarkdown(from: $0)
+        } ?? ""
+      if currentMarkdown != modelMarkdown, window?.firstResponder !== textView {
+        textView.textStorage?.setAttributedString(
+          MarkdownEditorFormatter.formatForDisplay(
+            modelMarkdown,
+            appearance: appearanceSettings
+          )
+        )
+      }
+      configureCellTextView(textView, isHeader: table.hasHeader && cell.row == 0)
+    }
+    isApplyingModel = false
+  }
+
+  private func configureCellTextView(_ textView: EditorTableCellTextView, isHeader: Bool) {
+    textView.tableBlockView = self
+    textView.appearanceSettings = appearanceSettings
+    textView.isRichText = true
+    textView.isEditable = true
+    textView.isSelectable = true
+    textView.drawsBackground = false
+    textView.allowsUndo = true
+    textView.delegate = self
+    textView.textContainerInset = NSSize(
+      width: MarkdownEditorTableMetrics.cellHorizontalPadding,
+      height: MarkdownEditorTableMetrics.cellVerticalPadding
+    )
+    textView.textContainer?.widthTracksTextView = true
+    textView.textContainer?.heightTracksTextView = false
+    textView.isVerticallyResizable = true
+    textView.isHorizontallyResizable = false
+    textView.autoresizingMask = []
+    textView.typingAttributes =
+      isHeader
+      ? [
+        .font: appearanceSettings.boldBodyFont(ofSize: appearanceSettings.bodyFont.pointSize),
+        .foregroundColor: NSColor.labelColor,
+        .paragraphStyle: MarkdownEditorFormatter.bodyParagraphStyle(for: appearanceSettings),
+      ]
+      : MarkdownEditorFormatter.baseTypingAttributes(for: appearanceSettings)
+  }
+
+  private func layoutToolbar() {
+    let visibleButtons = toolbarActions.compactMap { toolbarButtons[$0] }
+    guard !visibleButtons.isEmpty else { return }
+
+    let spacing: CGFloat = 4
+    let padding: CGFloat = 4
+    let totalWidth =
+      CGFloat(visibleButtons.count) * toolbarButtonSize
+      + CGFloat(max(visibleButtons.count - 1, 0)) * spacing
+      + padding * 2
+    toolbarContainer.frame = NSRect(
+      x: max(bounds.width - totalWidth - 8, 8),
+      y: 6,
+      width: totalWidth,
+      height: toolbarHeight
+    )
+
+    var x = padding
+    for button in visibleButtons {
+      button.frame = NSRect(
+        x: x,
+        y: (toolbarHeight - toolbarButtonSize) / 2,
+        width: toolbarButtonSize,
+        height: toolbarButtonSize
+      )
+      x += toolbarButtonSize + spacing
+    }
+  }
+
+  private func layoutCells() {
+    let rowHeights = MarkdownEditorTableMetrics.rowHeights(
+      for: table,
+      appearance: appearanceSettings
+    )
+    var y: CGFloat = 0
+    for (rowIndex, rowHeight) in rowHeights.enumerated() {
+      var x: CGFloat = 0
+      for columnIndex in 0..<table.columnCount {
+        let cell = MarkdownEditorTableCell(row: rowIndex, column: columnIndex)
+        let width = table.columnWidths[columnIndex]
+        if let textView = cellTextViews[cell] {
+          textView.frame = NSRect(
+            x: x + gridLineWidth,
+            y: y + gridLineWidth,
+            width: max(width - gridLineWidth * 2, 1),
+            height: max(rowHeight - gridLineWidth * 2, 1)
+          )
+        }
+        x += width
+      }
+      y += rowHeight
+    }
+  }
+
+  private func drawTableBackground() {
+    let path = NSBezierPath(roundedRect: bounds, xRadius: cornerRadius, yRadius: cornerRadius)
+    tableFillColor.setFill()
+    path.fill()
+
+    if table.hasHeader {
+      let headerHeight =
+        MarkdownEditorTableMetrics.rowHeights(
+          for: table,
+          appearance: appearanceSettings
+        ).first ?? 0
+      headerFillColor.setFill()
+      NSBezierPath(
+        roundedRect: NSRect(x: 0, y: 0, width: bounds.width, height: headerHeight),
+        xRadius: cornerRadius,
+        yRadius: cornerRadius
+      ).fill()
+    }
+  }
+
+  private func drawGridLines() {
+    gridColor.setStroke()
+    let path = NSBezierPath()
+    var x: CGFloat = 0
+    for width in table.columnWidths.dropLast() {
+      x += width
+      path.move(to: NSPoint(x: x, y: 0))
+      path.line(to: NSPoint(x: x, y: bounds.height))
+    }
+
+    var y: CGFloat = 0
+    for height in MarkdownEditorTableMetrics.rowHeights(
+      for: table,
+      appearance: appearanceSettings
+    ).dropLast() {
+      y += height
+      path.move(to: NSPoint(x: 0, y: y))
+      path.line(to: NSPoint(x: bounds.width, y: y))
+    }
+    path.lineWidth = gridLineWidth
+    path.stroke()
+
+    let border = NSBezierPath(roundedRect: bounds, xRadius: cornerRadius, yRadius: cornerRadius)
+    border.lineWidth = gridLineWidth
+    border.stroke()
+  }
+
+  private var tableFillColor: NSColor {
+    isDarkAppearance
+      ? NSColor(calibratedWhite: 0.16, alpha: 1)
+      : NSColor(calibratedWhite: 0.94, alpha: 1)
+  }
+
+  private var headerFillColor: NSColor {
+    isDarkAppearance
+      ? NSColor(calibratedWhite: 0.21, alpha: 1)
+      : NSColor(calibratedWhite: 0.89, alpha: 1)
+  }
+
+  private var gridColor: NSColor {
+    NSColor.separatorColor.withAlphaComponent(
+      isDarkAppearance ? 0.5 : 0.78
+    )
+  }
+
+  private var isDarkAppearance: Bool {
+    effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+  }
+
+  private func updateToolbarVisibility() {
+    let shouldShow =
+      isHovering || isHoveringCell || window?.firstResponder.map(isCellTextView) == true
+    toolbarContainer.isHidden = !shouldShow
+    updateToolbarState()
+    needsLayout = true
+  }
+
+  private func bringToolbarToFront() {
+    toolbarContainer.removeFromSuperview()
+    addSubview(toolbarContainer)
+  }
+
+  fileprivate func setCellHovering(_ isHovering: Bool) {
+    isHoveringCell = isHovering
+    updateToolbarVisibility()
+  }
+
+  private func updateToolbarState() {
+    toolbarButtons[.deleteColumn]?.isEnabled = table.columnCount > 1
+    toolbarButtons[.deleteRow]?.isEnabled = canDeleteRow(activeCell.row, in: table)
+  }
+
+  @objc private func toolbarButtonPressed(_ sender: EditorTableToolbarButton) {
+    apply(sender.tableAction)
+  }
+
+  private func columnResizeIndex(at point: NSPoint) -> Int? {
+    guard point.y >= 0, point.y <= bounds.height else { return nil }
+    var x: CGFloat = 0
+    for (index, width) in table.columnWidths.dropLast().enumerated() {
+      x += width
+      if abs(point.x - x) <= resizeHitWidth / 2 {
+        return index
+      }
+    }
+    return nil
+  }
+
+  private func cellForTextView(_ textView: EditorTableCellTextView) -> MarkdownEditorTableCell? {
+    cellTextViews.first { $0.value === textView }?.key
+  }
+
+  private func isCellTextView(_ responder: NSResponder) -> Bool {
+    guard let textView = responder as? EditorTableCellTextView else { return false }
+    return cellTextViews.values.contains { $0 === textView }
+  }
+
+  private func clampedCell(row: Int, column: Int) -> MarkdownEditorTableCell {
+    MarkdownEditorTableCell(
+      row: min(max(row, 0), max(table.rows.count - 1, 0)),
+      column: min(max(column, 0), max(table.columnCount - 1, 0))
+    )
+  }
+
+  private func insertingColumn(
+    in table: MarkdownEditorTable,
+    at columnIndex: Int
+  ) -> MarkdownEditorTable {
+    var updated = table.normalized()
+    let safeIndex = min(max(columnIndex, 0), updated.columnCount)
+    updated.columnWidths.insert(MarkdownEditorTable.defaultColumnWidth, at: safeIndex)
+    for rowIndex in updated.rows.indices {
+      updated.rows[rowIndex].insert("", at: safeIndex)
+    }
+    activeCell = MarkdownEditorTableCell(row: activeCell.row, column: safeIndex)
+    return updated
+  }
+
+  private func deletingColumn(
+    in table: MarkdownEditorTable,
+    at columnIndex: Int
+  ) -> MarkdownEditorTable {
+    var updated = table.normalized()
+    let safeIndex = min(max(columnIndex, 0), updated.columnCount - 1)
+    updated.columnWidths.remove(at: safeIndex)
+    for rowIndex in updated.rows.indices {
+      updated.rows[rowIndex].remove(at: safeIndex)
+    }
+    return updated
+  }
+
+  private func insertingRow(
+    in table: MarkdownEditorTable,
+    at rowIndex: Int
+  ) -> MarkdownEditorTable {
+    var updated = table.normalized()
+    let safeIndex = min(max(rowIndex, 0), updated.rows.count)
+    updated.rows.insert(Array(repeating: "", count: updated.columnCount), at: safeIndex)
+    activeCell = MarkdownEditorTableCell(row: safeIndex, column: activeCell.column)
+    return updated
+  }
+
+  private func deletingRow(
+    in table: MarkdownEditorTable,
+    at rowIndex: Int
+  ) -> MarkdownEditorTable {
+    var updated = table.normalized()
+    let safeIndex = min(max(rowIndex, 0), updated.rows.count - 1)
+    updated.rows.remove(at: safeIndex)
+    return updated
+  }
+
+  private func canDeleteRow(_ rowIndex: Int, in table: MarkdownEditorTable) -> Bool {
+    let normalized = table.normalized()
+    guard normalized.rows.indices.contains(rowIndex) else { return false }
+    let rowCountAfterDelete = normalized.rows.count - 1
+    let bodyRowsAfterDelete =
+      normalized.hasHeader
+      ? max(rowCountAfterDelete - 1, 0)
+      : rowCountAfterDelete
+    return bodyRowsAfterDelete >= 1
+  }
+
+  private func isEmptyListItem(_ lineText: String) -> Bool {
+    let trimmed = lineText.trimmingCharacters(in: .whitespaces)
+    let emptyMarkers = [
+      "\(MarkdownEditorFormatter.bulletMarker) ",
+      "\(MarkdownEditorFormatter.bulletMarker)",
+      "\(MarkdownEditorFormatter.attachmentChar) ",
+      "\(MarkdownEditorFormatter.attachmentChar)",
+      "- ",
+      "-",
+    ]
+    if emptyMarkers.contains(trimmed) { return true }
+    return trimmed.range(of: #"^\d+\.\s*$"#, options: .regularExpression) != nil
+  }
+
+  private func continuationAttributedMarker(
+    for listType: MarkdownListType,
+    previousLineText: String,
+    indentLevel: Int
+  ) -> NSAttributedString {
+    let marker: String
+    switch listType {
+    case .bullet:
+      marker = "\(MarkdownEditorFormatter.bulletMarker) "
+    case .checkboxUnchecked, .checkboxChecked:
+      marker = "\(MarkdownEditorFormatter.uncheckedMarker) "
+    case .numbered:
+      if let match = previousLineText.range(of: #"^(\d+)\."#, options: .regularExpression),
+        let number = Int(previousLineText[match].dropLast())
+      {
+        marker = "\(number + 1). "
+      } else {
+        marker = "1. "
+      }
+    }
+
+    let listStyle = MarkdownEditorFormatter.listParagraphStyle(
+      for: appearanceSettings,
+      indentLevel: indentLevel
+    )
+    if listType == .checkboxUnchecked || listType == .checkboxChecked {
+      let result = NSMutableAttributedString()
+      result.append(
+        MarkdownEditorFormatter.checkboxAttributedString(
+          checked: false,
+          appearance: appearanceSettings
+        ))
+      result.append(
+        NSAttributedString(
+          string: " ",
+          attributes: MarkdownEditorFormatter.baseTypingAttributes(for: appearanceSettings)
+        ))
+      result.addAttributes(
+        [
+          .markdownListType: MarkdownListType.checkboxUnchecked.rawValue,
+          .paragraphStyle: listStyle,
+          .markdownIndentLevel: indentLevel,
+        ],
+        range: NSRange(location: 0, length: result.length)
+      )
+      return result
+    }
+
+    let result = NSMutableAttributedString(
+      string: marker,
+      attributes: [
+        .font: appearanceSettings.bodyFont,
+        .foregroundColor: NSColor.labelColor,
+        .markdownListType: listType.rawValue,
+        .paragraphStyle: listStyle,
+        .markdownIndentLevel: indentLevel,
+      ]
+    )
+    if listType == .bullet {
+      result.addAttributes(
+        [
+          .foregroundColor: MarkdownEditorFormatter.bulletColor(for: appearanceSettings),
+          .font: NSFont.systemFont(ofSize: appearanceSettings.bulletSize, weight: .bold),
+        ],
+        range: NSRange(location: 0, length: 1)
+      )
+    }
+    return result
+  }
+}
+
+@MainActor
+private final class EditorTableToolbarButton: NSButton {
+  let tableAction: EditorTableAction
+
+  init(action: EditorTableAction) {
+    self.tableAction = action
+    super.init(frame: .zero)
+  }
+
+  @available(*, unavailable)
+  required init?(coder: NSCoder) {
+    nil
+  }
+}
+
+@MainActor
+final class EditorTableCellTextView: NSTextView {
+  var appearanceSettings = NoteAppearanceSettings.default
+  fileprivate weak var tableBlockView: EditorTableBlockView?
+  private var tableTrackingArea: NSTrackingArea?
+
+  override func updateTrackingAreas() {
+    super.updateTrackingAreas()
+    if let tableTrackingArea {
+      removeTrackingArea(tableTrackingArea)
+    }
+    let area = NSTrackingArea(
+      rect: bounds,
+      options: [.activeInKeyWindow, .mouseEnteredAndExited, .inVisibleRect],
+      owner: self,
+      userInfo: nil
+    )
+    addTrackingArea(area)
+    tableTrackingArea = area
+  }
+
+  override func mouseEntered(with event: NSEvent) {
+    tableBlockView?.setCellHovering(true)
+    super.mouseEntered(with: event)
+  }
+
+  override func mouseExited(with event: NSEvent) {
+    tableBlockView?.setCellHovering(false)
+    super.mouseExited(with: event)
+  }
+
+  override func mouseDown(with event: NSEvent) {
+    guard let textStorage else {
+      super.mouseDown(with: event)
+      return
+    }
+
+    let point = convert(event.locationInWindow, from: nil)
+    guard let charIndex = editorCharacterIndex(forViewPoint: point),
+      charIndex < textStorage.length
+    else {
+      super.mouseDown(with: event)
+      return
+    }
+
+    let nsString = string as NSString
+    let lineRange = nsString.lineRange(for: NSRange(location: charIndex, length: 0))
+    guard charIndex <= lineRange.location + 1 else {
+      super.mouseDown(with: event)
+      return
+    }
+
+    let attrs = textStorage.attributes(at: lineRange.location, effectiveRange: nil)
+    guard let rawType = attrs[.markdownListType] as? String,
+      rawType == MarkdownListType.checkboxUnchecked.rawValue
+        || rawType == MarkdownListType.checkboxChecked.rawValue
+    else {
+      super.mouseDown(with: event)
+      return
+    }
+
+    if editorToggleCheckbox(at: lineRange.location, appearanceSettings: appearanceSettings) {
+      return
+    }
+
+    super.mouseDown(with: event)
+  }
+}
