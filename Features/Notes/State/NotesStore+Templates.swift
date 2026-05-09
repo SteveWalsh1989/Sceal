@@ -33,6 +33,7 @@ extension NotesStore {
   func deleteNoteTemplate(id: NoteTemplate.ID) {
     noteTemplates.removeAll { $0.id == id }
     persistNoteTemplates()
+    resetNewNoteDefaultIfTemplateMissing()
   }
 
   // Imports templates by command, replacing local templates that use the same command.
@@ -58,6 +59,7 @@ extension NotesStore {
     noteTemplates = merged
     sortTemplates()
     persistNoteTemplates()
+    resetNewNoteDefaultIfTemplateMissing()
   }
 
   // Replaces all templates after a full-library restore.
@@ -65,6 +67,7 @@ extension NotesStore {
     noteTemplates = templates.map { $0.normalizedForCurrentVersion() }
     sortTemplates()
     persistNoteTemplates()
+    resetNewNoteDefaultIfTemplateMissing()
   }
 
   // Returns enabled, valid templates for slash command lookup.
@@ -270,6 +273,14 @@ extension NotesStore {
   private func sortTemplates() {
     noteTemplates.sort {
       $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+    }
+  }
+
+  private func resetNewNoteDefaultIfTemplateMissing() {
+    if case .template(let templateID) = newNoteDefault,
+      noteTemplate(withID: templateID) == nil
+    {
+      updateNewNoteDefault(.blank)
     }
   }
 }

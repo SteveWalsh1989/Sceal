@@ -79,6 +79,30 @@ final class NotesStoreDailyTests: NotesStoreTestCase {
     XCTAssertEqual(store.calendarBrowseYear, 2025)
   }
 
+  // Prevents template-backed new-note defaults from creating blank today notes.
+  func testSelectTodayAppliesSelectedTemplateDefault() {
+    let userDefaults = makeUserDefaults()
+    let store = makeStore(userDefaults: userDefaults)
+    let templateID = store.createNoteTemplate()
+
+    store.templateBodyBinding(for: templateID).wrappedValue = "# Daily plan\n\n- "
+    store.templateSectionColorBinding(for: templateID).wrappedValue = "blue"
+    store.updateNewNoteDefault(.template(templateID))
+
+    store.selectToday()
+
+    let note = store.dailyNote(on: .now)
+    XCTAssertEqual(
+      note?.body,
+      [
+        "<!-- section heading:blue bullet:blue usesectioncolor:true -->",
+        "# Daily plan",
+        "",
+        "- ",
+      ].joined(separator: "\n")
+    )
+  }
+
   // Prevents the calendar year browser from excluding the current year when all notes are older.
   func testCalendarYearBoundsIncludeCurrentYear() {
     let currentYear = Calendar.current.component(.year, from: .now)

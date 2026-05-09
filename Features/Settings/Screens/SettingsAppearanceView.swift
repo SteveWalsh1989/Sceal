@@ -175,8 +175,17 @@ struct SettingsAppearanceView: View {
             set: { store.updateNewNoteDefault($0) }
           )
         ) {
-          ForEach(NewNoteDefault.allCases, id: \.self) { option in
+          ForEach(NewNoteDefault.builtInCases, id: \.self) { option in
             Text(option.displayName).tag(option)
+          }
+
+          if !store.sortedNoteTemplates.isEmpty {
+            Section("Templates") {
+              ForEach(store.sortedNoteTemplates) { template in
+                Text(newNoteDefaultTemplateLabel(for: template))
+                  .tag(NewNoteDefault.template(template.id))
+              }
+            }
           }
         }
         .pickerStyle(.menu)
@@ -186,6 +195,11 @@ struct SettingsAppearanceView: View {
     .onDisappear {
       fontPanelController.detachIfNeeded()
     }
+  }
+
+  private func newNoteDefaultTemplateLabel(for template: NoteTemplate) -> String {
+    let title = template.title.isEmpty ? "Untitled Template" : template.title
+    return template.command.isEmpty ? title : "\(title) (\(template.slashCommand))"
   }
 }
 

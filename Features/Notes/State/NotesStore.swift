@@ -724,16 +724,31 @@ final class NotesStore: ObservableObject {
     return newNote
   }
 
-  // Builds a blank day note, or copies the most recent note when creating today with that default.
+  // Builds a day note using the configured default when creating today's note.
   private func makeDailyNote(for date: Date, applyTodayDefault: Bool) -> DayNote {
     let startOfDay = calendar.startOfDay(for: date)
 
-    if applyTodayDefault, newNoteDefault == .copyPrevious, let mostRecent = notes.first {
+    guard applyTodayDefault else {
+      return DayNote.empty(for: startOfDay, calendar: calendar)
+    }
+
+    if case .copyPrevious = newNoteDefault, let mostRecent = notes.first {
       return DayNote(
         date: startOfDay,
         title: mostRecent.title,
         tags: mostRecent.tags,
         body: mostRecent.body
+      )
+    }
+
+    if case .template(let templateID) = newNoteDefault,
+      let template = noteTemplate(withID: templateID)
+    {
+      return DayNote(
+        date: startOfDay,
+        title: "",
+        tags: [],
+        body: template.resolvedBodyForInsertion
       )
     }
 

@@ -441,6 +441,7 @@ private struct QuickAppearancePopover: View {
 
       QuickNewNoteDefaultRow(
         selection: store.newNoteDefault,
+        templates: store.sortedNoteTemplates,
         onSelect: store.updateNewNoteDefault
       )
 
@@ -491,6 +492,7 @@ private struct QuickAppearanceFontRow: View {
 
 private struct QuickNewNoteDefaultRow: View {
   let selection: NewNoteDefault
+  let templates: [NoteTemplate]
   let onSelect: (NewNoteDefault) -> Void
 
   var body: some View {
@@ -507,8 +509,17 @@ private struct QuickNewNoteDefaultRow: View {
           set: { onSelect($0) }
         )
       ) {
-        ForEach(NewNoteDefault.allCases, id: \.self) { option in
+        ForEach(NewNoteDefault.builtInCases, id: \.self) { option in
           Text(option.displayName).tag(option)
+        }
+
+        if !templates.isEmpty {
+          Section("Templates") {
+            ForEach(templates) { template in
+              Text(templateLabel(for: template))
+                .tag(NewNoteDefault.template(template.id))
+            }
+          }
         }
       }
       .labelsHidden()
@@ -516,5 +527,10 @@ private struct QuickNewNoteDefaultRow: View {
       .controlSize(.small)
       .fixedSize()
     }
+  }
+
+  private func templateLabel(for template: NoteTemplate) -> String {
+    let title = template.title.isEmpty ? "Untitled Template" : template.title
+    return template.command.isEmpty ? title : "\(title) (\(template.slashCommand))"
   }
 }

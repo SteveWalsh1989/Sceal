@@ -174,6 +174,31 @@ final class NotesStoreSettingsTests: NotesStoreTestCase {
     XCTAssertEqual(userDefaults.string(forKey: "sceal.newNoteDefault"), "copyPrevious")
   }
 
+  // Prevents template-backed note defaults from losing their selected template across launches.
+  func testUpdatingNewNoteDefaultPersistsTemplateChoice() {
+    let userDefaults = makeUserDefaults()
+    let store = makeStore(userDefaults: userDefaults)
+    let templateID = store.createNoteTemplate()
+
+    store.updateNewNoteDefault(.template(templateID))
+
+    XCTAssertEqual(store.newNoteDefault, .template(templateID))
+    XCTAssertEqual(userDefaults.string(forKey: "sceal.newNoteDefault"), "template:\(templateID)")
+  }
+
+  // Prevents deleted templates from leaving the new-note default pointed at a missing template.
+  func testDeletingSelectedDefaultTemplateResetsNewNoteDefault() {
+    let userDefaults = makeUserDefaults()
+    let store = makeStore(userDefaults: userDefaults)
+    let templateID = store.createNoteTemplate()
+
+    store.updateNewNoteDefault(.template(templateID))
+    store.deleteNoteTemplate(id: templateID)
+
+    XCTAssertEqual(store.newNoteDefault, .blank)
+    XCTAssertEqual(userDefaults.string(forKey: "sceal.newNoteDefault"), "blank")
+  }
+
   // Prevents new installs from silently shipping with spell checking disabled.
   func testContinuousSpellCheckingDefaultsToEnabled() {
     let userDefaults = makeUserDefaults()
@@ -214,6 +239,16 @@ final class NotesStoreSettingsTests: NotesStoreTestCase {
     let store = makeStore(userDefaults: userDefaults)
 
     XCTAssertEqual(store.newNoteDefault, .copyPrevious)
+  }
+
+  // Prevents the template default storage value from loading as blank on relaunch.
+  func testLoadingTemplateNewNoteDefaultFromDefaults() {
+    let userDefaults = makeUserDefaults()
+    userDefaults.set("template:starter-meeting", forKey: "sceal.newNoteDefault")
+
+    let store = makeStore(userDefaults: userDefaults)
+
+    XCTAssertEqual(store.newNoteDefault, .template("starter-meeting"))
   }
 
   // Prevents the calendar weekend visibility toggle from updating UI without persisting the choice.
