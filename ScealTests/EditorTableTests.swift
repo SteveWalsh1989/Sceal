@@ -135,28 +135,17 @@ final class EditorTableTests: EditorTestCase {
     )
   }
 
-  func testTableViewUsesDarkBackgroundInDarkAppearance() {
+  func testTableBodyCellsKeepTransparentBackground() {
     let tableView = EditorTableBlockView(
       table: MarkdownEditorTable.empty(),
       appearanceSettings: appearance
     )
-    tableView.appearance = NSAppearance(named: .darkAqua)
-    tableView.frame = NSRect(x: 0, y: 0, width: 360, height: 160)
-    tableView.layoutSubtreeIfNeeded()
 
-    guard let imageRep = tableView.bitmapImageRepForCachingDisplay(in: tableView.bounds) else {
-      return XCTFail("Expected a rendered table image.")
-    }
-    tableView.cacheDisplay(in: tableView.bounds, to: imageRep)
-
-    guard
-      let color = imageRep.colorAt(x: 20, y: 20)?.usingColorSpace(.deviceRGB)
-    else {
-      return XCTFail("Expected a sampled table color.")
+    guard let bodyCell = tableView.textViewForCell(row: 1, column: 0) else {
+      return XCTFail("Expected a body cell text view.")
     }
 
-    let brightness = max(color.redComponent, color.greenComponent, color.blueComponent)
-    XCTAssertLessThan(brightness, 0.35)
+    XCTAssertFalse(bodyCell.drawsBackground)
   }
 
   func testTableToolbarButtonsAreIconOnlyAndVisibleOnHover() {
@@ -164,7 +153,16 @@ final class EditorTableTests: EditorTestCase {
       table: MarkdownEditorTable.empty(),
       appearanceSettings: appearance
     )
-    tableView.frame = NSRect(x: 0, y: 0, width: 360, height: 160)
+    tableView.frame = NSRect(
+      x: 0,
+      y: 0,
+      width: EditorTableBlockView.minimumOverlayWidth,
+      height: 196
+    )
+    tableView.positionTableContent(
+      topInset: EditorTableBlockView.toolbarReservedHeight,
+      leftInset: 0
+    )
     tableView.layoutSubtreeIfNeeded()
 
     guard
@@ -187,7 +185,14 @@ final class EditorTableTests: EditorTestCase {
 
     let toolbarContainers = tableView.subviews.compactMap { $0 as? NSVisualEffectView }
     XCTAssertEqual(toolbarContainers.count, 1)
-    XCTAssertEqual(toolbarContainers.first?.isHidden, false)
+    guard let toolbarContainer = toolbarContainers.first else {
+      return XCTFail("Expected one toolbar container.")
+    }
+    XCTAssertEqual(toolbarContainer.isHidden, false)
+    XCTAssertLessThanOrEqual(
+      toolbarContainer.frame.maxY,
+      tableView.textViewForCell(row: 0, column: 0)?.frame.minY ?? 0
+    )
 
     let buttons = toolbarButtons(in: tableView)
     XCTAssertEqual(buttons.count, 7)
@@ -195,6 +200,127 @@ final class EditorTableTests: EditorTestCase {
     XCTAssertTrue(buttons.allSatisfy { $0.image != nil })
     XCTAssertTrue(buttons.allSatisfy { $0.imagePosition == .imageOnly })
     XCTAssertTrue(buttons.allSatisfy { ($0.toolTip ?? "").isEmpty == false })
+  }
+
+  func testToolbarInsetKeepsCellsClickable() {
+    let tableView = EditorTableBlockView(
+      table: MarkdownEditorTable.empty(),
+      appearanceSettings: appearance
+    )
+    tableView.frame = NSRect(
+      x: 0,
+      y: 0,
+      width: 360,
+      height: 196
+    )
+    tableView.positionTableContent(
+      topInset: EditorTableBlockView.toolbarReservedHeight,
+      leftInset: 0
+    )
+    tableView.layoutSubtreeIfNeeded()
+
+    guard let cellTextView = tableView.textViewForCell(row: 0, column: 0) else {
+      return XCTFail("Expected a table cell text view.")
+    }
+
+    let hitPoint = NSPoint(x: cellTextView.frame.midX, y: cellTextView.frame.midY)
+    let hitView = tableView.hitTest(hitPoint)
+    XCTAssertTrue(hitView === cellTextView || hitView?.isDescendant(of: cellTextView) == true)
+  }
+
+  func testEditorHitTestRoutesTableCellClicksToCellTextView() {
+    let table = MarkdownEditorTable(
+      runtimeID: "test",
+      hasHeader: false,
+      columnWidths: [180, 180],
+      rows: [["A", "B"]]
+    )
+    let fixture = makeEditorFixture(markdown: MarkdownEditorTableMarkdown.serialize(table))
+    let textView = fixture.textView
+    textView.syncTableBlockViews()
+
+    guard let tableView = textView.subviews.compactMap({ $0 as? EditorTableBlockView }).first,
+      let secondCell = tableView.textViewForCell(row: 0, column: 1)
+    else {
+      return XCTFail("Expected a rendered table cell.")
+    }
+
+    let cellPoint = NSPoint(x: secondCell.frame.midX, y: secondCell.frame.midY)
+    let editorPoint = textView.convert(cellPoint, from: tableView)
+    let hitView = textView.hitTest(editorPoint)
+
+    XCTAssertTrue(hitView === secondCell || hitView?.isDescendant(of: secondCell) == true)
+  }
+
+  func testFocusedTableCellUpdatesActionContext() {
+    let table = MarkdownEditorTable(
+      runtimeID: "test",
+      hasHeader: false,
+      columnWidths: [180, 180],
+      rows: [["A", "B"]]
+    )
+    let tableView = EditorTableBlockView(table: table, appearanceSettings: appearance)
+    tableView.frame = NSRect(x: 0, y: 0, width: 360, height: 88)
+    tableView.layoutSubtreeIfNeeded()
+
+    tableView.focusCell(row: 0, column: 1)
+    tableView.apply(.addColumnAfter)
+
+    XCTAssertEqual(tableView.table.rows[0], ["A", "B", ""])
+  }
+
+  func testDeleteTableBlockRemovesOnlyTable() {
+    let table = MarkdownEditorTable.empty()
+    let markdown = """
+      Before
+      \(MarkdownEditorTableMarkdown.serialize(table))
+      After
+      """
+    let fixture = makeEditorFixture(markdown: markdown)
+    let textView = fixture.textView
+    let tableID = firstTableID(in: textView)
+
+    guard let textStorage = textView.textStorage else {
+      return XCTFail("Expected text storage.")
+    }
+    var tableRange: NSRange?
+    textStorage.enumerateAttribute(
+      .markdownTableID,
+      in: NSRange(location: 0, length: textStorage.length),
+      options: []
+    ) { value, range, stop in
+      guard value as? String == tableID else { return }
+      tableRange = range
+      stop.pointee = true
+    }
+
+    guard let tableRange else {
+      return XCTFail("Expected a table range.")
+    }
+    let tableRect = textView.editorRectInViewCoordinates(forCharacterRange: tableRange) ?? .zero
+    let clickPoint = NSPoint(x: tableRect.maxX + 12, y: tableRect.midY)
+    guard
+      let event = NSEvent.mouseEvent(
+        with: .leftMouseDown,
+        location: textView.convert(clickPoint, to: nil),
+        modifierFlags: [],
+        timestamp: 0,
+        windowNumber: 0,
+        context: nil,
+        eventNumber: 0,
+        clickCount: 1,
+        pressure: 0
+      )
+    else {
+      return XCTFail("Expected a mouse event.")
+    }
+
+    textView.mouseDown(with: event)
+
+    let converted = MarkdownEditorFormatter.convertToMarkdown(from: textView.textStorage!)
+    XCTAssertFalse(converted.contains("<!-- sceal-table"))
+    XCTAssertTrue(converted.contains("Before"))
+    XCTAssertTrue(converted.contains("After"))
   }
 
   func testPastingMarkdownPipeTableInsertsScealTable() {

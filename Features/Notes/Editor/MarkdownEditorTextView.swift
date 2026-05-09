@@ -34,6 +34,13 @@ final class MarkdownEditorTextView: NSTextView {
     let revealRect: NSRect
   }
 
+  private struct TableBlockGeometry {
+    let tableID: String
+    let range: NSRange
+    let tableRect: NSRect
+    let closeButtonRect: NSRect
+  }
+
   var appearanceSettings = NoteAppearanceSettings.default
   var noteID: DayNote.ID?
   var imageAttachmentRootURL: URL?
@@ -73,6 +80,11 @@ final class MarkdownEditorTextView: NSTextView {
   private var promptCloseTrackingAreas: [NSTrackingArea] = []
   private var tableBlockViews: [String: EditorTableBlockView] = [:]
   private var isSyncingTableBlockViews = false
+  private var activeTableBlockID: String? = nil
+  private var hoveredTableBlockID: String? = nil
+  private var hoveredTableCloseID: String? = nil
+  private var tableBlockTrackingAreas: [NSTrackingArea] = []
+  private var tableCloseTrackingAreas: [NSTrackingArea] = []
 
   // Section icon rendering and hit testing constants.
   private let sectionIconSize: CGFloat = 18
@@ -223,6 +235,18 @@ final class MarkdownEditorTextView: NSTextView {
     syncTableBlockViews()
   }
 
+  override func hitTest(_ point: NSPoint) -> NSView? {
+    for subview in subviews.reversed() {
+      guard let tableView = subview as? EditorTableBlockView else { continue }
+      let tablePoint = convert(point, to: tableView)
+      if let hitView = tableView.hitTest(tablePoint) {
+        return hitView
+      }
+    }
+
+    return super.hitTest(point)
+  }
+
   func syncTableBlockViews() {
     guard !isSyncingTableBlockViews else { return }
     isSyncingTableBlockViews = true
@@ -253,7 +277,25 @@ final class MarkdownEditorTextView: NSTextView {
         tableView.delegate = self
         self.addSubview(tableView)
       }
-      tableView.frame = tableRect
+      let toolbarInset = min(
+        EditorTableBlockView.toolbarReservedHeight,
+        max(tableRect.minY - self.bounds.minY, 0)
+      )
+      let overlayWidth = max(tableRect.width, EditorTableBlockView.minimumOverlayWidth)
+      let overlayX = min(
+        tableRect.minX,
+        max(self.bounds.minX, self.bounds.maxX - overlayWidth)
+      )
+      tableView.frame = NSRect(
+        x: overlayX,
+        y: tableRect.minY - toolbarInset,
+        width: overlayWidth,
+        height: tableRect.height + toolbarInset
+      )
+      tableView.positionTableContent(
+        topInset: toolbarInset,
+        leftInset: tableRect.minX - overlayX
+      )
       tableView.update(table: table)
       self.tableBlockViews[tableID] = tableView
     }
@@ -262,6 +304,15 @@ final class MarkdownEditorTextView: NSTextView {
     for tableID in staleIDs {
       tableBlockViews[tableID]?.removeFromSuperview()
       tableBlockViews.removeValue(forKey: tableID)
+    }
+    if activeTableBlockID.map({ !activeIDs.contains($0) }) == true {
+      activeTableBlockID = nil
+    }
+    if hoveredTableBlockID.map({ !activeIDs.contains($0) }) == true {
+      hoveredTableBlockID = nil
+    }
+    if hoveredTableCloseID.map({ !activeIDs.contains($0) }) == true {
+      hoveredTableCloseID = nil
     }
   }
 
@@ -288,6 +339,9 @@ final class MarkdownEditorTextView: NSTextView {
       tableView.removeFromSuperview()
     }
     tableBlockViews.removeAll()
+    activeTableBlockID = nil
+    hoveredTableBlockID = nil
+    hoveredTableCloseID = nil
   }
 
   // Walks backward from a character position to find the enclosing section's color settings.
@@ -540,6 +594,7 @@ final class MarkdownEditorTextView: NSTextView {
       drawSingleCard(in: rect)
       drawCodeBlocks(in: rect, textStorage: textStorage)
       drawPromptBlocks(in: rect, textStorage: textStorage)
+      drawTableCloseButtons(in: rect, textStorage: textStorage)
       drawHorizontalRules(hrLineRanges, in: rect)
       return
     }
@@ -564,6 +619,7 @@ final class MarkdownEditorTextView: NSTextView {
     }
     drawCodeBlocks(in: rect, textStorage: textStorage)
     drawPromptBlocks(in: rect, textStorage: textStorage)
+    drawTableCloseButtons(in: rect, textStorage: textStorage)
     drawHorizontalRules(hrLineRanges, in: rect)
   }
 
@@ -805,6 +861,18 @@ final class MarkdownEditorTextView: NSTextView {
   }
 
   private func drawPromptCloseButton(in buttonRect: NSRect, hovered: Bool) {
+    drawCloseButton(
+      in: buttonRect,
+      hovered: hovered,
+      accessibilityDescription: "Delete prompt block"
+    )
+  }
+
+  private func drawCloseButton(
+    in buttonRect: NSRect,
+    hovered: Bool,
+    accessibilityDescription: String
+  ) {
     let buttonPath = NSBezierPath(roundedRect: buttonRect, xRadius: 5, yRadius: 5)
     let buttonFill =
       hovered
@@ -816,7 +884,7 @@ final class MarkdownEditorTextView: NSTextView {
     guard
       let image = NSImage(
         systemSymbolName: "xmark",
-        accessibilityDescription: "Delete prompt block"
+        accessibilityDescription: accessibilityDescription
       )?
       .withSymbolConfiguration(
         NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
@@ -836,6 +904,21 @@ final class MarkdownEditorTextView: NSTextView {
       in: imageRect, from: .zero, operation: .sourceOver, fraction: 1,
       respectFlipped: true, hints: nil
     )
+  }
+
+  private func drawTableCloseButtons(in rect: NSRect, textStorage: NSTextStorage) {
+    for geometry in tableBlockGeometries(in: textStorage) {
+      let isVisible =
+        hoveredTableBlockID == geometry.tableID
+        || hoveredTableCloseID == geometry.tableID
+        || activeTableBlockID == geometry.tableID
+      guard isVisible, geometry.closeButtonRect.intersects(rect) else { continue }
+      drawCloseButton(
+        in: geometry.closeButtonRect,
+        hovered: hoveredTableCloseID == geometry.tableID,
+        accessibilityDescription: "Delete table"
+      )
+    }
   }
 
   private func promptCopyHitTest(at point: NSPoint) -> NSRange? {
@@ -860,6 +943,47 @@ final class MarkdownEditorTextView: NSTextView {
       }
     }
     return nil
+  }
+
+  private func tableCloseHitTest(at point: NSPoint) -> NSRange? {
+    guard let textStorage else { return nil }
+    for geometry in tableBlockGeometries(in: textStorage) {
+      if geometry.closeButtonRect.contains(point) {
+        return geometry.range
+      }
+    }
+    return nil
+  }
+
+  private func tableBlockGeometries(in textStorage: NSTextStorage) -> [TableBlockGeometry] {
+    let fullRange = NSRange(location: 0, length: textStorage.length)
+    var geometries: [TableBlockGeometry] = []
+    textStorage.enumerateAttribute(.markdownTableID, in: fullRange, options: []) {
+      [weak self] value, range, _ in
+      guard let self,
+        let tableID = value as? String,
+        let tableRect = self.editorRectInViewCoordinates(forCharacterRange: range)
+      else { return }
+
+      geometries.append(
+        TableBlockGeometry(
+          tableID: tableID,
+          range: range,
+          tableRect: tableRect,
+          closeButtonRect: tableCloseButtonRect(in: tableRect)
+        )
+      )
+    }
+    return geometries
+  }
+
+  private func tableCloseButtonRect(in tableRect: NSRect) -> NSRect {
+    NSRect(
+      x: tableRect.maxX + promptCloseButtonGap,
+      y: tableRect.midY - promptCloseButtonSize / 2,
+      width: promptCloseButtonSize,
+      height: promptCloseButtonSize
+    )
   }
 
   private func copyPromptBlock(in range: NSRange, textStorage: NSTextStorage) {
@@ -897,6 +1021,39 @@ final class MarkdownEditorTextView: NSTextView {
       hoveredPromptBlockLocation = nil
       hoveredPromptCopyLocation = nil
       hoveredPromptCloseLocation = nil
+      updateTrackingAreas()
+      setNeedsDisplay(bounds)
+    }
+    return handled
+  }
+
+  private func deleteTableBlock(in range: NSRange) -> Bool {
+    let deletedTableID =
+      textStorage?.attribute(
+        .markdownTableID,
+        at: range.location,
+        effectiveRange: nil
+      ) as? String
+    let handled = performEditorEdit(
+      affectedRange: range,
+      replacementString: "",
+      actionName: "Delete Table"
+    ) { textStorage in
+      textStorage.replaceCharacters(in: range, with: "")
+      return NSRange(location: range.location, length: 0)
+    }
+
+    if handled {
+      if activeTableBlockID == deletedTableID {
+        activeTableBlockID = nil
+      }
+      if hoveredTableBlockID == deletedTableID {
+        hoveredTableBlockID = nil
+      }
+      if hoveredTableCloseID == deletedTableID {
+        hoveredTableCloseID = nil
+      }
+      syncTableBlockViews()
       updateTrackingAreas()
       setNeedsDisplay(bounds)
     }
@@ -965,8 +1122,13 @@ final class MarkdownEditorTextView: NSTextView {
     promptCopyTrackingAreas.removeAll()
     for area in promptCloseTrackingAreas { removeTrackingArea(area) }
     promptCloseTrackingAreas.removeAll()
+    for area in tableBlockTrackingAreas { removeTrackingArea(area) }
+    tableBlockTrackingAreas.removeAll()
+    for area in tableCloseTrackingAreas { removeTrackingArea(area) }
+    tableCloseTrackingAreas.removeAll()
 
     addPromptActionTrackingAreas()
+    addTableActionTrackingAreas()
 
     guard allowsSectionColorEditing, let layoutSnapshot = sectionLayoutSnapshot() else {
       clearHoveredSectionIcon()
@@ -1022,8 +1184,42 @@ final class MarkdownEditorTextView: NSTextView {
     }
   }
 
+  // Adds hover tracking for the table delete affordance outside the overlay view.
+  private func addTableActionTrackingAreas() {
+    guard let textStorage else { return }
+    for geometry in tableBlockGeometries(in: textStorage) {
+      let blockArea = NSTrackingArea(
+        rect: geometry.tableRect,
+        options: [.mouseEnteredAndExited, .activeInActiveApp],
+        owner: self,
+        userInfo: ["tableBlockID": geometry.tableID]
+      )
+      let closeArea = NSTrackingArea(
+        rect: geometry.closeButtonRect,
+        options: [.mouseEnteredAndExited, .activeInActiveApp],
+        owner: self,
+        userInfo: ["tableCloseID": geometry.tableID]
+      )
+      addTrackingArea(blockArea)
+      addTrackingArea(closeArea)
+      tableBlockTrackingAreas.append(blockArea)
+      tableCloseTrackingAreas.append(closeArea)
+    }
+  }
+
   // Shows the pointing hand cursor when hovering actionable controls.
   override func mouseEntered(with event: NSEvent) {
+    if let tableID = event.trackingArea?.userInfo?["tableCloseID"] as? String {
+      hoveredTableCloseID = tableID
+      setNeedsDisplay(bounds)
+      NSCursor.pointingHand.push()
+      return
+    }
+    if let tableID = event.trackingArea?.userInfo?["tableBlockID"] as? String {
+      hoveredTableBlockID = tableID
+      setNeedsDisplay(bounds)
+      return
+    }
     if let location = event.trackingArea?.userInfo?["promptCloseLocation"] as? Int {
       hoveredPromptCloseLocation = location
       setNeedsDisplay(bounds)
@@ -1059,6 +1255,17 @@ final class MarkdownEditorTextView: NSTextView {
 
   // Restores the default cursor when leaving actionable controls.
   override func mouseExited(with event: NSEvent) {
+    if event.trackingArea?.userInfo?["tableCloseID"] != nil {
+      hoveredTableCloseID = nil
+      setNeedsDisplay(bounds)
+      NSCursor.pop()
+      return
+    }
+    if event.trackingArea?.userInfo?["tableBlockID"] != nil {
+      hoveredTableBlockID = nil
+      setNeedsDisplay(bounds)
+      return
+    }
     if event.trackingArea?.userInfo?["promptCloseLocation"] != nil {
       hoveredPromptCloseLocation = nil
       setNeedsDisplay(bounds)
@@ -1629,6 +1836,15 @@ final class MarkdownEditorTextView: NSTextView {
 
     let point = convert(event.locationInWindow, from: nil)
 
+    if let tableRange = tableCloseHitTest(at: point) {
+      _ = deleteTableBlock(in: tableRange)
+      return
+    }
+    if activeTableBlockID != nil {
+      activeTableBlockID = nil
+      setNeedsDisplay(bounds)
+    }
+
     if let promptRange = promptCloseHitTest(at: point) {
       _ = deletePromptBlock(in: promptRange)
       return
@@ -2048,7 +2264,19 @@ extension MarkdownEditorTextView: EditorTableBlockViewDelegate {
     _ tableBlockView: EditorTableBlockView,
     didFocus cell: MarkdownEditorTableCell?
   ) {
+    activeTableBlockID = tableBlockView.table.runtimeID
     updateTrackingAreas()
+    setNeedsDisplay(bounds)
+  }
+
+  func tableBlockView(_ tableBlockView: EditorTableBlockView, didChangeHovering isHovering: Bool) {
+    let tableID = tableBlockView.table.runtimeID
+    if isHovering {
+      hoveredTableBlockID = tableID
+    } else if hoveredTableBlockID == tableID {
+      hoveredTableBlockID = nil
+    }
+    setNeedsDisplay(bounds)
   }
 
   private func tableRange(for tableID: String, in textStorage: NSTextStorage) -> NSRange? {

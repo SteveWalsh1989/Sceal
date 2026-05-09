@@ -11,10 +11,14 @@ protocol EditorTableBlockViewDelegate: AnyObject {
   func tableBlockView(_ tableBlockView: EditorTableBlockView, didChange table: MarkdownEditorTable)
   func tableBlockView(
     _ tableBlockView: EditorTableBlockView, didFocus cell: MarkdownEditorTableCell?)
+  func tableBlockView(_ tableBlockView: EditorTableBlockView, didChangeHovering isHovering: Bool)
 }
 
 @MainActor
 final class EditorTableBlockView: NSView, NSTextViewDelegate {
+  static let minimumOverlayWidth: CGFloat = 220
+  static let toolbarReservedHeight: CGFloat = 36
+
   weak var delegate: EditorTableBlockViewDelegate?
 
   private(set) var table: MarkdownEditorTable
@@ -35,6 +39,7 @@ final class EditorTableBlockView: NSView, NSTextViewDelegate {
   private var isApplyingModel = false
   private var isHovering = false
   private var isHoveringCell = false
+  private var tableContentOrigin = NSPoint.zero
   private var resizingColumnIndex: Int?
   private var resizeStartX: CGFloat = 0
   private var resizeStartWidths: [CGFloat] = []
@@ -48,6 +53,7 @@ final class EditorTableBlockView: NSView, NSTextViewDelegate {
 
   override var isFlipped: Bool { true }
   override var acceptsFirstResponder: Bool { true }
+  override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
   init(table: MarkdownEditorTable, appearanceSettings: NoteAppearanceSettings) {
     self.table = table.normalized()
@@ -90,6 +96,12 @@ final class EditorTableBlockView: NSView, NSTextViewDelegate {
 
   func textViewForCell(row: Int, column: Int) -> EditorTableCellTextView? {
     cellTextViews[MarkdownEditorTableCell(row: row, column: column)]
+  }
+
+  func positionTableContent(topInset: CGFloat, leftInset: CGFloat) {
+    tableContentOrigin = NSPoint(x: max(leftInset, 0), y: max(topInset, 0))
+    needsDisplay = true
+    needsLayout = true
   }
 
   func apply(_ action: EditorTableAction, relativeTo cell: MarkdownEditorTableCell? = nil) {
@@ -159,13 +171,30 @@ final class EditorTableBlockView: NSView, NSTextViewDelegate {
     drawGridLines()
   }
 
+  override func hitTest(_ point: NSPoint) -> NSView? {
+    guard bounds.contains(point) else { return nil }
+    if !toolbarContainer.isHidden, toolbarContainer.frame.contains(point) {
+      let toolbarPoint = convert(point, to: toolbarContainer)
+      return toolbarContainer.hitTest(toolbarPoint) ?? toolbarContainer
+    }
+
+    guard tableContentRect().contains(point) else { return nil }
+    for textView in cellTextViews.values.reversed() where textView.frame.contains(point) {
+      let cellPoint = convert(point, to: textView)
+      return textView.hitTest(cellPoint) ?? textView
+    }
+    return self
+  }
+
   override func mouseEntered(with event: NSEvent) {
     isHovering = true
+    delegate?.tableBlockView(self, didChangeHovering: true)
     updateToolbarVisibility()
   }
 
   override func mouseExited(with event: NSEvent) {
     isHovering = false
+    delegate?.tableBlockView(self, didChangeHovering: false)
     updateToolbarVisibility()
   }
 
@@ -216,12 +245,10 @@ final class EditorTableBlockView: NSView, NSTextViewDelegate {
 
   func textDidBeginEditing(_ notification: Notification) {
     guard let textView = notification.object as? EditorTableCellTextView,
-      let cell = cellForTextView(textView)
+      cellForTextView(textView) != nil
     else { return }
 
-    activeCell = cell
-    updateToolbarVisibility()
-    delegate?.tableBlockView(self, didFocus: cell)
+    activateCellTextView(textView)
   }
 
   func textDidChange(_ notification: Notification) {
@@ -331,12 +358,12 @@ final class EditorTableBlockView: NSView, NSTextViewDelegate {
 
     let buttons: [(EditorTableAction, String, String)] = [
       (.toggleHeader, "tablecells.badge.ellipsis", "Add table header"),
-      (.addColumnBefore, "rectangle.insert.badge.plus", "Add column before"),
-      (.addColumnAfter, "rectangle.badge.plus", "Add column after"),
+      (.addColumnBefore, "sidebar.left", "Add column before"),
+      (.addColumnAfter, "sidebar.right", "Add column after"),
       (.deleteColumn, "rectangle.badge.minus", "Delete column"),
-      (.addRowAbove, "tablecells.badge.plus", "Add row above"),
-      (.addRowBelow, "tablecells.badge.plus", "Add row below"),
-      (.deleteRow, "tablecells.badge.minus", "Delete row"),
+      (.addRowAbove, "arrow.up.to.line", "Add row above"),
+      (.addRowBelow, "arrow.down.to.line", "Add row below"),
+      (.deleteRow, "trash", "Delete row"),
     ]
 
     for (action, symbolName, tooltip) in buttons {
@@ -445,9 +472,13 @@ final class EditorTableBlockView: NSView, NSTextViewDelegate {
       CGFloat(visibleButtons.count) * toolbarButtonSize
       + CGFloat(max(visibleButtons.count - 1, 0)) * spacing
       + padding * 2
+    let toolbarX = min(
+      max(tableContentOrigin.x, 0),
+      max(bounds.width - totalWidth, 0)
+    )
     toolbarContainer.frame = NSRect(
-      x: max(bounds.width - totalWidth - 8, 8),
-      y: 6,
+      x: toolbarX,
+      y: max(tableContentOrigin.y - toolbarHeight - 4, 0),
       width: totalWidth,
       height: toolbarHeight
     )
@@ -469,9 +500,9 @@ final class EditorTableBlockView: NSView, NSTextViewDelegate {
       for: table,
       appearance: appearanceSettings
     )
-    var y: CGFloat = 0
+    var y = tableContentOrigin.y
     for (rowIndex, rowHeight) in rowHeights.enumerated() {
-      var x: CGFloat = 0
+      var x = tableContentOrigin.x
       for columnIndex in 0..<table.columnCount {
         let cell = MarkdownEditorTableCell(row: rowIndex, column: columnIndex)
         let width = table.columnWidths[columnIndex]
@@ -490,10 +521,7 @@ final class EditorTableBlockView: NSView, NSTextViewDelegate {
   }
 
   private func drawTableBackground() {
-    let path = NSBezierPath(roundedRect: bounds, xRadius: cornerRadius, yRadius: cornerRadius)
-    tableFillColor.setFill()
-    path.fill()
-
+    let contentRect = tableContentRect()
     if table.hasHeader {
       let headerHeight =
         MarkdownEditorTableMetrics.rowHeights(
@@ -502,7 +530,12 @@ final class EditorTableBlockView: NSView, NSTextViewDelegate {
         ).first ?? 0
       headerFillColor.setFill()
       NSBezierPath(
-        roundedRect: NSRect(x: 0, y: 0, width: bounds.width, height: headerHeight),
+        roundedRect: NSRect(
+          x: contentRect.minX,
+          y: contentRect.minY,
+          width: contentRect.width,
+          height: headerHeight
+        ),
         xRadius: cornerRadius,
         yRadius: cornerRadius
       ).fill()
@@ -510,42 +543,41 @@ final class EditorTableBlockView: NSView, NSTextViewDelegate {
   }
 
   private func drawGridLines() {
+    let contentRect = tableContentRect()
     gridColor.setStroke()
     let path = NSBezierPath()
-    var x: CGFloat = 0
+    var x = contentRect.minX
     for width in table.columnWidths.dropLast() {
       x += width
-      path.move(to: NSPoint(x: x, y: 0))
-      path.line(to: NSPoint(x: x, y: bounds.height))
+      path.move(to: NSPoint(x: x, y: contentRect.minY))
+      path.line(to: NSPoint(x: x, y: contentRect.maxY))
     }
 
-    var y: CGFloat = 0
+    var y = contentRect.minY
     for height in MarkdownEditorTableMetrics.rowHeights(
       for: table,
       appearance: appearanceSettings
     ).dropLast() {
       y += height
-      path.move(to: NSPoint(x: 0, y: y))
-      path.line(to: NSPoint(x: bounds.width, y: y))
+      path.move(to: NSPoint(x: contentRect.minX, y: y))
+      path.line(to: NSPoint(x: contentRect.maxX, y: y))
     }
     path.lineWidth = gridLineWidth
     path.stroke()
 
-    let border = NSBezierPath(roundedRect: bounds, xRadius: cornerRadius, yRadius: cornerRadius)
+    let border = NSBezierPath(
+      roundedRect: contentRect,
+      xRadius: cornerRadius,
+      yRadius: cornerRadius
+    )
     border.lineWidth = gridLineWidth
     border.stroke()
   }
 
-  private var tableFillColor: NSColor {
-    isDarkAppearance
-      ? NSColor(calibratedWhite: 0.16, alpha: 1)
-      : NSColor(calibratedWhite: 0.94, alpha: 1)
-  }
-
   private var headerFillColor: NSColor {
     isDarkAppearance
-      ? NSColor(calibratedWhite: 0.21, alpha: 1)
-      : NSColor(calibratedWhite: 0.89, alpha: 1)
+      ? NSColor.white.withAlphaComponent(0.06)
+      : NSColor.black.withAlphaComponent(0.04)
   }
 
   private var gridColor: NSColor {
@@ -573,7 +605,19 @@ final class EditorTableBlockView: NSView, NSTextViewDelegate {
 
   fileprivate func setCellHovering(_ isHovering: Bool) {
     isHoveringCell = isHovering
+    if isHovering {
+      delegate?.tableBlockView(self, didChangeHovering: true)
+    } else if !self.isHovering {
+      delegate?.tableBlockView(self, didChangeHovering: false)
+    }
     updateToolbarVisibility()
+  }
+
+  fileprivate func activateCellTextView(_ textView: EditorTableCellTextView) {
+    guard let cell = cellForTextView(textView) else { return }
+    activeCell = cell
+    updateToolbarVisibility()
+    delegate?.tableBlockView(self, didFocus: cell)
   }
 
   private func updateToolbarState() {
@@ -586,8 +630,9 @@ final class EditorTableBlockView: NSView, NSTextViewDelegate {
   }
 
   private func columnResizeIndex(at point: NSPoint) -> Int? {
-    guard point.y >= 0, point.y <= bounds.height else { return nil }
-    var x: CGFloat = 0
+    let contentRect = tableContentRect()
+    guard contentRect.contains(point) else { return nil }
+    var x = contentRect.minX
     for (index, width) in table.columnWidths.dropLast().enumerated() {
       x += width
       if abs(point.x - x) <= resizeHitWidth / 2 {
@@ -595,6 +640,19 @@ final class EditorTableBlockView: NSView, NSTextViewDelegate {
       }
     }
     return nil
+  }
+
+  private func tableContentRect() -> NSRect {
+    let rowHeights = MarkdownEditorTableMetrics.rowHeights(
+      for: table,
+      appearance: appearanceSettings
+    )
+    return NSRect(
+      x: tableContentOrigin.x,
+      y: tableContentOrigin.y,
+      width: table.columnWidths.reduce(0, +),
+      height: rowHeights.reduce(0, +)
+    )
   }
 
   private func cellForTextView(_ textView: EditorTableCellTextView) -> MarkdownEditorTableCell? {
@@ -778,6 +836,8 @@ final class EditorTableCellTextView: NSTextView {
   fileprivate weak var tableBlockView: EditorTableBlockView?
   private var tableTrackingArea: NSTrackingArea?
 
+  override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
   override func updateTrackingAreas() {
     super.updateTrackingAreas()
     if let tableTrackingArea {
@@ -803,7 +863,17 @@ final class EditorTableCellTextView: NSTextView {
     super.mouseExited(with: event)
   }
 
+  override func becomeFirstResponder() -> Bool {
+    tableBlockView?.activateCellTextView(self)
+    return super.becomeFirstResponder()
+  }
+
   override func mouseDown(with event: NSEvent) {
+    tableBlockView?.activateCellTextView(self)
+    if window?.firstResponder !== self {
+      window?.makeFirstResponder(self)
+    }
+
     guard let textStorage else {
       super.mouseDown(with: event)
       return
