@@ -16,6 +16,7 @@ struct NoteTemplate: Identifiable, Codable, Equatable, Sendable {
   var usesGeneratedCommand: Bool
   var cursorPlacement: NoteTemplateCursorPlacement
   var sectionColorName: String?
+  var startsWithDivider: Bool
   var endsWithDivider: Bool
 
   init(
@@ -28,6 +29,7 @@ struct NoteTemplate: Identifiable, Codable, Equatable, Sendable {
     usesGeneratedCommand: Bool = true,
     cursorPlacement: NoteTemplateCursorPlacement = .automatic,
     sectionColorName: String? = nil,
+    startsWithDivider: Bool = false,
     endsWithDivider: Bool = false
   ) {
     self.id = id
@@ -39,6 +41,7 @@ struct NoteTemplate: Identifiable, Codable, Equatable, Sendable {
     self.usesGeneratedCommand = usesGeneratedCommand
     self.cursorPlacement = cursorPlacement
     self.sectionColorName = sectionColorName
+    self.startsWithDivider = startsWithDivider
     self.endsWithDivider = endsWithDivider
   }
 
@@ -50,17 +53,24 @@ struct NoteTemplate: Identifiable, Codable, Equatable, Sendable {
     NoteTemplateMarkdown.applyingTemplateOptions(
       to: body,
       sectionColorName: sectionColorName,
+      startsWithDivider: startsWithDivider,
       endsWithDivider: endsWithDivider
     )
   }
 
   func normalizedForCurrentVersion() -> NoteTemplate {
-    guard !endsWithDivider, NoteTemplateMarkdown.hasTrailingSectionDivider(in: body) else {
-      return self
-    }
     var template = self
-    template.body = NoteTemplateMarkdown.removingTrailingSectionDivider(from: body)
-    template.endsWithDivider = true
+
+    if NoteTemplateMarkdown.hasLeadingSectionDivider(in: template.body) {
+      template.body = NoteTemplateMarkdown.removingLeadingSectionDivider(from: template.body)
+      template.startsWithDivider = true
+    }
+
+    if NoteTemplateMarkdown.hasTrailingSectionDivider(in: template.body) {
+      template.body = NoteTemplateMarkdown.removingTrailingSectionDivider(from: template.body)
+      template.endsWithDivider = true
+    }
+
     return template
   }
 
@@ -70,7 +80,6 @@ struct NoteTemplate: Identifiable, Codable, Equatable, Sendable {
     command: "meeting",
     menuDescription: "Insert meeting note structure",
     body: [
-      "<!-- section -->",
       "# Meeting:",
       "",
       "- ",
@@ -79,6 +88,7 @@ struct NoteTemplate: Identifiable, Codable, Equatable, Sendable {
     isEnabled: true,
     usesGeneratedCommand: true,
     cursorPlacement: .firstHeadingEnd,
+    startsWithDivider: true,
     endsWithDivider: true
   )
 
@@ -92,6 +102,7 @@ struct NoteTemplate: Identifiable, Codable, Equatable, Sendable {
     case usesGeneratedCommand
     case cursorPlacement
     case sectionColorName
+    case startsWithDivider
     case endsWithDivider
   }
 
@@ -109,6 +120,8 @@ struct NoteTemplate: Identifiable, Codable, Equatable, Sendable {
       try container.decodeIfPresent(NoteTemplateCursorPlacement.self, forKey: .cursorPlacement)
       ?? .automatic
     sectionColorName = try container.decodeIfPresent(String.self, forKey: .sectionColorName)
+    startsWithDivider =
+      try container.decodeIfPresent(Bool.self, forKey: .startsWithDivider) ?? false
     endsWithDivider = try container.decodeIfPresent(Bool.self, forKey: .endsWithDivider) ?? false
   }
 
@@ -123,6 +136,7 @@ struct NoteTemplate: Identifiable, Codable, Equatable, Sendable {
     try container.encode(usesGeneratedCommand, forKey: .usesGeneratedCommand)
     try container.encode(cursorPlacement, forKey: .cursorPlacement)
     try container.encodeIfPresent(sectionColorName, forKey: .sectionColorName)
+    try container.encode(startsWithDivider, forKey: .startsWithDivider)
     try container.encode(endsWithDivider, forKey: .endsWithDivider)
   }
 }
@@ -190,10 +204,11 @@ enum NoteTemplateMarkdown {
   private static let sectionPattern =
     #"^<!-- section(?:\s+heading:(\w+))?(?:\s+bullet:(\w+))?(?:\s+usesectioncolor:(true|false))? -->$"#
 
-  // Applies template-level section styling and optional trailing divider on insertion.
+  // Applies template-level section styling and optional edge dividers on insertion.
   static func applyingTemplateOptions(
     to markdown: String,
     sectionColorName: String?,
+    startsWithDivider: Bool = false,
     endsWithDivider: Bool
   ) -> String {
     var lines = markdown.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
@@ -201,6 +216,11 @@ enum NoteTemplateMarkdown {
     lines = lines.map { line in
       guard isSectionDivider(line) else { return line }
       return sectionMarker(colorName: sectionColorName)
+    }
+
+    if startsWithDivider {
+      lines = removingLeadingSectionDivider(from: lines)
+      lines.insert(sectionMarker(colorName: sectionColorName), at: 0)
     }
 
     if shouldAddLeadingSectionMarker(to: lines, sectionColorName: sectionColorName) {
@@ -236,7 +256,60 @@ enum NoteTemplateMarkdown {
   }
 
   static func removingTrailingSectionDivider(from markdown: String) -> String {
-    var lines = markdown.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+    let lines = markdown.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+    return removingTrailingSectionDivider(from: lines).joined(separator: "\n")
+  }
+
+  static func hasLeadingSectionDivider(in markdown: String) -> Bool {
+    hasLeadingSectionDivider(
+      in: markdown.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+    )
+  }
+
+  static func removingLeadingSectionDivider(from markdown: String) -> String {
+    let lines = markdown.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+    return removingLeadingSectionDivider(from: lines).joined(separator: "\n")
+  }
+
+  private static func hasTrailingSectionDivider(in lines: [String]) -> Bool {
+    for line in lines.reversed() {
+      if line.trimmingCharacters(in: .whitespaces).isEmpty {
+        continue
+      }
+      return isSectionDivider(line)
+    }
+    return false
+  }
+
+  private static func hasLeadingSectionDivider(in lines: [String]) -> Bool {
+    for line in lines {
+      if line.trimmingCharacters(in: .whitespaces).isEmpty {
+        continue
+      }
+      return isSectionDivider(line)
+    }
+    return false
+  }
+
+  private static func removingLeadingSectionDivider(from lines: [String]) -> [String] {
+    var lines = lines
+    while let first = lines.first, first.trimmingCharacters(in: .whitespaces).isEmpty {
+      lines.removeFirst()
+    }
+
+    if let first = lines.first, isSectionDivider(first) {
+      lines.removeFirst()
+    }
+
+    while let first = lines.first, first.trimmingCharacters(in: .whitespaces).isEmpty {
+      lines.removeFirst()
+    }
+
+    return lines
+  }
+
+  private static func removingTrailingSectionDivider(from lines: [String]) -> [String] {
+    var lines = lines
     while let last = lines.last, last.trimmingCharacters(in: .whitespaces).isEmpty {
       lines.removeLast()
     }
@@ -249,17 +322,7 @@ enum NoteTemplateMarkdown {
       lines.removeLast()
     }
 
-    return lines.joined(separator: "\n")
-  }
-
-  private static func hasTrailingSectionDivider(in lines: [String]) -> Bool {
-    for line in lines.reversed() {
-      if line.trimmingCharacters(in: .whitespaces).isEmpty {
-        continue
-      }
-      return isSectionDivider(line)
-    }
-    return false
+    return lines
   }
 
   private static func shouldAddLeadingSectionMarker(

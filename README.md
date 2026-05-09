@@ -49,15 +49,25 @@ Scéal is built to make writing feel clearer, more visual, and more rewarding.
 
 - Markdown-based editing with support for headings, lists, checkboxes, links, quotes, code blocks, and inline formatting
 - Visual section dividers that break long notes into cleaner, more readable sections
-- Slash commands for quickly inserting dividers, headings, code blocks, and copy-ready prompt areas without breaking writing flow
+- Slash commands for quickly inserting dividers, headings, code blocks, reusable templates, and copy-ready prompt areas without breaking writing flow
 - Prompt areas give reusable prompts a polished, growing text box with quick Copy and delete controls
 - Section-level styling that lets headings, bullets, and checkboxes carry their own colour identity
 - A note editor that feels polished and expressive rather than raw and mechanical
 
 This is one of the things that makes Scéal stand out: it does not just store text well, it helps your notes look and feel better while you are writing them.
 
+## Reusable note templates
 
+Scéal lets you create custom slash-command templates from Settings, so repeated note structures can be inserted without rebuilding them by hand.
 
+- Give each template a title, slash command, and optional menu description
+- Build the template content in a compact version of the note editor
+- Use a single template colour for the sections created by that template
+- Choose whether the inserted template starts or ends with a section divider
+- Pick where the cursor lands after insertion, such as after the first heading or on the first empty bullet
+- Use templates as new-note defaults, alongside blank notes and copying the previous note
+
+For example, a Meeting template can be inserted with `/meeting`, start a new visual section, add a `Meeting:` heading, include empty bullet points, and finish with a divider ready for the next section.
 
 ## Personalisation that actually matters
 

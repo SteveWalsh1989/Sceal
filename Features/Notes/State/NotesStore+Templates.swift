@@ -105,7 +105,12 @@ extension NotesStore {
   func templateBodyBinding(for templateID: NoteTemplate.ID) -> Binding<String> {
     Binding(
       get: { self.noteTemplate(withID: templateID)?.body ?? "" },
-      set: { self.updateNoteTemplate(id: templateID) { $0.body = $1 }($0) }
+      set: { body in
+        self.mutateNoteTemplate(id: templateID) { template in
+          template.body = body
+          normalizeEdgeDividersIntoOptions(for: &template)
+        }
+      }
     )
   }
 
@@ -135,6 +140,20 @@ extension NotesStore {
       set: { colorName in
         self.mutateNoteTemplate(id: templateID) { template in
           template.sectionColorName = colorName
+        }
+      }
+    )
+  }
+
+  func templateStartsWithDividerBinding(for templateID: NoteTemplate.ID) -> Binding<Bool> {
+    Binding(
+      get: { self.noteTemplate(withID: templateID)?.startsWithDivider ?? false },
+      set: { startsWithDivider in
+        self.mutateNoteTemplate(id: templateID) { template in
+          template.startsWithDivider = startsWithDivider
+          if startsWithDivider {
+            template.body = NoteTemplateMarkdown.removingLeadingSectionDivider(from: template.body)
+          }
         }
       }
     )
@@ -282,5 +301,18 @@ extension NotesStore {
     {
       updateNewNoteDefault(.blank)
     }
+  }
+}
+
+// Pulls edge divider markers out of editable content and into explicit template toggles.
+private func normalizeEdgeDividersIntoOptions(for template: inout NoteTemplate) {
+  if NoteTemplateMarkdown.hasLeadingSectionDivider(in: template.body) {
+    template.body = NoteTemplateMarkdown.removingLeadingSectionDivider(from: template.body)
+    template.startsWithDivider = true
+  }
+
+  if NoteTemplateMarkdown.hasTrailingSectionDivider(in: template.body) {
+    template.body = NoteTemplateMarkdown.removingTrailingSectionDivider(from: template.body)
+    template.endsWithDivider = true
   }
 }

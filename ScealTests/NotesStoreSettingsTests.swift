@@ -86,16 +86,67 @@ final class NotesStoreSettingsTests: NotesStoreTestCase {
     XCTAssertEqual(store.templateCommandValidationMessage(for: templateID), "Enter a command.")
   }
 
-  // Prevents the starter template from storing its final divider inside the compact editor body.
-  func testStarterTemplateEndsWithDividerOption() throws {
+  // Prevents the starter template from storing edge dividers inside the compact editor body.
+  func testStarterTemplateDividerOptions() throws {
     let userDefaults = makeUserDefaults()
     let store = makeStore(userDefaults: userDefaults)
     let template = try XCTUnwrap(store.noteTemplates.first { $0.command == "meeting" })
 
+    XCTAssertTrue(template.startsWithDivider)
     XCTAssertTrue(template.endsWithDivider)
+    XCTAssertFalse(NoteTemplateMarkdown.hasLeadingSectionDivider(in: template.body))
     XCTAssertFalse(NoteTemplateMarkdown.hasTrailingSectionDivider(in: template.body))
     XCTAssertTrue(
+      NoteTemplateMarkdown.hasLeadingSectionDivider(in: template.resolvedBodyForInsertion))
+    XCTAssertTrue(
       NoteTemplateMarkdown.hasTrailingSectionDivider(in: template.resolvedBodyForInsertion))
+  }
+
+  // Prevents a leading body divider from creating extra top spacing in the compact editor.
+  func testTemplateBodyMovesLeadingDividerToStartOption() throws {
+    let userDefaults = makeUserDefaults()
+    let store = makeStore(userDefaults: userDefaults)
+    let templateID = store.createNoteTemplate()
+
+    store.templateBodyBinding(for: templateID).wrappedValue = "<!-- section -->\n\nBody"
+
+    let template = try XCTUnwrap(store.noteTemplate(withID: templateID))
+    XCTAssertTrue(template.startsWithDivider)
+    XCTAssertEqual(template.body, "Body")
+    XCTAssertEqual(template.resolvedBodyForInsertion, "<!-- section -->\nBody")
+  }
+
+  // Keeps user-authored dividers inside the template content editable.
+  func testTemplateBodyPreservesInternalDivider() throws {
+    let userDefaults = makeUserDefaults()
+    let store = makeStore(userDefaults: userDefaults)
+    let templateID = store.createNoteTemplate()
+    let body = "Intro\n<!-- section -->\nBody"
+
+    store.templateBodyBinding(for: templateID).wrappedValue = body
+
+    let template = try XCTUnwrap(store.noteTemplate(withID: templateID))
+    XCTAssertFalse(template.startsWithDivider)
+    XCTAssertFalse(template.endsWithDivider)
+    XCTAssertEqual(template.body, body)
+    XCTAssertEqual(template.resolvedBodyForInsertion, body)
+  }
+
+  // Migrates older templates that stored their starting divider in the body text.
+  func testLoadingTemplateMovesLeadingDividerToStartOption() throws {
+    let userDefaults = makeUserDefaults()
+    let savedTemplate = NoteTemplate(
+      title: "Legacy Meeting",
+      command: "legacy-meeting",
+      body: "<!-- section -->\nBody"
+    )
+    userDefaults.set(try JSONEncoder().encode([savedTemplate]), forKey: "sceal.noteTemplates")
+
+    let store = makeStore(userDefaults: userDefaults)
+    let template = try XCTUnwrap(store.noteTemplates.first)
+
+    XCTAssertTrue(template.startsWithDivider)
+    XCTAssertEqual(template.body, "Body")
   }
 
   // Prevents enabling the final-divider option from leaving a duplicate manual divider in the body.
@@ -117,8 +168,9 @@ final class NotesStoreSettingsTests: NotesStoreTestCase {
     let template = NoteTemplate(
       title: "Meeting",
       command: "meeting",
-      body: "<!-- section -->\nBody",
+      body: "Body",
       sectionColorName: "blue",
+      startsWithDivider: true,
       endsWithDivider: true
     )
 

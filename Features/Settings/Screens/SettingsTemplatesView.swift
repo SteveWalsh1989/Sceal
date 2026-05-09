@@ -256,6 +256,11 @@ private struct TemplateDetailView: View {
 
             Section("Divider") {
               Toggle(
+                "Start with divider",
+                isOn: store.templateStartsWithDividerBinding(for: template.id)
+              )
+
+              Toggle(
                 "End with divider",
                 isOn: store.templateEndsWithDividerBinding(for: template.id)
               )
