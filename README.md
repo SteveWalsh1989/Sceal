@@ -42,13 +42,17 @@ Type `/` in the editor to insert structure without leaving the keyboard.
 | `/table` | Editable table |
 | Custom template commands | User-created note structures, such as `/meeting` |
 
-Scéal also supports `/section` as a divider alias for notes or habits that already use that wording.
+<img width="723" height="564" alt="image" src="https://github.com/user-attachments/assets/e0fc763b-65b1-4e2d-899b-1f1ad48b5178" />
 
 ## Sections and colour
 
 Sections are more than separators. A section can carry colour through the headings, bullets, and checkboxes that belong to it, which makes long notes easier to scan without turning the editor into a design tool.
 
 Section colour can be edited directly in the note, and templates can apply a single section colour when they are inserted.
+
+<img width="1361" height="645" alt="image" src="https://github.com/user-attachments/assets/aafcbadf-ee73-419d-a232-02d0ac682be2" />
+
+
 
 ## Reusable templates
 
@@ -63,11 +67,16 @@ Templates are custom slash commands managed from Settings. They are useful for r
 
 For example, a Meeting template can be inserted with `/meeting`, add a `Meeting:` heading, create empty bullets, and leave the cursor where the next detail should be typed.
 
+<img width="837" height="751" alt="image" src="https://github.com/user-attachments/assets/96f0bb2e-1d16-4adf-af2d-7f28100f9fc7" />
+
 ## Prompt blocks
 
 Prompt blocks are for reusable instructions that belong inside a note: summary prompts, review prompts, research prompts, rewrite instructions, or any repeatable text you want to keep close to the surrounding context.
 
 Use `/prompt` to insert a prompt block, edit it inline, copy the full prompt with one click, then delete the block when it is no longer needed.
+
+<img width="1094" height="296" alt="image" src="https://github.com/user-attachments/assets/2af1bda7-1645-4ae4-9f3c-6b4e11323afd" />
+
 
 ## Tables
 
