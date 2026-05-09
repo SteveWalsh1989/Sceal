@@ -18,6 +18,7 @@ protocol EditorTableBlockViewDelegate: AnyObject {
 final class EditorTableBlockView: NSView, NSTextViewDelegate {
   static let minimumOverlayWidth: CGFloat = 220
   static let toolbarReservedHeight: CGFloat = 36
+  static let resizeHandleOutset: CGFloat = 8
 
   weak var delegate: EditorTableBlockViewDelegate?
 
@@ -47,7 +48,7 @@ final class EditorTableBlockView: NSView, NSTextViewDelegate {
 
   private let cornerRadius: CGFloat = 6
   private let gridLineWidth: CGFloat = 1
-  private let resizeHitWidth: CGFloat = 8
+  private let resizeHitWidth: CGFloat = 16
   private let toolbarHeight: CGFloat = 30
   private let toolbarButtonSize: CGFloat = 24
 
@@ -176,6 +177,10 @@ final class EditorTableBlockView: NSView, NSTextViewDelegate {
     if !toolbarContainer.isHidden, toolbarContainer.frame.contains(point) {
       let toolbarPoint = convert(point, to: toolbarContainer)
       return toolbarContainer.hitTest(toolbarPoint) ?? toolbarContainer
+    }
+
+    if columnResizeIndex(at: point) != nil {
+      return self
     }
 
     guard tableContentRect().contains(point) else { return nil }
@@ -631,9 +636,9 @@ final class EditorTableBlockView: NSView, NSTextViewDelegate {
 
   private func columnResizeIndex(at point: NSPoint) -> Int? {
     let contentRect = tableContentRect()
-    guard contentRect.contains(point) else { return nil }
+    guard point.y >= contentRect.minY, point.y <= contentRect.maxY else { return nil }
     var x = contentRect.minX
-    for (index, width) in table.columnWidths.dropLast().enumerated() {
+    for (index, width) in table.columnWidths.enumerated() {
       x += width
       if abs(point.x - x) <= resizeHitWidth / 2 {
         return index

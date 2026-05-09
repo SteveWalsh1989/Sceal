@@ -9,7 +9,6 @@ import AppKit
 struct MarkdownEditorTable: Equatable, Hashable {
   nonisolated static let defaultColumnWidth: CGFloat = 180
   nonisolated static let minimumColumnWidth: CGFloat = 96
-  nonisolated static let maximumColumnWidth: CGFloat = 420
 
   var runtimeID: String
   var hasHeader: Bool
@@ -72,7 +71,7 @@ struct MarkdownEditorTable: Equatable, Hashable {
   }
 
   nonisolated static func clampedColumnWidth(_ width: CGFloat) -> CGFloat {
-    min(max(width, minimumColumnWidth), maximumColumnWidth)
+    max(width, minimumColumnWidth)
   }
 }
 
@@ -264,9 +263,10 @@ enum MarkdownEditorTableMetrics {
     let normalized = table.normalized()
     return normalized.rows.enumerated().map { rowIndex, row in
       let contentHeight =
-        row.map { cellMarkdown in
+        row.enumerated().map { columnIndex, cellMarkdown in
           heightForCellMarkdown(
             cellMarkdown,
+            columnWidth: normalized.columnWidths[columnIndex],
             isHeader: normalized.hasHeader && rowIndex == 0,
             appearance: appearance
           )
@@ -277,15 +277,33 @@ enum MarkdownEditorTableMetrics {
 
   private static func heightForCellMarkdown(
     _ markdown: String,
+    columnWidth: CGFloat,
     isHeader: Bool,
     appearance: NoteAppearanceSettings
   ) -> CGFloat {
-    let lineCount = max(markdown.split(separator: "\n", omittingEmptySubsequences: false).count, 1)
-    let font =
-      isHeader
-      ? appearance.boldBodyFont(ofSize: appearance.bodyFont.pointSize) : appearance.bodyFont
-    let lineHeight = ceil(font.pointSize * appearance.lineHeight + 4)
-    return CGFloat(lineCount) * lineHeight + cellVerticalPadding * 2
+    let attributedString = NSMutableAttributedString(
+      attributedString: MarkdownEditorFormatter.formatForDisplay(markdown, appearance: appearance)
+    )
+    if isHeader, attributedString.length > 0 {
+      attributedString.addAttribute(
+        .font,
+        value: appearance.boldBodyFont(ofSize: appearance.bodyFont.pointSize),
+        range: NSRange(location: 0, length: attributedString.length)
+      )
+    }
+
+    let measuredWidth = max(columnWidth - cellHorizontalPadding * 2, 1)
+    let textStorage = NSTextStorage(attributedString: attributedString)
+    let layoutManager = NSLayoutManager()
+    let textContainer = NSTextContainer(
+      size: NSSize(width: measuredWidth, height: .greatestFiniteMagnitude)
+    )
+    textContainer.lineFragmentPadding = 0
+    layoutManager.addTextContainer(textContainer)
+    textStorage.addLayoutManager(layoutManager)
+    layoutManager.ensureLayout(for: textContainer)
+    let usedRect = layoutManager.usedRect(for: textContainer)
+    return ceil(usedRect.height + cellVerticalPadding * 2)
   }
 }
 

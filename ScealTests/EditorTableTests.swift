@@ -135,6 +135,48 @@ final class EditorTableTests: EditorTestCase {
     )
   }
 
+  func testTableRowHeightFitsChecklistContent() {
+    let singleItemTable = MarkdownEditorTable(
+      runtimeID: "test",
+      hasHeader: false,
+      columnWidths: [180, 180],
+      rows: [["- [ ] First", ""]]
+    )
+    let multiItemTable = MarkdownEditorTable(
+      runtimeID: "test",
+      hasHeader: false,
+      columnWidths: [180, 180],
+      rows: [["- [ ] First\n- [ ] Second\n- [ ] Third", ""]]
+    )
+
+    let singleItemHeight = MarkdownEditorTableMetrics.rowHeights(
+      for: singleItemTable,
+      appearance: appearance
+    )[0]
+    let multiItemHeight = MarkdownEditorTableMetrics.rowHeights(
+      for: multiItemTable,
+      appearance: appearance
+    )[0]
+
+    XCTAssertGreaterThan(multiItemHeight, singleItemHeight + 20)
+  }
+
+  func testTableRowHeightExpandsForWrappedFormattedCellContent() {
+    let table = MarkdownEditorTable(
+      runtimeID: "test",
+      hasHeader: false,
+      columnWidths: [120],
+      rows: [["- [ ] A long checklist item that should wrap inside a narrow table column"]]
+    )
+
+    let rowHeight = MarkdownEditorTableMetrics.rowHeights(
+      for: table,
+      appearance: appearance
+    )[0]
+
+    XCTAssertGreaterThan(rowHeight, MarkdownEditorTableMetrics.minimumRowHeight)
+  }
+
   func testTableBodyCellsKeepTransparentBackground() {
     let tableView = EditorTableBlockView(
       table: MarkdownEditorTable.empty(),
@@ -226,6 +268,62 @@ final class EditorTableTests: EditorTestCase {
     let hitPoint = NSPoint(x: cellTextView.frame.midX, y: cellTextView.frame.midY)
     let hitView = tableView.hitTest(hitPoint)
     XCTAssertTrue(hitView === cellTextView || hitView?.isDescendant(of: cellTextView) == true)
+  }
+
+  func testColumnResizeHitTargetIsComfortableNearBorder() {
+    let table = MarkdownEditorTable(
+      runtimeID: "test",
+      hasHeader: false,
+      columnWidths: [180, 180],
+      rows: [["A", "B"]]
+    )
+    let tableView = EditorTableBlockView(table: table, appearanceSettings: appearance)
+    tableView.frame = NSRect(x: 0, y: 0, width: 420, height: 88)
+    tableView.layoutSubtreeIfNeeded()
+
+    XCTAssertTrue(tableView.hitTest(NSPoint(x: 187, y: 20)) === tableView)
+    XCTAssertTrue(tableView.hitTest(NSPoint(x: 367, y: 20)) === tableView)
+  }
+
+  func testRightTableBorderResizesLastColumnWithoutMaximumCap() {
+    let table = MarkdownEditorTable(
+      runtimeID: "test",
+      hasHeader: false,
+      columnWidths: [180, 180],
+      rows: [["A", "B"]]
+    )
+    let tableView = EditorTableBlockView(table: table, appearanceSettings: appearance)
+    tableView.frame = NSRect(x: 0, y: 0, width: 1_000, height: 88)
+    let window = NSWindow(
+      contentRect: NSRect(x: 0, y: 0, width: 1_000, height: 120),
+      styleMask: .borderless,
+      backing: .buffered,
+      defer: false
+    )
+    window.contentView?.addSubview(tableView)
+    tableView.layoutSubtreeIfNeeded()
+
+    tableView.mouseDown(
+      with: tableMouseEvent(
+        type: .leftMouseDown,
+        location: tableView.convert(NSPoint(x: 360, y: 20), to: nil)
+      )
+    )
+    tableView.mouseDragged(
+      with: tableMouseEvent(
+        type: .leftMouseDragged,
+        location: tableView.convert(NSPoint(x: 900, y: 20), to: nil)
+      )
+    )
+    tableView.mouseUp(
+      with: tableMouseEvent(
+        type: .leftMouseUp,
+        location: tableView.convert(NSPoint(x: 900, y: 20), to: nil)
+      )
+    )
+
+    XCTAssertEqual(tableView.table.columnWidths, [180, 720])
+    XCTAssertEqual(MarkdownEditorTable.clampedColumnWidth(1_200), 1_200)
   }
 
   func testEditorHitTestRoutesTableCellClicksToCellTextView() {
@@ -444,5 +542,24 @@ final class EditorTableTests: EditorTestCase {
       }
       return nestedButtons
     }
+  }
+
+  private func tableMouseEvent(type: NSEvent.EventType, location: NSPoint) -> NSEvent {
+    guard
+      let event = NSEvent.mouseEvent(
+        with: type,
+        location: location,
+        modifierFlags: [],
+        timestamp: 0,
+        windowNumber: 0,
+        context: nil,
+        eventNumber: 0,
+        clickCount: 1,
+        pressure: 0
+      )
+    else {
+      fatalError("Expected table mouse event.")
+    }
+    return event
   }
 }

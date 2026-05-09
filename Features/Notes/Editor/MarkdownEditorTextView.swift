@@ -281,7 +281,10 @@ final class MarkdownEditorTextView: NSTextView {
         EditorTableBlockView.toolbarReservedHeight,
         max(tableRect.minY - self.bounds.minY, 0)
       )
-      let overlayWidth = max(tableRect.width, EditorTableBlockView.minimumOverlayWidth)
+      let overlayWidth = max(
+        tableRect.width + EditorTableBlockView.resizeHandleOutset,
+        EditorTableBlockView.minimumOverlayWidth
+      )
       let overlayX = min(
         tableRect.minX,
         max(self.bounds.minX, self.bounds.maxX - overlayWidth)
