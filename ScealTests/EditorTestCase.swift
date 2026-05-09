@@ -22,14 +22,18 @@ class EditorTestCase: XCTestCase {
   }
 
   // Builds a coordinator wired to a mutable markdown binding for editor interaction tests.
-  func makeCoordinator(markdown: MarkdownBox) -> MarkdownEditorView.Coordinator {
+  func makeCoordinator(
+    markdown: MarkdownBox,
+    customSlashTemplates: [NoteTemplate] = []
+  ) -> MarkdownEditorView.Coordinator {
     let editor = MarkdownEditorView(
       noteID: "2026-04-04",
       text: Binding(
         get: { markdown.value },
         set: { markdown.value = $0 }
       ),
-      appearanceSettings: appearance
+      appearanceSettings: appearance,
+      customSlashTemplates: customSlashTemplates
     )
     return editor.makeCoordinator()
   }

@@ -216,6 +216,86 @@ final class EditorSlashCommandTests: EditorTestCase {
     XCTAssertFalse(commands.contains("/section"))
   }
 
+  // Prevents custom templates from being omitted from the shared slash popup.
+  func testCustomTemplateAppearsInSlashPopup() {
+    let template = NoteTemplate(
+      title: "Meeting",
+      command: "meeting",
+      menuDescription: "Insert meeting note structure",
+      body: "# Meeting:"
+    )
+
+    let entries = EditorSlashCommandHandler.filteredCommands(
+      for: "/me",
+      customTemplates: [template]
+    )
+
+    XCTAssertEqual(entries.map(\.command), ["/meeting"])
+    XCTAssertEqual(entries.first?.description, "Insert meeting note structure")
+  }
+
+  // Prevents disabled templates from being offered as executable slash commands.
+  func testDisabledCustomTemplateIsHiddenFromSlashPopup() {
+    let template = NoteTemplate(
+      title: "Meeting",
+      command: "meeting",
+      body: "# Meeting:",
+      isEnabled: false
+    )
+
+    let entries = EditorSlashCommandHandler.filteredCommands(
+      for: "/me",
+      customTemplates: [template]
+    )
+
+    XCTAssertTrue(entries.isEmpty)
+  }
+
+  // Confirms custom template commands insert formatted markdown and place the caret intelligently.
+  func testDirectCustomTemplateCommand() {
+    let template = NoteTemplate.starterMeeting
+    let markdown = MarkdownBox("/meeting")
+    let coordinator = makeCoordinator(markdown: markdown, customSlashTemplates: [template])
+    let fixture = makeRawEditorFixture(string: "/meeting")
+    let textView = fixture.textView
+
+    textView.delegate = coordinator
+    textView.setSelectedRange(NSRange(location: "/meeting".utf16.count, length: 0))
+
+    let handled = coordinator.textView(
+      textView,
+      doCommandBy: #selector(NSResponder.insertNewline(_:))
+    )
+
+    XCTAssertTrue(handled)
+    XCTAssertEqual(markdown.value, template.resolvedBodyForInsertion)
+    XCTAssertFalse(textView.string.contains("/meeting"))
+    let meetingRange = (textView.string as NSString).range(of: "Meeting:")
+    XCTAssertEqual(textView.selectedRange().location, NSMaxRange(meetingRange))
+    XCTAssertEqual(textView.typingAttributes[.markdownHeadingLevel] as? Int, 1)
+  }
+
+  // Prevents a second divider after template content from corrupting the compact editor document.
+  func testDividerCommandAfterSectionContent() {
+    let initial = "<!-- section -->\nBody\n/div"
+    let markdown = MarkdownBox(initial)
+    let coordinator = makeCoordinator(markdown: markdown)
+    let fixture = makeEditorFixture(markdown: initial)
+    let textView = fixture.textView
+
+    textView.delegate = coordinator
+    textView.setSelectedRange(NSRange(location: textView.string.utf16.count, length: 0))
+
+    let handled = coordinator.textView(
+      textView,
+      doCommandBy: #selector(NSResponder.insertNewline(_:))
+    )
+
+    XCTAssertTrue(handled)
+    XCTAssertEqual(markdown.value, "<!-- section -->\nBody\n<!-- section -->")
+    XCTAssertEqual(textView.sectionDividerCount, 2)
+  }
+
   // Prevents the direct heading command from losing heading level 1 typing state.
   func testDirectHeading1() {
     assertHeadingCommand(command: "/heading-1", expectedLevel: 1, primesSlashPopup: false)

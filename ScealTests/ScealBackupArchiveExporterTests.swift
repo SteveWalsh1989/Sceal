@@ -25,6 +25,7 @@ final class ScealBackupArchiveExporterTests: NotesStoreTestCase {
       ungroupedNoteIDs: [],
       groups: [NoteGroup(name: "Pinned", noteIDs: [listNote.id])]
     )
+    let template = NoteTemplate.starterMeeting
     let attachmentsRootURL = FileManager.default.temporaryDirectory
       .appendingPathComponent(UUID().uuidString, isDirectory: true)
     let dailyAttachmentDirectoryURL = attachmentsRootURL.appendingPathComponent(
@@ -57,6 +58,7 @@ final class ScealBackupArchiveExporterTests: NotesStoreTestCase {
       dailyNotes: [dailyNote],
       listNotes: [listNote],
       manifest: manifest,
+      templates: [template],
       kind: .manual,
       createdAt: makeDate(year: 2026, month: 4, day: 16),
       attachmentsRootURL: attachmentsRootURL
@@ -80,6 +82,7 @@ final class ScealBackupArchiveExporterTests: NotesStoreTestCase {
     let listNoteURL = rootURL.appendingPathComponent("ListNotes/\(listNote.fileName)")
     let manifestURL = rootURL.appendingPathComponent("ListNotes/groups.json")
     let metadataURL = rootURL.appendingPathComponent("backup-metadata.json")
+    let templatesURL = rootURL.appendingPathComponent("Templates/templates.json")
     let attachmentURL = rootURL.appendingPathComponent("Attachments/\(dailyNote.id)/desk.png")
     let listAttachmentURL = rootURL.appendingPathComponent(
       "Attachments/\(listNote.id)/plan.png"
@@ -89,6 +92,7 @@ final class ScealBackupArchiveExporterTests: NotesStoreTestCase {
     XCTAssertTrue(FileManager.default.fileExists(atPath: listNoteURL.path))
     XCTAssertTrue(FileManager.default.fileExists(atPath: manifestURL.path))
     XCTAssertTrue(FileManager.default.fileExists(atPath: metadataURL.path))
+    XCTAssertTrue(FileManager.default.fileExists(atPath: templatesURL.path))
     XCTAssertTrue(FileManager.default.fileExists(atPath: attachmentURL.path))
     XCTAssertTrue(FileManager.default.fileExists(atPath: listAttachmentURL.path))
 
@@ -99,7 +103,12 @@ final class ScealBackupArchiveExporterTests: NotesStoreTestCase {
     XCTAssertEqual(metadata.backupKind, .manual)
     XCTAssertEqual(metadata.dailyNoteCount, 1)
     XCTAssertEqual(metadata.listNoteCount, 1)
+    XCTAssertEqual(metadata.templateCount, 1)
     XCTAssertTrue(metadata.includesManifest)
+    XCTAssertEqual(
+      try JSONDecoder().decode([NoteTemplate].self, from: Data(contentsOf: templatesURL)),
+      [template]
+    )
   }
 
   private func unzipArchive(at archiveURL: URL, to destinationURL: URL) throws {

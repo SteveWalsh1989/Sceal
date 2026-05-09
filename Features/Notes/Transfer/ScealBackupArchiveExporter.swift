@@ -14,6 +14,7 @@ nonisolated enum ScealBackupArchiveExporter {
     dailyNotes: [DayNote],
     listNotes: [DayNote],
     manifest: ListNotesManifest,
+    templates: [NoteTemplate] = [],
     kind: BackupArchiveKind,
     createdAt: Date = .now,
     attachmentsRootURL: URL? = nil
@@ -54,6 +55,7 @@ nonisolated enum ScealBackupArchiveExporter {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     try encoder.encode(manifest).write(to: manifestURL, options: .atomic)
+    try NoteTemplateArchive.write(templates, to: stagingDirectoryURL)
 
     if let sourceAttachmentRootURL = try? NoteImageAttachmentStore.attachmentRootDirectoryURL(
       rootURL: attachmentsRootURL,
@@ -78,6 +80,7 @@ nonisolated enum ScealBackupArchiveExporter {
       sourceStoreDescription: "~/Library/Application Support/Sceal",
       dailyNoteCount: dailyNotes.count,
       listNoteCount: listNotes.count,
+      templateCount: templates.count,
       includesManifest: true
     )
     try encoder.encode(metadata).write(to: metadataURL, options: .atomic)
@@ -119,5 +122,55 @@ nonisolated struct BackupArchiveMetadata: Codable, Equatable, Sendable {
   let sourceStoreDescription: String
   let dailyNoteCount: Int
   let listNoteCount: Int
+  let templateCount: Int
   let includesManifest: Bool
+
+  init(
+    appVersion: String,
+    backupFormatVersion: Int,
+    backupKind: BackupArchiveKind,
+    createdAt: Date,
+    sourceStoreDescription: String,
+    dailyNoteCount: Int,
+    listNoteCount: Int,
+    templateCount: Int = 0,
+    includesManifest: Bool
+  ) {
+    self.appVersion = appVersion
+    self.backupFormatVersion = backupFormatVersion
+    self.backupKind = backupKind
+    self.createdAt = createdAt
+    self.sourceStoreDescription = sourceStoreDescription
+    self.dailyNoteCount = dailyNoteCount
+    self.listNoteCount = listNoteCount
+    self.templateCount = templateCount
+    self.includesManifest = includesManifest
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case appVersion
+    case backupFormatVersion
+    case backupKind
+    case createdAt
+    case sourceStoreDescription
+    case dailyNoteCount
+    case listNoteCount
+    case templateCount
+    case includesManifest
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    self.init(
+      appVersion: try container.decode(String.self, forKey: .appVersion),
+      backupFormatVersion: try container.decode(Int.self, forKey: .backupFormatVersion),
+      backupKind: try container.decode(BackupArchiveKind.self, forKey: .backupKind),
+      createdAt: try container.decode(Date.self, forKey: .createdAt),
+      sourceStoreDescription: try container.decode(String.self, forKey: .sourceStoreDescription),
+      dailyNoteCount: try container.decode(Int.self, forKey: .dailyNoteCount),
+      listNoteCount: try container.decode(Int.self, forKey: .listNoteCount),
+      templateCount: try container.decodeIfPresent(Int.self, forKey: .templateCount) ?? 0,
+      includesManifest: try container.decode(Bool.self, forKey: .includesManifest)
+    )
+  }
 }

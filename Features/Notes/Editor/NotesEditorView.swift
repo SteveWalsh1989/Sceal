@@ -8,7 +8,7 @@ import AppKit
 import SwiftUI
 
 struct NotesEditorView: View {
-  @Environment(\.openSettings) private var openSettings
+  @Environment(\.openWindow) private var openWindow
   @ObservedObject var store: NotesStore
   let noteID: DayNote.ID
   var sidebarCollapsed: Bool
@@ -98,7 +98,7 @@ struct NotesEditorView: View {
               store: store,
               openSettings: {
                 isShowingAppearancePopover = false
-                openSettings()
+                openWindow(id: "settings")
               },
               openFontPanel: openFontPanel,
               confirmDelete: {
@@ -130,7 +130,8 @@ struct NotesEditorView: View {
             text: store.activeBodyBinding(for: noteID),
             appearanceSettings: store.appearanceSettings,
             continuousSpellCheckingEnabled: store.continuousSpellCheckingEnabled,
-            searchText: isListMode ? store.listSearchText : store.searchText
+            searchText: isListMode ? store.listSearchText : store.searchText,
+            customSlashTemplates: store.enabledSlashCommandTemplates()
           )
         }
         .background(

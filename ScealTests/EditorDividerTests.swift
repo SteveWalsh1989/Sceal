@@ -54,6 +54,56 @@ final class EditorDividerTests: EditorTestCase {
     )
   }
 
+  // Prevents notes ending in a divider from losing the trailing overscroll card.
+  func testEndingWithDividerKeepsTrailingSectionForOverscroll() {
+    let fixture = makeEditorFixture(markdown: "Body\n<!-- section -->")
+
+    XCTAssertTrue(fixture.textView.debugHasTrailingSectionAfterFinalDivider)
+  }
+
+  // Prevents template color previews from ignoring the selected divider color.
+  func testTemplateSectionColorPreviewColorsHeadingAndBullet() throws {
+    let display = MarkdownEditorFormatter.formatForDisplay(
+      "# Meeting:\n- Item",
+      appearance: appearance,
+      initialSectionHeadingColorName: "turquoise",
+      initialSectionBulletColorName: "turquoise",
+      initialSectionUseSectionColor: true
+    )
+    let expectedColor = try XCTUnwrap(ThemePalette.color(named: "turquoise"))
+    let string = display.string as NSString
+    let headingRange = string.range(of: "Meeting:")
+    let bulletRange = string.range(of: MarkdownEditorFormatter.bulletMarker)
+
+    XCTAssertNotEqual(headingRange.location, NSNotFound)
+    XCTAssertNotEqual(bulletRange.location, NSNotFound)
+    assertColor(
+      display.attribute(.foregroundColor, at: headingRange.location, effectiveRange: nil)
+        as? NSColor,
+      matches: expectedColor
+    )
+    assertColor(
+      display.attribute(.foregroundColor, at: bulletRange.location, effectiveRange: nil)
+        as? NSColor,
+      matches: expectedColor
+    )
+  }
+
+  // Ensures template insertion can color plain bodies that do not store a leading divider.
+  func testTemplateColorInsertionAddsLeadingSectionForPlainBody() {
+    let markdown = NoteTemplateMarkdown.applyingTemplateOptions(
+      to: "# Meeting:\n- Item",
+      sectionColorName: "turquoise",
+      endsWithDivider: false
+    )
+
+    XCTAssertTrue(
+      markdown.hasPrefix(
+        "<!-- section heading:turquoise bullet:turquoise usesectioncolor:true -->\n# Meeting:"
+      )
+    )
+  }
+
   // Prevents backspace from leaving a hidden section marker above the caret.
   func testBackspaceBelowDividerRemovesIt() {
     let markdown = MarkdownBox("<!-- section -->\nBody")
@@ -116,5 +166,33 @@ final class EditorDividerTests: EditorTestCase {
 
     XCTAssertTrue(normalized)
     XCTAssertEqual(textView.selectedRange(), NSRange(location: "Before".utf16.count, length: 0))
+  }
+
+  private func assertColor(
+    _ actualColor: NSColor?,
+    matches expectedColor: NSColor,
+    file: StaticString = #filePath,
+    line: UInt = #line
+  ) {
+    guard
+      let actual = actualColor?.usingColorSpace(.deviceRGB),
+      let expected = expectedColor.usingColorSpace(.deviceRGB)
+    else {
+      return XCTFail("Expected colors to be convertible to device RGB.", file: file, line: line)
+    }
+
+    XCTAssertEqual(
+      actual.redComponent, expected.redComponent, accuracy: 0.001, file: file, line: line)
+    XCTAssertEqual(
+      actual.greenComponent,
+      expected.greenComponent,
+      accuracy: 0.001,
+      file: file,
+      line: line
+    )
+    XCTAssertEqual(
+      actual.blueComponent, expected.blueComponent, accuracy: 0.001, file: file, line: line)
+    XCTAssertEqual(
+      actual.alphaComponent, expected.alphaComponent, accuracy: 0.001, file: file, line: line)
   }
 }

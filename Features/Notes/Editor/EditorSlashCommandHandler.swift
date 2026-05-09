@@ -18,6 +18,7 @@ enum SlashCommandAction: Equatable {
   case heading(level: Int)
   case codeBlock
   case promptBlock
+  case template(NoteTemplate)
 }
 
 enum EditorSlashCommandHandler {
@@ -42,24 +43,52 @@ enum EditorSlashCommandHandler {
       command: "/section", description: "Insert section divider", action: .sectionDivider)
   ]
 
-  private static var matchableCommands: [SlashCommandEntry] {
-    commands + hiddenCommands
+  static var reservedCommandNames: Set<String> {
+    Set((commands + hiddenCommands).map { String($0.command.dropFirst()).lowercased() })
+  }
+
+  private static func templateCommands(from templates: [NoteTemplate]) -> [SlashCommandEntry] {
+    templates
+      .filter(\.isEnabled)
+      .sorted { $0.command.localizedCaseInsensitiveCompare($1.command) == .orderedAscending }
+      .map { template in
+        SlashCommandEntry(
+          command: template.slashCommand,
+          description: template.menuDescription,
+          action: .template(template)
+        )
+      }
+  }
+
+  private static func visibleCommands(customTemplates: [NoteTemplate]) -> [SlashCommandEntry] {
+    commands + templateCommands(from: customTemplates)
+  }
+
+  private static func matchableCommands(customTemplates: [NoteTemplate]) -> [SlashCommandEntry] {
+    visibleCommands(customTemplates: customTemplates) + hiddenCommands
   }
 
   // Returns commands whose name starts with the given prefix (e.g. "/" or "/d").
-  static func filteredCommands(for prefix: String) -> [SlashCommandEntry] {
+  static func filteredCommands(for prefix: String, customTemplates: [NoteTemplate] = [])
+    -> [SlashCommandEntry]
+  {
     let lower = prefix.lowercased()
-    if lower == "/" { return commands }
-    return commands.filter { $0.command.lowercased().hasPrefix(lower) }
+    let visibleCommands = visibleCommands(customTemplates: customTemplates)
+    if lower == "/" { return visibleCommands }
+    return visibleCommands.filter { $0.command.lowercased().hasPrefix(lower) }
   }
 
   // Returns the matching slash command for the current line, if any.
-  static func matchedCommand(in textStorage: NSTextStorage, lineRange: NSRange)
-    -> SlashCommandEntry?
-  {
+  static func matchedCommand(
+    in textStorage: NSTextStorage,
+    lineRange: NSRange,
+    customTemplates: [NoteTemplate] = []
+  ) -> SlashCommandEntry? {
     let lineText = (textStorage.string as NSString).substring(with: lineRange)
     let trimmed = lineText.trimmingCharacters(in: .whitespaces)
 
-    return matchableCommands.first { $0.command.caseInsensitiveCompare(trimmed) == .orderedSame }
+    return matchableCommands(customTemplates: customTemplates).first {
+      $0.command.caseInsensitiveCompare(trimmed) == .orderedSame
+    }
   }
 }

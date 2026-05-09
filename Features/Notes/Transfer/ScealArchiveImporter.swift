@@ -11,6 +11,7 @@ enum ScealArchiveImporter {
 
   struct ImportResult: Sendable {
     let imported: [DayNote]
+    let templates: [NoteTemplate]
     let skipped: Int
     let failed: Int
   }
@@ -24,6 +25,7 @@ enum ScealArchiveImporter {
     var imported: [DayNote] = []
     var skipped = 0
     var failed = 0
+    let templates = try importTemplates(from: folderURL, fileManager: fileManager)
 
     let mdFiles = collectMarkdownFiles(in: folderURL, fileManager: fileManager)
 
@@ -45,9 +47,26 @@ enum ScealArchiveImporter {
 
     return ImportResult(
       imported: imported.sorted(by: { $0.date > $1.date }),
+      templates: templates,
       skipped: skipped,
       failed: failed
     )
+  }
+
+  nonisolated private static func importTemplates(from folderURL: URL, fileManager: FileManager)
+    throws
+    -> [NoteTemplate]
+  {
+    guard
+      let fileURL = NoteTemplateArchive.findTemplatesFile(
+        in: folderURL,
+        fileManager: fileManager
+      )
+    else {
+      return []
+    }
+
+    return try JSONDecoder().decode([NoteTemplate].self, from: Data(contentsOf: fileURL))
   }
 
   // Recursively collects all .md files from a directory, supporting both flat and year-subfolder layouts.

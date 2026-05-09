@@ -4,6 +4,7 @@
 
 // Root settings window with sidebar navigation and swappable detail panel.
 
+import AppKit
 import SwiftUI
 
 // Root settings view with sidebar navigation and swappable detail panel.
@@ -22,7 +23,15 @@ struct SettingsRootView: View {
       detailView
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
-    .frame(width: 860, height: 730)
+    .frame(
+      minWidth: 760,
+      idealWidth: 1080,
+      maxWidth: .infinity,
+      minHeight: 560,
+      idealHeight: 780,
+      maxHeight: .infinity
+    )
+    .background(SettingsWindowConfigurator())
   }
 
   // Returns the settings detail view for the current sidebar selection.
@@ -33,6 +42,8 @@ struct SettingsRootView: View {
       SettingsAppearanceView(store: store)
     case .themes:
       SettingsThemesView(store: store)
+    case .templates:
+      SettingsTemplatesView(store: store)
     case .backup:
       SettingsBackupView(store: store)
     case .importData:
@@ -43,6 +54,51 @@ struct SettingsRootView: View {
       case .developer:
         SettingsDeveloperView(store: store)
     #endif
+    }
+  }
+}
+
+private struct SettingsWindowConfigurator: NSViewRepresentable {
+  private let minimumContentSize = NSSize(width: 760, height: 560)
+  private let maximumContentSize = NSSize(
+    width: CGFloat.greatestFiniteMagnitude,
+    height: CGFloat.greatestFiniteMagnitude
+  )
+  private let frameAutosaveName = "Sceal.Settings.WindowFrame"
+
+  func makeNSView(context: Context) -> NSView {
+    let view = SettingsWindowConfiguratorView(frame: .zero)
+    view.onWindowChange = { window in
+      configureWindow(window)
+    }
+    return view
+  }
+
+  func updateNSView(_ view: NSView, context: Context) {
+    guard let view = view as? SettingsWindowConfiguratorView else { return }
+    view.onWindowChange = { window in
+      configureWindow(window)
+    }
+    configureWindow(view.window)
+  }
+
+  private func configureWindow(_ window: NSWindow?) {
+    guard let window else { return }
+
+    window.styleMask.insert(.resizable)
+    window.minSize = minimumContentSize
+    window.maxSize = maximumContentSize
+    window.contentMinSize = minimumContentSize
+    window.contentMaxSize = maximumContentSize
+    _ = window.setFrameAutosaveName(frameAutosaveName)
+  }
+
+  private final class SettingsWindowConfiguratorView: NSView {
+    var onWindowChange: ((NSWindow?) -> Void)?
+
+    override func viewDidMoveToWindow() {
+      super.viewDidMoveToWindow()
+      onWindowChange?(window)
     }
   }
 }

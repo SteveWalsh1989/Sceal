@@ -196,6 +196,7 @@ extension NotesStore {
     let dailyNotesSnapshot = notes
     let listNotesSnapshot = listNotes
     let manifestSnapshot = listNoteManifest
+    let templatesSnapshot = noteTemplates
     let backupSettingsSnapshot = backupSettings
     let backupDate = Date.now
 
@@ -213,6 +214,7 @@ extension NotesStore {
           dailyNotes: dailyNotesSnapshot,
           listNotes: listNotesSnapshot,
           manifest: manifestSnapshot,
+          templates: templatesSnapshot,
           bookmarkData: bookmarkData,
           kind: trigger.archiveKind,
           schedule: backupSettingsSnapshot.schedule,
@@ -362,6 +364,7 @@ extension NotesStore {
     dailyNotes: [DayNote],
     listNotes: [DayNote],
     manifest: ListNotesManifest,
+    templates: [NoteTemplate] = [],
     bookmarkData: Data,
     kind: BackupArchiveKind,
     schedule: BackupSchedule,
@@ -377,6 +380,7 @@ extension NotesStore {
         dailyNotes: dailyNotes,
         listNotes: listNotes,
         manifest: manifest,
+        templates: templates,
         kind: kind,
         createdAt: createdAt
       )

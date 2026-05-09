@@ -18,6 +18,7 @@ nonisolated enum ScealBackupArchiveImporter {
     let dailyNotes: [DayNote]
     let listNotes: [DayNote]
     let manifest: ListNotesManifest
+    let templates: [NoteTemplate]
     let metadata: BackupArchiveMetadata
     let safetyArchiveURL: URL
   }
@@ -28,6 +29,7 @@ nonisolated enum ScealBackupArchiveImporter {
     let dailyNotes: [DayNote]
     let listNotes: [DayNote]
     let manifest: ListNotesManifest
+    let templates: [NoteTemplate]
     let metadata: BackupArchiveMetadata
     let attachmentRootURL: URL?
   }
@@ -38,6 +40,7 @@ nonisolated enum ScealBackupArchiveImporter {
     currentDailyNotes: [DayNote],
     currentListNotes: [DayNote],
     currentManifest: ListNotesManifest,
+    currentTemplates: [NoteTemplate] = [],
     destinationURLs: ScealLibraryStorageURLs,
     safetyArchiveDirectoryURL: URL,
     createdAt: Date = .now,
@@ -57,6 +60,7 @@ nonisolated enum ScealBackupArchiveImporter {
       dailyNotes: currentDailyNotes,
       listNotes: currentListNotes,
       manifest: currentManifest,
+      templates: currentTemplates,
       kind: .manual,
       createdAt: createdAt,
       attachmentsRootURL: destinationURLs.attachmentsRootURL
@@ -96,6 +100,7 @@ nonisolated enum ScealBackupArchiveImporter {
       dailyNotes: archive.dailyNotes,
       listNotes: archive.listNotes,
       manifest: archive.manifest,
+      templates: archive.templates,
       metadata: archive.metadata,
       safetyArchiveURL: safetyArchiveURL
     )
@@ -140,6 +145,7 @@ nonisolated enum ScealBackupArchiveImporter {
         fileManager: fileManager
       )
       let manifest = try decodeManifest(in: listNotesURL)
+      let templates = try NoteTemplateArchive.read(from: rootURL)
 
       try validateUniqueIDs(dailyNotes.map(\.id), context: "daily notes")
       try validateUniqueIDs(listNotes.map(\.id), context: "list notes")
@@ -147,7 +153,8 @@ nonisolated enum ScealBackupArchiveImporter {
       try validateMetadataCounts(
         metadata,
         dailyNoteCount: dailyNotes.count,
-        listNoteCount: listNotes.count
+        listNoteCount: listNotes.count,
+        templateCount: templates.count
       )
 
       let attachmentRootURL = NoteImageAttachmentStore.attachmentRootInArchive(
@@ -161,6 +168,7 @@ nonisolated enum ScealBackupArchiveImporter {
         dailyNotes: dailyNotes,
         listNotes: listNotes,
         manifest: manifest,
+        templates: templates,
         metadata: metadata,
         attachmentRootURL: attachmentRootURL
       )
@@ -302,10 +310,12 @@ nonisolated enum ScealBackupArchiveImporter {
   private static func validateMetadataCounts(
     _ metadata: BackupArchiveMetadata,
     dailyNoteCount: Int,
-    listNoteCount: Int
+    listNoteCount: Int,
+    templateCount: Int
   ) throws {
     guard metadata.dailyNoteCount == dailyNoteCount,
       metadata.listNoteCount == listNoteCount,
+      metadata.templateCount == templateCount,
       metadata.includesManifest
     else {
       throw ScealBackupArchiveImporterError.metadataMismatch

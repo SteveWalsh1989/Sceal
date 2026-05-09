@@ -27,6 +27,11 @@ struct MarkdownEditorView: NSViewRepresentable {
   let appearanceSettings: NoteAppearanceSettings
   var continuousSpellCheckingEnabled: Bool = true
   var searchText: String = ""
+  var customSlashTemplates: [NoteTemplate] = []
+  var allowsImageAttachments: Bool = true
+  var allowsSectionColorEditing: Bool = true
+  var appliesTemplateSectionColorOverride: Bool = false
+  var templateSectionColorName: String? = nil
 
   func makeCoordinator() -> Coordinator {
     Coordinator(parent: self)
@@ -49,10 +54,7 @@ struct MarkdownEditorView: NSViewRepresentable {
       Self.applyBottomOverscroll(to: textView, in: scrollView, viewportHeight: viewportHeight)
     }
 
-    applyDisplayString(
-      MarkdownEditorFormatter.formatForDisplay(text, appearance: appearanceSettings),
-      to: textView
-    )
+    applyDisplayString(formatDisplayString(for: text), to: textView)
     Self.applyContinuousSpellChecking(
       to: textView,
       enabled: continuousSpellCheckingEnabled,
@@ -64,6 +66,9 @@ struct MarkdownEditorView: NSViewRepresentable {
     context.coordinator.lastContinuousSpellCheckingEnabled = continuousSpellCheckingEnabled
     context.coordinator.lastNoteID = noteID
     context.coordinator.lastSearchText = searchText
+    context.coordinator.lastAppliesTemplateSectionColorOverride =
+      appliesTemplateSectionColorOverride
+    context.coordinator.lastTemplateSectionColorName = templateSectionColorName
     context.coordinator.lastDividerCount = (textView as MarkdownEditorTextView).sectionDividerCount
     context.coordinator.toolbar.appearanceSettings = appearanceSettings
 
@@ -105,7 +110,12 @@ struct MarkdownEditorView: NSViewRepresentable {
     let spellCheckingChanged =
       continuousSpellCheckingEnabled != context.coordinator.lastContinuousSpellCheckingEnabled
     let searchChanged = searchText != context.coordinator.lastSearchText
-    let contentChanged = noteChanged || textChanged || appearanceChanged
+    let templateSectionColorChanged =
+      appliesTemplateSectionColorOverride
+      != context.coordinator.lastAppliesTemplateSectionColorOverride
+      || templateSectionColorName != context.coordinator.lastTemplateSectionColorName
+    let contentChanged =
+      noteChanged || textChanged || appearanceChanged || templateSectionColorChanged
     guard contentChanged || searchChanged || spellCheckingChanged else { return }
 
     if contentChanged {
@@ -113,8 +123,7 @@ struct MarkdownEditorView: NSViewRepresentable {
       let visibleOrigin = scrollView.contentView.bounds.origin
       let wasFirstResponder = textView.window?.firstResponder === textView
 
-      let displayString = MarkdownEditorFormatter.formatForDisplay(
-        text, appearance: appearanceSettings)
+      let displayString = formatDisplayString(for: text)
       let selectedRange =
         noteChanged
         ? NSRange(location: 0, length: 0)
@@ -123,6 +132,9 @@ struct MarkdownEditorView: NSViewRepresentable {
       context.coordinator.lastPushedMarkdown = text
       context.coordinator.lastAppliedAppearance = appearanceSettings
       context.coordinator.lastNoteID = noteID
+      context.coordinator.lastAppliesTemplateSectionColorOverride =
+        appliesTemplateSectionColorOverride
+      context.coordinator.lastTemplateSectionColorName = templateSectionColorName
       if let interactiveTV = textView as? MarkdownEditorTextView {
         context.coordinator.lastDividerCount = interactiveTV.sectionDividerCount
       }
@@ -165,7 +177,32 @@ struct MarkdownEditorView: NSViewRepresentable {
       noteID: noteID,
       appearanceSettings: appearanceSettings,
       continuousSpellCheckingEnabled: continuousSpellCheckingEnabled,
+      allowsImageAttachments: allowsImageAttachments,
+      allowsSectionColorEditing: allowsSectionColorEditing,
       delegate: coordinator
+    )
+  }
+
+  private func displayMarkdownForEditor(_ markdown: String) -> String {
+    guard appliesTemplateSectionColorOverride else { return markdown }
+    return NoteTemplateMarkdown.applyingTemplatePreviewColor(
+      to: markdown,
+      sectionColorName: templateSectionColorName
+    )
+  }
+
+  private func formatDisplayString(for markdown: String) -> NSAttributedString {
+    let sectionColorName =
+      appliesTemplateSectionColorOverride && templateSectionColorName?.isEmpty == false
+      ? templateSectionColorName
+      : nil
+
+    return MarkdownEditorFormatter.formatForDisplay(
+      displayMarkdownForEditor(markdown),
+      appearance: appearanceSettings,
+      initialSectionHeadingColorName: sectionColorName,
+      initialSectionBulletColorName: sectionColorName,
+      initialSectionUseSectionColor: sectionColorName != nil
     )
   }
 
@@ -174,11 +211,15 @@ struct MarkdownEditorView: NSViewRepresentable {
     noteID: DayNote.ID? = nil,
     appearanceSettings: NoteAppearanceSettings,
     continuousSpellCheckingEnabled: Bool,
+    allowsImageAttachments: Bool = true,
+    allowsSectionColorEditing: Bool = true,
     delegate: NSTextViewDelegate?
   ) {
     if let interactiveTextView = textView as? MarkdownEditorTextView {
       interactiveTextView.appearanceSettings = appearanceSettings
       interactiveTextView.noteID = noteID
+      interactiveTextView.allowsImageAttachments = allowsImageAttachments
+      interactiveTextView.allowsSectionColorEditing = allowsSectionColorEditing
       interactiveTextView.registerForDraggedTypes([.fileURL, .tiff, .png])
     }
     textView.isRichText = true
@@ -320,6 +361,80 @@ private final class EditorScrollView: NSScrollView {
   }
 }
 
+private enum NoteTemplateCursorResolver {
+  // Resolves the caret offset inside a rendered template after insertion.
+  static func offset(
+    in attributedString: NSAttributedString,
+    placement: NoteTemplateCursorPlacement
+  ) -> Int {
+    switch placement {
+    case .automatic:
+      return headingEnd(in: attributedString, matching: { $0.hasSuffix(":") })
+        ?? firstEmptyBulletEnd(in: attributedString)
+        ?? attributedString.length
+    case .firstHeadingEnd:
+      return headingEnd(in: attributedString, matching: { _ in true }) ?? attributedString.length
+    case .firstEmptyBullet:
+      return firstEmptyBulletEnd(in: attributedString) ?? attributedString.length
+    case .end:
+      return attributedString.length
+    }
+  }
+
+  private static func headingEnd(
+    in attributedString: NSAttributedString,
+    matching predicate: (String) -> Bool
+  ) -> Int? {
+    let string = attributedString.string as NSString
+    var result: Int?
+    attributedString.enumerateAttribute(
+      .markdownHeadingLevel,
+      in: NSRange(location: 0, length: attributedString.length),
+      options: []
+    ) { value, range, stop in
+      guard value != nil else { return }
+      let lineRange = trimmedLineRange(containing: range.location, in: string)
+      let headingText = string.substring(with: lineRange).trimmingCharacters(
+        in: .whitespacesAndNewlines)
+      guard predicate(headingText) else { return }
+      result = NSMaxRange(lineRange)
+      stop.pointee = true
+    }
+    return result
+  }
+
+  private static func firstEmptyBulletEnd(in attributedString: NSAttributedString) -> Int? {
+    let string = attributedString.string as NSString
+    var result: Int?
+    attributedString.enumerateAttribute(
+      .markdownListType,
+      in: NSRange(location: 0, length: attributedString.length),
+      options: []
+    ) { value, range, stop in
+      guard value as? String == MarkdownListType.bullet.rawValue else { return }
+      let lineRange = trimmedLineRange(containing: range.location, in: string)
+      let lineText = string.substring(with: lineRange).trimmingCharacters(
+        in: .whitespacesAndNewlines)
+      guard lineText == MarkdownEditorFormatter.bulletMarker else { return }
+      result = NSMaxRange(lineRange)
+      stop.pointee = true
+    }
+    return result
+  }
+
+  private static func trimmedLineRange(containing location: Int, in string: NSString) -> NSRange {
+    guard string.length > 0 else { return NSRange(location: 0, length: 0) }
+    let safeLocation = min(max(location, 0), max(string.length - 1, 0))
+    var lineRange = string.lineRange(for: NSRange(location: safeLocation, length: 0))
+    if lineRange.length > 0,
+      string.character(at: lineRange.location + lineRange.length - 1) == 0x0A
+    {
+      lineRange.length -= 1
+    }
+    return lineRange
+  }
+}
+
 // MARK: - Spell Checking
 
 enum MarkdownEditorSpellChecking {
@@ -423,6 +538,8 @@ extension MarkdownEditorView {
     var lastDividerCount = 0
     var lastNoteID: DayNote.ID?
     var lastSearchText = ""
+    var lastAppliesTemplateSectionColorOverride = false
+    var lastTemplateSectionColorName: String?
     let toolbar = EditorFormattingToolbar()
     let slashPopup = EditorSlashCommandPopup()
     private var slashTriggerLocation: Int?
@@ -590,7 +707,11 @@ extension MarkdownEditorView {
     // Runs the conversion and pushes the result to the SwiftUI binding.
     private func executePushMarkdown(from textStorage: NSTextStorage) {
       pendingMarkdownTask = nil
-      let markdown = MarkdownEditorFormatter.convertToMarkdown(from: textStorage)
+      let convertedMarkdown = MarkdownEditorFormatter.convertToMarkdown(from: textStorage)
+      let markdown =
+        parent.appliesTemplateSectionColorOverride
+        ? NoteTemplateMarkdown.removingSectionColorMetadata(from: convertedMarkdown)
+        : convertedMarkdown
       lastPushedMarkdown = markdown
       parent.text = markdown
     }
@@ -695,7 +816,10 @@ extension MarkdownEditorView {
 
       // Slash command execution
       let slashCommand = EditorSlashCommandHandler.matchedCommand(
-        in: textStorage, lineRange: lineRange)
+        in: textStorage,
+        lineRange: lineRange,
+        customTemplates: parent.customSlashTemplates
+      )
       if let slashCommand {
         switch slashCommand.action {
         case .sectionDivider:
@@ -789,6 +913,47 @@ extension MarkdownEditorView {
           if handled {
             textView.typingAttributes = promptBlockTypingAttributes()
             textView.setNeedsDisplay(textView.bounds)
+            flushPendingMarkdownPushIfNeeded(from: textStorage)
+          }
+          return handled
+
+        case .template(let template):
+          let replacementRange =
+            fullLineRange.length > lineRange.length ? fullLineRange : lineRange
+          let markdown = templateMarkdownForInsertion(
+            template.resolvedBodyForInsertion,
+            replacingLineWithTrailingNewline: fullLineRange.length > lineRange.length
+          )
+          let displaySnippet = MarkdownEditorFormatter.formatForDisplay(
+            markdown,
+            appearance: parent.appearanceSettings
+          )
+          let cursorOffset = NoteTemplateCursorResolver.offset(
+            in: displaySnippet,
+            placement: template.cursorPlacement
+          )
+
+          let handled = textView.performEditorEdit(
+            affectedRange: replacementRange,
+            replacementString: displaySnippet.string,
+            actionName: "Insert Template"
+          ) { textStorage in
+            textStorage.replaceCharacters(in: replacementRange, with: displaySnippet)
+            let cursorLocation = min(
+              replacementRange.location + cursorOffset,
+              textStorage.length
+            )
+            return NSRange(location: cursorLocation, length: 0)
+          }
+
+          if handled {
+            textView.ensureEditorLayoutForEntireDocument()
+            if let editorTextView = textView as? MarkdownEditorTextView {
+              editorTextView.refreshSectionLayout()
+            } else {
+              textView.setNeedsDisplay(textView.bounds)
+            }
+            syncTypingAttributesToInsertionPoint(in: textView, textStorage: textStorage)
             flushPendingMarkdownPushIfNeeded(from: textStorage)
           }
           return handled
@@ -1200,7 +1365,10 @@ extension MarkdownEditorView {
         return
       }
 
-      let filtered = EditorSlashCommandHandler.filteredCommands(for: trimmed)
+      let filtered = EditorSlashCommandHandler.filteredCommands(
+        for: trimmed,
+        customTemplates: parent.customSlashTemplates
+      )
       guard !filtered.isEmpty else {
         dismissSlashPopup()
         return
@@ -1211,7 +1379,7 @@ extension MarkdownEditorView {
         slashTriggerLocation = lineRange.location + whitespaceCount
       }
 
-      slashPopup.updateFilter(trimmed)
+      slashPopup.updateFilter(trimmed, customTemplates: parent.customSlashTemplates)
 
       guard
         let scrollView = textView.enclosingScrollView,
@@ -1262,6 +1430,16 @@ extension MarkdownEditorView {
       if replaced {
         _ = self.textView(textView, doCommandBy: #selector(NSResponder.insertNewline(_:)))
       }
+    }
+
+    private func templateMarkdownForInsertion(
+      _ markdown: String,
+      replacingLineWithTrailingNewline hasTrailingNewline: Bool
+    ) -> String {
+      guard hasTrailingNewline, !markdown.isEmpty, !markdown.hasSuffix("\n") else {
+        return markdown
+      }
+      return "\(markdown)\n"
     }
 
     // MARK: - Autoformat

@@ -130,9 +130,13 @@ extension NotesStore {
 
     let fm = fileManager
     let noteCount = filtered.count
+    let templatesSnapshot = noteTemplates
     Task.detached { [weak self] in
       do {
-        let zipURL = try ScealArchiveExporter.exportNotes(filtered)
+        let zipURL = try ScealArchiveExporter.exportNotes(
+          filtered,
+          templates: templatesSnapshot
+        )
 
         if fm.fileExists(atPath: saveURL.path) {
           try fm.removeItem(at: saveURL)
@@ -177,6 +181,7 @@ extension NotesStore {
     let dailyNotesSnapshot = notes
     let listNotesSnapshot = listNotes
     let manifestSnapshot = listNoteManifest
+    let templatesSnapshot = noteTemplates
     guard !dailyNotesSnapshot.isEmpty || !listNotesSnapshot.isEmpty else {
       userMessage = (text: "There are no notes to export.", kind: .info)
       return
@@ -210,6 +215,7 @@ extension NotesStore {
           dailyNotes: dailyNotesSnapshot,
           listNotes: listNotesSnapshot,
           manifest: manifestSnapshot,
+          templates: templatesSnapshot,
           kind: .manual,
           attachmentsRootURL: attachmentsRootURL
         )
@@ -255,6 +261,7 @@ extension NotesStore {
 
       return ImportOutcome(
         imported: result.imported,
+        templates: result.templates,
         skipped: result.skipped,
         extraDetail: result.failed > 0 ? "\(result.failed) failed to parse" : nil,
         attachmentSourceRootURL: NoteImageAttachmentStore.attachmentRootInArchive(
@@ -314,6 +321,7 @@ extension NotesStore {
     let currentDailyNotes = notes
     let currentListNotes = listNotes
     let currentManifest = listNoteManifest
+    let currentTemplates = noteTemplates
     let fm = fileManager
     let didStartAccessing = archiveURL.startAccessingSecurityScopedResource()
 
@@ -333,6 +341,7 @@ extension NotesStore {
           currentDailyNotes: currentDailyNotes,
           currentListNotes: currentListNotes,
           currentManifest: currentManifest,
+          currentTemplates: currentTemplates,
           destinationURLs: storageURLs,
           safetyArchiveDirectoryURL: safetyArchiveDirectoryURL,
           fileManager: fm
@@ -343,6 +352,7 @@ extension NotesStore {
           self.notes = result.dailyNotes
           self.listNotes = result.listNotes
           self.listNoteManifest = result.manifest
+          self.replaceNoteTemplates(result.templates)
           self.rebuildNoteIndex()
           self.rebuildListNoteIndex()
           self.selectedNoteID = result.dailyNotes.first?.id
@@ -379,6 +389,7 @@ extension NotesStore {
   // Shared import payload used by folder import flows.
   private struct ImportOutcome: Sendable {
     let imported: [DayNote]
+    var templates: [NoteTemplate] = []
     let skipped: Int
     let extraDetail: String?
     var attachmentSourceRootURL: URL? = nil
@@ -477,7 +488,7 @@ extension NotesStore {
         let outcome = try importBlock(sourceURL, existingIDs)
 
         // If nothing to import, finish early on main.
-        if outcome.imported.isEmpty {
+        if outcome.imported.isEmpty && outcome.templates.isEmpty {
           await MainActor.run { [weak self] in
             self?.showImportMessage(outcome, emptyMessage: emptyMessage)
             self?.isPerformingFileOperation = false
@@ -487,14 +498,16 @@ extension NotesStore {
         }
 
         // Step 2: Write imported notes to disk off the main thread.
-        for (idx, note) in outcome.imported.enumerated() {
-          let fileURL = notesDir.appendingPathComponent(note.fileName)
-          let contents = try MarkdownNoteCodec.encode(note)
-          try contents.write(to: fileURL, atomically: true, encoding: .utf8)
+        if !outcome.imported.isEmpty {
+          for (idx, note) in outcome.imported.enumerated() {
+            let fileURL = notesDir.appendingPathComponent(note.fileName)
+            let contents = try MarkdownNoteCodec.encode(note)
+            try contents.write(to: fileURL, atomically: true, encoding: .utf8)
 
-          if idx % 10 == 0 || idx == outcome.imported.count - 1 {
-            await MainActor.run { [weak self] in
-              self?.progressMessage = "Saving \(idx + 1)/\(outcome.imported.count)…"
+            if idx % 10 == 0 || idx == outcome.imported.count - 1 {
+              await MainActor.run { [weak self] in
+                self?.progressMessage = "Saving \(idx + 1)/\(outcome.imported.count)…"
+              }
             }
           }
         }
@@ -513,6 +526,7 @@ extension NotesStore {
           guard let self else { return }
           self.notes = (self.notes + outcome.imported).sorted(by: { $0.date > $1.date })
           self.rebuildNoteIndex()
+          self.mergeImportedNoteTemplates(outcome.templates)
           self.showImportMessage(outcome, emptyMessage: emptyMessage)
           self.checkAndRunBackupIfDue(trigger: .postImport)
           self.isPerformingFileOperation = false
@@ -608,7 +622,7 @@ extension NotesStore {
 
   // Shows the user-facing import result message with consistent formatting across importers.
   private func showImportMessage(_ outcome: ImportOutcome, emptyMessage: String) {
-    if outcome.imported.isEmpty && outcome.skipped > 0 {
+    if outcome.imported.isEmpty && outcome.templates.isEmpty && outcome.skipped > 0 {
       userMessage = (
         text: "No new notes imported. \(outcome.skipped) dates already exist in Scéal.",
         kind: .info
@@ -616,17 +630,24 @@ extension NotesStore {
       return
     }
 
-    guard !outcome.imported.isEmpty else {
+    guard !outcome.imported.isEmpty || !outcome.templates.isEmpty else {
       userMessage = (text: emptyMessage, kind: .info)
       return
     }
 
     var details: [String] = []
     if outcome.skipped > 0 { details.append("\(outcome.skipped) skipped") }
+    if !outcome.templates.isEmpty { details.append("\(outcome.templates.count) templates") }
     if let extraDetail = outcome.extraDetail { details.append(extraDetail) }
 
     let suffix = details.isEmpty ? "" : " (\(details.joined(separator: ", ")))"
-    userMessage = (text: "Imported \(outcome.imported.count) notes.\(suffix)", kind: .info)
-    selectedNoteID = outcome.imported.first?.id
+    if outcome.imported.isEmpty {
+      userMessage = (text: "Imported \(outcome.templates.count) templates.", kind: .info)
+    } else {
+      userMessage = (text: "Imported \(outcome.imported.count) notes.\(suffix)", kind: .info)
+    }
+    if let firstImportedNoteID = outcome.imported.first?.id {
+      selectedNoteID = firstImportedNoteID
+    }
   }
 }

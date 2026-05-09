@@ -3,7 +3,7 @@
 //
 //
 
-// App entry point — owns the NotesStore and configures the main window and settings scene.
+// App entry point — owns the NotesStore and configures app windows.
 
 import SwiftUI
 
@@ -19,11 +19,7 @@ struct ScealApp: App {
     }
     .windowStyle(.hiddenTitleBar)
     .commands {
-      CommandGroup(after: .importExport) {
-        Button("Import from Diarly…") {
-          noteStore.importFromDiarly()
-        }
-      }
+      ScealCommands(noteStore: noteStore)
     }
     .onChange(of: scenePhase) { _, newScenePhase in
       if newScenePhase != .active {
@@ -34,9 +30,30 @@ struct ScealApp: App {
       }
     }
 
-    Settings {
+    Window("Sceal Settings", id: "settings") {
       SettingsRootView(store: noteStore)
         .preferredColorScheme(noteStore.appearanceSettings.preferredColorScheme)
+    }
+    .defaultSize(width: 1080, height: 780)
+  }
+}
+
+private struct ScealCommands: Commands {
+  @Environment(\.openWindow) private var openWindow
+  let noteStore: NotesStore
+
+  var body: some Commands {
+    CommandGroup(replacing: .appSettings) {
+      Button("Settings…") {
+        openWindow(id: "settings")
+      }
+      .keyboardShortcut(",", modifiers: .command)
+    }
+
+    CommandGroup(after: .importExport) {
+      Button("Import from Diarly…") {
+        noteStore.importFromDiarly()
+      }
     }
   }
 }

@@ -11,6 +11,7 @@ enum ScealArchiveExporter {
   // Writes the given notes into a temp directory and zips it, returning the zip URL.
   nonisolated static func exportNotes(
     _ notes: [DayNote],
+    templates: [NoteTemplate] = [],
     attachmentsRootURL: URL? = nil
   ) throws -> URL {
     guard !notes.isEmpty else {
@@ -36,6 +37,8 @@ enum ScealArchiveExporter {
       let contents = try MarkdownNoteCodec.encode(note)
       try contents.write(to: fileURL, atomically: true, encoding: .utf8)
     }
+
+    try NoteTemplateArchive.write(templates, to: stagingDir)
 
     if let sourceAttachmentRootURL = try? NoteImageAttachmentStore.attachmentRootDirectoryURL(
       rootURL: attachmentsRootURL,

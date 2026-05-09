@@ -9,9 +9,15 @@ import UniformTypeIdentifiers
 
 @MainActor
 final class MarkdownEditorTextView: NSTextView {
+  private struct SectionContentRange {
+    let range: NSRange
+    let previousDividerIndex: Int?
+    let nextDividerIndex: Int?
+  }
+
   private struct SectionLayoutSnapshot {
     let dividerLineRanges: [NSRange]
-    let sections: [NSRange]
+    let sections: [SectionContentRange]
     let dividerMidYs: [CGFloat]
   }
 
@@ -19,6 +25,8 @@ final class MarkdownEditorTextView: NSTextView {
   var noteID: DayNote.ID?
   var imageAttachmentRootURL: URL?
   var imageAttachmentFileManager: FileManager = .default
+  var allowsImageAttachments = true
+  var allowsSectionColorEditing = true
 
   // Section card rendering constants.
   private let sectionCardBaseGapOffset: CGFloat = 4
@@ -76,6 +84,20 @@ final class MarkdownEditorTextView: NSTextView {
     }
     return count
   }
+
+  #if DEBUG
+    var debugHasTrailingSectionAfterFinalDivider: Bool {
+      guard let snapshot = sectionLayoutSnapshot(),
+        let lastDividerIndex = snapshot.dividerLineRanges.indices.last,
+        let trailingSection = snapshot.sections.last
+      else {
+        return false
+      }
+
+      return trailingSection.previousDividerIndex == lastDividerIndex
+        && trailingSection.nextDividerIndex == nil
+    }
+  #endif
 
   // Finds a nearby non-divider location to source typing attributes from.
   func typingAttributeSourceLocation(forInsertionLocation location: Int) -> Int? {
@@ -216,17 +238,39 @@ final class MarkdownEditorTextView: NSTextView {
   private func sectionRanges(
     between dividerLineRanges: [NSRange],
     textLength: Int
-  ) -> [NSRange] {
-    var sections: [NSRange] = []
+  ) -> [SectionContentRange] {
+    var sections: [SectionContentRange] = []
     var currentStart = 0
-    for divRange in dividerLineRanges {
+    var previousDividerIndex: Int?
+    for (index, divRange) in dividerLineRanges.enumerated() {
       if divRange.location > currentStart {
-        sections.append(NSRange(location: currentStart, length: divRange.location - currentStart))
+        sections.append(
+          SectionContentRange(
+            range: NSRange(location: currentStart, length: divRange.location - currentStart),
+            previousDividerIndex: previousDividerIndex,
+            nextDividerIndex: index
+          )
+        )
       }
       currentStart = NSMaxRange(divRange)
+      previousDividerIndex = index
     }
     if currentStart < textLength {
-      sections.append(NSRange(location: currentStart, length: textLength - currentStart))
+      sections.append(
+        SectionContentRange(
+          range: NSRange(location: currentStart, length: textLength - currentStart),
+          previousDividerIndex: previousDividerIndex,
+          nextDividerIndex: nil
+        )
+      )
+    } else if let previousDividerIndex {
+      sections.append(
+        SectionContentRange(
+          range: NSRange(location: currentStart, length: 0),
+          previousDividerIndex: previousDividerIndex,
+          nextDividerIndex: nil
+        )
+      )
     }
     return sections
   }
@@ -272,26 +316,24 @@ final class MarkdownEditorTextView: NSTextView {
 
     let viewBottom = max(bounds.height, enclosingScrollView?.contentSize.height ?? bounds.height)
 
-    for (index, sectionRange) in layoutSnapshot.sections.enumerated() {
-      let isLastSection = (index == layoutSnapshot.sections.count - 1)
-      guard editorHasVisibleGlyphs(forCharacterRange: sectionRange) || isLastSection else {
+    for section in layoutSnapshot.sections {
+      let isLastSection = section.nextDividerIndex == nil
+      guard editorHasVisibleGlyphs(forCharacterRange: section.range) || isLastSection else {
         continue
       }
 
       let cardTop: CGFloat
-      if index == 0 {
-        cardTop = 0
+      if let dividerIndex = section.previousDividerIndex {
+        cardTop = layoutSnapshot.dividerMidYs[dividerIndex] + sectionCardGapOffset
       } else {
-        let divIndex = min(index - 1, layoutSnapshot.dividerMidYs.count - 1)
-        cardTop = layoutSnapshot.dividerMidYs[divIndex] + sectionCardGapOffset
+        cardTop = 0
       }
 
       let cardBottom: CGFloat
-      if isLastSection {
-        cardBottom = viewBottom
+      if let dividerIndex = section.nextDividerIndex {
+        cardBottom = layoutSnapshot.dividerMidYs[dividerIndex] - sectionCardGapOffset
       } else {
-        let divIndex = min(index, layoutSnapshot.dividerMidYs.count - 1)
-        cardBottom = layoutSnapshot.dividerMidYs[divIndex] - sectionCardGapOffset
+        cardBottom = viewBottom
       }
 
       let cardRect = NSRect(
@@ -306,7 +348,7 @@ final class MarkdownEditorTextView: NSTextView {
       cardColor.setFill()
       path.fill()
 
-      if index > 0, index - 1 < layoutSnapshot.dividerLineRanges.count {
+      if allowsSectionColorEditing, let dividerIndex = section.previousDividerIndex {
         let iconRect = NSRect(
           x: cardRect.maxX - sectionIconSize - sectionIconPadding,
           y: cardRect.minY + sectionIconPadding,
@@ -314,7 +356,7 @@ final class MarkdownEditorTextView: NSTextView {
           height: sectionIconSize
         )
         let isHovered =
-          hoveredSectionIconLocation == layoutSnapshot.dividerLineRanges[index - 1].location
+          hoveredSectionIconLocation == layoutSnapshot.dividerLineRanges[dividerIndex].location
         drawSectionIcon(in: iconRect, hovered: isHovered)
       }
     }
@@ -722,17 +764,16 @@ final class MarkdownEditorTextView: NSTextView {
 
     addPromptActionTrackingAreas()
 
-    guard let layoutSnapshot = sectionLayoutSnapshot() else { return }
+    guard allowsSectionColorEditing, let layoutSnapshot = sectionLayoutSnapshot() else { return }
 
-    for (index, sectionRange) in layoutSnapshot.sections.enumerated() {
-      guard index > 0, index - 1 < layoutSnapshot.dividerLineRanges.count else { continue }
-      let isLastSection = (index == layoutSnapshot.sections.count - 1)
-      guard editorHasVisibleGlyphs(forCharacterRange: sectionRange) || isLastSection else {
+    for section in layoutSnapshot.sections {
+      guard let dividerIndex = section.previousDividerIndex else { continue }
+      let isLastSection = section.nextDividerIndex == nil
+      guard editorHasVisibleGlyphs(forCharacterRange: section.range) || isLastSection else {
         continue
       }
 
-      let divIndex = min(index - 1, layoutSnapshot.dividerMidYs.count - 1)
-      let cardTop = layoutSnapshot.dividerMidYs[divIndex] + sectionCardGapOffset
+      let cardTop = layoutSnapshot.dividerMidYs[dividerIndex] + sectionCardGapOffset
       let cardWidth = bounds.width - (cardHInset * 2)
 
       let iconRect = NSRect(
@@ -747,7 +788,7 @@ final class MarkdownEditorTextView: NSTextView {
         rect: trackRect,
         options: [.mouseEnteredAndExited, .activeInActiveApp],
         owner: self,
-        userInfo: ["dividerLocation": layoutSnapshot.dividerLineRanges[index - 1].location]
+        userInfo: ["dividerLocation": layoutSnapshot.dividerLineRanges[dividerIndex].location]
       )
       addTrackingArea(area)
       sectionIconTrackingAreas.append(area)
@@ -847,17 +888,18 @@ final class MarkdownEditorTextView: NSTextView {
 
   // Computes fresh icon rects on every call so hit testing never relies on stale cache.
   private func sectionIconHitTest(at point: NSPoint) -> NSRange? {
-    guard let layoutSnapshot = sectionLayoutSnapshot() else { return nil }
+    guard allowsSectionColorEditing, let layoutSnapshot = sectionLayoutSnapshot() else {
+      return nil
+    }
 
-    for (index, sectionRange) in layoutSnapshot.sections.enumerated() {
-      guard index > 0, index - 1 < layoutSnapshot.dividerLineRanges.count else { continue }
-      let isLastSection = (index == layoutSnapshot.sections.count - 1)
-      guard editorHasVisibleGlyphs(forCharacterRange: sectionRange) || isLastSection else {
+    for section in layoutSnapshot.sections {
+      guard let dividerIndex = section.previousDividerIndex else { continue }
+      let isLastSection = section.nextDividerIndex == nil
+      guard editorHasVisibleGlyphs(forCharacterRange: section.range) || isLastSection else {
         continue
       }
 
-      let divIndex = min(index - 1, layoutSnapshot.dividerMidYs.count - 1)
-      let cardTop = layoutSnapshot.dividerMidYs[divIndex] + sectionCardGapOffset
+      let cardTop = layoutSnapshot.dividerMidYs[dividerIndex] + sectionCardGapOffset
       let cardWidth = bounds.width - (cardHInset * 2)
       let iconRect = NSRect(
         x: cardHInset + cardWidth - sectionIconSize - sectionIconPadding,
@@ -867,7 +909,7 @@ final class MarkdownEditorTextView: NSTextView {
       )
       let hitRect = iconRect.insetBy(dx: -sectionIconHitPadding, dy: -sectionIconHitPadding)
       if hitRect.contains(point) {
-        return layoutSnapshot.dividerLineRanges[index - 1]
+        return layoutSnapshot.dividerLineRanges[dividerIndex]
       }
     }
     return nil
@@ -934,6 +976,7 @@ final class MarkdownEditorTextView: NSTextView {
   }
 
   private func storedImageAttachment(from pasteboard: NSPasteboard) -> StoredImageAttachment? {
+    guard allowsImageAttachments else { return nil }
     guard let noteID else { return nil }
 
     if let imageURL = imageFileURLs(from: pasteboard).first {
@@ -1156,7 +1199,10 @@ final class MarkdownEditorTextView: NSTextView {
   }
 
   override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-    pasteboardContainsSupportedImage(sender.draggingPasteboard) == false
+    guard allowsImageAttachments else {
+      return super.draggingEntered(sender)
+    }
+    return pasteboardContainsSupportedImage(sender.draggingPasteboard) == false
       ? super.draggingEntered(sender)
       : .copy
   }

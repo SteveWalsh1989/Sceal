@@ -27,8 +27,10 @@ final class ScealArchiveExporterTests: NotesStoreTestCase {
       try? FileManager.default.removeItem(at: attachmentsRootURL)
     }
 
+    let template = NoteTemplate.starterMeeting
     let archiveURL = try ScealArchiveExporter.exportNotes(
       [note],
+      templates: [template],
       attachmentsRootURL: attachmentsRootURL
     )
     defer {
@@ -56,6 +58,10 @@ final class ScealArchiveExporterTests: NotesStoreTestCase {
           .path
       )
     )
+    let templatesData = try Data(
+      contentsOf: rootURL.appendingPathComponent("Templates/templates.json")
+    )
+    XCTAssertEqual(try JSONDecoder().decode([NoteTemplate].self, from: templatesData), [template])
   }
 
   private func unzipArchive(at archiveURL: URL, to destinationURL: URL) throws {

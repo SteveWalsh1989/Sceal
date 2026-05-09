@@ -58,8 +58,11 @@ import AppKit
   // MARK: - Public API
 
   // Filters commands matching the typed prefix and rebuilds rows.
-  func updateFilter(_ prefix: String) {
-    filteredCommands = EditorSlashCommandHandler.filteredCommands(for: prefix)
+  func updateFilter(_ prefix: String, customTemplates: [NoteTemplate] = []) {
+    filteredCommands = EditorSlashCommandHandler.filteredCommands(
+      for: prefix,
+      customTemplates: customTemplates
+    )
     selectedIndex = 0
     rebuildRows()
   }
@@ -184,6 +187,7 @@ private class SlashCommandRowView: NSView {
     descLabel.font = NSFont.systemFont(ofSize: 11, weight: .regular)
     descLabel.textColor = NSColor(white: 0.6, alpha: 1)
     descLabel.stringValue = entry.description
+    descLabel.isHidden = entry.description.isEmpty
     descLabel.isEditable = false
     descLabel.isBordered = false
     descLabel.drawsBackground = false

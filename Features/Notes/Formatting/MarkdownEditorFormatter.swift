@@ -224,7 +224,13 @@ enum MarkdownEditorFormatter {
   // MARK: - Raw Markdown → Display Attributed String
 
   // Converts raw markdown to a display-ready NSAttributedString with hidden delimiters.
-  static func formatForDisplay(_ rawMarkdown: String, appearance: NoteAppearanceSettings)
+  static func formatForDisplay(
+    _ rawMarkdown: String,
+    appearance: NoteAppearanceSettings,
+    initialSectionHeadingColorName: String? = nil,
+    initialSectionBulletColorName: String? = nil,
+    initialSectionUseSectionColor: Bool = false
+  )
     -> NSAttributedString
   {
     let result = NSMutableAttributedString()
@@ -239,9 +245,9 @@ enum MarkdownEditorFormatter {
     let promptStartRegex = Self.promptBlockStartRegex
     let promptEndRegex = Self.promptBlockEndRegex
     // Per-section color state — applies to content after the most recent divider.
-    var currentSectionHeadingColorName: String? = nil
-    var currentSectionBulletColorName: String? = nil
-    var currentSectionUseSectionColor = false
+    var currentSectionHeadingColorName = initialSectionHeadingColorName
+    var currentSectionBulletColorName = initialSectionBulletColorName
+    var currentSectionUseSectionColor = initialSectionUseSectionColor
     // Newlines must carry real attributes so NSTextView never inherits bare system defaults.
     let newlineAttrs = baseTypingAttributes(for: appearance)
     // Track when we just emitted a section divider so we can collapse trailing blank lines.

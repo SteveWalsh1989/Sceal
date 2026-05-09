@@ -61,6 +61,7 @@ final class NotesStore: ObservableObject {
   @Published private(set) var appearanceSettings: NoteAppearanceSettings
   @Published private(set) var continuousSpellCheckingEnabled: Bool
   @Published private(set) var newNoteDefault: NewNoteDefault
+  @Published var noteTemplates: [NoteTemplate]
   @Published var selectedNoteID: DayNote.ID? {
     didSet {
       guard sidebarMode == .calendar else { return }
@@ -161,6 +162,7 @@ final class NotesStore: ObservableObject {
       from: userDefaults
     )
     self.newNoteDefault = Self.loadNewNoteDefault(from: userDefaults)
+    self.noteTemplates = Self.loadNoteTemplates(from: userDefaults)
     self.backupSettings = loadedBackupSettings
     self.backupHealth = loadedBackupSettings.isConfigured ? .healthy : .notConfigured
     self.calendarBrowseYear = currentYear
