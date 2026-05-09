@@ -4,8 +4,6 @@ Scéal is a local-first macOS notes app for daily writing, planning, and reusabl
 
 It stores notes as markdown on your Mac, then adds a native editor on top: visual sections, slash commands, reusable templates, prompt blocks with one-click copy, editable tables, checkboxes, images, and per-section colour.
 
-<img width="1463" height="921" alt="image" src="https://github.com/user-attachments/assets/a92e5692-053d-463a-965f-528b7b316e7f" />
-
 ## What Scéal is
 
 - Daily notes for journaling, reflection, planning, and end-of-day capture
@@ -14,6 +12,8 @@ It stores notes as markdown on your Mac, then adds a native editor on top: visua
 - Search across titles, tags, and note content
 - Local markdown storage under `~/Library/Application Support/Sceal/`
 - Import, export, backup, and restore tools for keeping ownership of your notes
+
+<img width="1463" height="921" alt="image" src="https://github.com/user-attachments/assets/a92e5692-053d-463a-965f-528b7b316e7f" />
 
 ## Editor features
 
@@ -52,8 +52,6 @@ Section colour can be edited directly in the note, and templates can apply a sin
 
 <img width="1361" height="645" alt="image" src="https://github.com/user-attachments/assets/aafcbadf-ee73-419d-a232-02d0ac682be2" />
 
-
-
 ## Reusable templates
 
 Templates are custom slash commands managed from Settings. They are useful for repeated structures such as meetings, daily reviews, project updates, planning notes, or prompt libraries.
@@ -77,7 +75,6 @@ Use `/prompt` to insert a prompt block, edit it inline, copy the full prompt wit
 
 <img width="1094" height="296" alt="image" src="https://github.com/user-attachments/assets/2af1bda7-1645-4ae4-9f3c-6b4e11323afd" />
 
-
 ## Tables
 
 Use `/table` to insert a table without leaving the editor. Tables support editable cells, row and column actions, optional headers, full-width layout, and manual column resizing.
@@ -85,8 +82,6 @@ Use `/table` to insert a table without leaving the editor. Tables support editab
 Tables are stored in Scéal's markdown-backed document format so they remain part of the note file while still behaving like rich editor blocks inside the app.
 
 ## Personalisation
-
-<img width="849" height="803" alt="image" src="https://github.com/user-attachments/assets/ec5d63af-1554-4146-9a27-2fb4f432c012" />
 
 - Choose the writing font
 - Adjust body text size and sidebar text size
@@ -98,6 +93,8 @@ Tables are stored in Scéal's markdown-backed document format so they remain par
 - Change the sidebar date format
 - Hide weekends in the calendar
 - Enable or disable spell checking while typing
+
+<img width="849" height="803" alt="image" src="https://github.com/user-attachments/assets/ec5d63af-1554-4146-9a27-2fb4f432c012" />
 
 ## Local data and portability
 
