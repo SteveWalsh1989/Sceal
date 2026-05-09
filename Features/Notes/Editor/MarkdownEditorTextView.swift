@@ -40,6 +40,7 @@ final class MarkdownEditorTextView: NSTextView {
   var imageAttachmentFileManager: FileManager = .default
   var allowsImageAttachments = true
   var allowsSectionColorEditing = true
+  var onPromptCopied: (() -> Void)?
 
   // Section card rendering constants.
   private let sectionCardBaseGapOffset: CGFloat = 4
@@ -788,7 +789,9 @@ final class MarkdownEditorTextView: NSTextView {
   private func copyPromptBlock(in range: NSRange, textStorage: NSTextStorage) {
     let promptText = promptBlockText(in: range, textStorage: textStorage)
     NSPasteboard.general.clearContents()
-    NSPasteboard.general.setString(promptText, forType: .string)
+    if NSPasteboard.general.setString(promptText, forType: .string) {
+      onPromptCopied?()
+    }
   }
 
   // Deletes a whole prompt block, including hidden boundary markers and its content.

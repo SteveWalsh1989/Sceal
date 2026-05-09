@@ -237,6 +237,8 @@ extension NotesStore {
           self.progressMessage = nil
           if trigger == .manual || trigger == .locationConfigured {
             self.userMessage = (text: "Backup complete.", kind: .info)
+          } else if trigger != .postImport {
+            self.userMessage = (text: "Automatic backup complete.", kind: .info)
           }
           self.refreshBackupHealth(now: backupDate)
         }

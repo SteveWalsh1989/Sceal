@@ -32,6 +32,7 @@ struct MarkdownEditorView: NSViewRepresentable {
   var allowsSectionColorEditing: Bool = true
   var appliesTemplateSectionColorOverride: Bool = false
   var templateSectionColorName: String? = nil
+  var onPromptCopied: (() -> Void)? = nil
 
   func makeCoordinator() -> Coordinator {
     Coordinator(parent: self)
@@ -186,6 +187,9 @@ struct MarkdownEditorView: NSViewRepresentable {
       allowsSectionColorEditing: allowsSectionColorEditing,
       delegate: coordinator
     )
+    if let interactiveTextView = textView as? MarkdownEditorTextView {
+      interactiveTextView.onPromptCopied = onPromptCopied
+    }
   }
 
   private func displayMarkdownForEditor(_ markdown: String) -> String {

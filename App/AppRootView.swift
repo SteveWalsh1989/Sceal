@@ -12,6 +12,8 @@ struct AppRootView: View {
   @State private var notePendingDeletionID: DayNote.ID?
   @State private var notePendingDateChangeID: DayNote.ID?
   @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
+  @State private var transientToast: AppToastMessage?
+  @State private var transientToastDismissTask: Task<Void, Never>?
 
   // Prevents app-hosted unit tests from loading real user data into the test runner.
   private let isRunningUnitTests =
@@ -31,7 +33,8 @@ struct AppRootView: View {
           NotesEditorView(
             store: store,
             noteID: activeNoteID,
-            sidebarCollapsed: columnVisibility == .detailOnly
+            sidebarCollapsed: columnVisibility == .detailOnly,
+            showToast: showToast
           ) { noteID in
             notePendingDeletionID = noteID
           }
@@ -93,14 +96,6 @@ struct AppRootView: View {
         }
       )
     }
-    .overlay(alignment: .top) {
-      if let message = store.userMessage {
-        ErrorBanner(message: message.text, kind: message.kind) {
-          store.dismissMessage()
-        }
-        .padding(.top, 12)
-      }
-    }
     .overlay(alignment: .center) {
       if store.isPerformingFileOperation {
         ZStack {
@@ -121,6 +116,29 @@ struct AppRootView: View {
           .shadow(radius: 16)
         }
       }
+    }
+    .overlay(alignment: .bottomTrailing) {
+      VStack(alignment: .trailing, spacing: 8) {
+        if let message = store.userMessage {
+          AppToastView(message: message.text, kind: message.kind) {
+            store.dismissMessage()
+          }
+          .transition(.move(edge: .trailing).combined(with: .opacity))
+        }
+
+        if let transientToast {
+          AppToastView(message: transientToast.text, kind: transientToast.kind)
+            .transition(.move(edge: .trailing).combined(with: .opacity))
+        }
+      }
+      .frame(maxWidth: 360, alignment: .trailing)
+      .padding(.trailing, 18)
+      .padding(.bottom, 18)
+    }
+    .animation(.spring(response: 0.28, dampingFraction: 0.9), value: store.userMessage?.text)
+    .animation(.spring(response: 0.28, dampingFraction: 0.9), value: transientToast?.id)
+    .onDisappear {
+      transientToastDismissTask?.cancel()
     }
   }
 
@@ -156,11 +174,34 @@ struct AppRootView: View {
   private var editorBackgroundColor: Color {
     store.appearanceSettings.resolvedColors.editorBackground.color
   }
+
+  // Shows short-lived local feedback for AppKit-hosted controls inside the editor.
+  private func showToast(_ message: String, kind: UserMessageKind) {
+    transientToastDismissTask?.cancel()
+
+    let toast = AppToastMessage(text: message, kind: kind)
+    transientToast = toast
+
+    transientToastDismissTask = Task { @MainActor in
+      try? await Task.sleep(nanoseconds: 1_800_000_000)
+      guard !Task.isCancelled, transientToast?.id == toast.id else { return }
+
+      withAnimation(.easeOut(duration: 0.18)) {
+        transientToast = nil
+      }
+    }
+  }
 }
 
 private struct DateChangeContext: Identifiable {
   let id: DayNote.ID
   let date: Date
+}
+
+private struct AppToastMessage: Identifiable, Equatable {
+  let id = UUID()
+  let text: String
+  let kind: UserMessageKind
 }
 
 private struct ChangeDateSheet: View {
@@ -206,27 +247,48 @@ private struct ChangeDateSheet: View {
   }
 }
 
-private struct ErrorBanner: View {
+private struct AppToastView: View {
   let message: String
   let kind: UserMessageKind
-  let dismiss: () -> Void
+  var dismiss: (() -> Void)?
 
   var body: some View {
     HStack(spacing: 12) {
-      Image(systemName: kind == .error ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
-        .foregroundStyle(kind == .error ? .orange : .green)
+      Image(systemName: iconName)
+        .font(.system(size: 14, weight: .semibold))
+        .foregroundStyle(iconColor)
 
       Text(message)
         .font(.callout)
-        .lineLimit(2)
+        .lineLimit(3)
+        .fixedSize(horizontal: false, vertical: true)
 
-      Button("Dismiss", action: dismiss)
-        .buttonStyle(.borderedProminent)
-        .controlSize(.small)
+      if let dismiss {
+        Button(action: dismiss) {
+          Image(systemName: "xmark")
+            .font(.system(size: 11, weight: .semibold))
+            .frame(width: 20, height: 20)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .accessibilityLabel("Dismiss")
+      }
     }
     .padding(.horizontal, 14)
     .padding(.vertical, 10)
-    .background(.regularMaterial, in: Capsule())
+    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    .overlay {
+      RoundedRectangle(cornerRadius: 12, style: .continuous)
+        .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+    }
     .shadow(color: Color.black.opacity(0.12), radius: 18, y: 8)
+  }
+
+  private var iconName: String {
+    kind == .error ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
+  }
+
+  private var iconColor: Color {
+    kind == .error ? .orange : .green
   }
 }

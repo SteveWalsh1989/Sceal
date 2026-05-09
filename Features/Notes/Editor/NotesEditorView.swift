@@ -12,6 +12,7 @@ struct NotesEditorView: View {
   @ObservedObject var store: NotesStore
   let noteID: DayNote.ID
   var sidebarCollapsed: Bool
+  var showToast: (String, UserMessageKind) -> Void = { _, _ in }
   let requestDelete: (DayNote.ID) -> Void
 
   @State private var isShowingAppearancePopover = false
@@ -131,7 +132,10 @@ struct NotesEditorView: View {
             appearanceSettings: store.appearanceSettings,
             continuousSpellCheckingEnabled: store.continuousSpellCheckingEnabled,
             searchText: isListMode ? store.listSearchText : store.searchText,
-            customSlashTemplates: store.enabledSlashCommandTemplates()
+            customSlashTemplates: store.enabledSlashCommandTemplates(),
+            onPromptCopied: {
+              showToast("Copied", .info)
+            }
           )
         }
         .background(
