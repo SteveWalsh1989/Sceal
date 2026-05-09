@@ -14,7 +14,6 @@ struct SettingsTemplatesView: View {
   @State private var templateListDragStartWidth: CGFloat?
 
   private let collapsedTemplateListWidth: CGFloat = 44
-  private let defaultTemplateListWidth: CGFloat = 180
   private let minimumTemplateListWidth: CGFloat = 150
   private let maximumTemplateListWidth: CGFloat = 420
   private let minimumTemplateDetailWidth: CGFloat = 360

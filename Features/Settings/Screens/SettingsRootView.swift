@@ -11,17 +11,25 @@ import SwiftUI
 struct SettingsRootView: View {
   @ObservedObject var store: NotesStore
   @State private var selectedSection: SettingsSection = .appearance
+  @AppStorage("settings.sidebarWidth") private var settingsSidebarWidth = 180.0
+  @State private var settingsSidebarDragStartWidth: CGFloat?
+
+  private let minimumSettingsSidebarWidth: CGFloat = 160
+  private let maximumSettingsSidebarWidth: CGFloat = 280
+  private let minimumSettingsDetailWidth: CGFloat = 520
+  private let settingsSidebarResizeHandleWidth: CGFloat = 6
 
   var body: some View {
-    NavigationSplitView {
-      List(SettingsSection.allCases, selection: $selectedSection) { section in
-        Label(section.title, systemImage: section.systemImage)
-          .tag(section)
+    GeometryReader { proxy in
+      HStack(spacing: 0) {
+        settingsSidebar
+          .frame(width: resolvedSettingsSidebarWidth(totalWidth: proxy.size.width))
+
+        settingsSidebarResizeHandle(totalWidth: proxy.size.width)
+
+        detailView
+          .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
       }
-      .navigationSplitViewColumnWidth(min: 160, ideal: 180, max: 220)
-    } detail: {
-      detailView
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
     .frame(
       minWidth: 760,
@@ -32,6 +40,14 @@ struct SettingsRootView: View {
       maxHeight: .infinity
     )
     .background(SettingsWindowConfigurator())
+  }
+
+  private var settingsSidebar: some View {
+    List(SettingsSection.allCases, selection: $selectedSection) { section in
+      Label(section.title, systemImage: section.systemImage)
+        .tag(section)
+    }
+    .listStyle(.sidebar)
   }
 
   // Returns the settings detail view for the current sidebar selection.
@@ -55,6 +71,46 @@ struct SettingsRootView: View {
         SettingsDeveloperView(store: store)
     #endif
     }
+  }
+
+  private func resolvedSettingsSidebarWidth(totalWidth: CGFloat) -> CGFloat {
+    clampedSettingsSidebarWidth(CGFloat(settingsSidebarWidth), totalWidth: totalWidth)
+  }
+
+  private func clampedSettingsSidebarWidth(_ proposedWidth: CGFloat, totalWidth: CGFloat) -> CGFloat
+  {
+    let availableWidth = totalWidth - minimumSettingsDetailWidth - settingsSidebarResizeHandleWidth
+    let maximumWidth = min(
+      maximumSettingsSidebarWidth, max(minimumSettingsSidebarWidth, availableWidth))
+    return min(max(proposedWidth, minimumSettingsSidebarWidth), maximumWidth)
+  }
+
+  private func settingsSidebarResizeHandle(totalWidth: CGFloat) -> some View {
+    Rectangle()
+      .fill(Color.primary.opacity(0.001))
+      .frame(width: settingsSidebarResizeHandleWidth)
+      .overlay {
+        Rectangle()
+          .fill(Color.primary.opacity(0.14))
+          .frame(width: 1)
+      }
+      .contentShape(Rectangle())
+      .gesture(
+        DragGesture(minimumDistance: 0)
+          .onChanged { value in
+            let startWidth =
+              settingsSidebarDragStartWidth ?? resolvedSettingsSidebarWidth(totalWidth: totalWidth)
+            settingsSidebarDragStartWidth = startWidth
+            settingsSidebarWidth = Double(
+              clampedSettingsSidebarWidth(
+                startWidth + value.translation.width, totalWidth: totalWidth)
+            )
+          }
+          .onEnded { _ in
+            settingsSidebarDragStartWidth = nil
+          }
+      )
+      .help("Resize settings sidebar")
   }
 }
 
