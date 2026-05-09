@@ -50,7 +50,7 @@ Sections are more than separators. A section can carry colour through the headin
 
 Section colour can be edited directly in the note, and templates can apply a single section colour when they are inserted.
 
-<img width="1361" height="645" alt="image" src="https://github.com/user-attachments/assets/aafcbadf-ee73-419d-a232-02d0ac682be2" />
+<img width="1359" height="536" alt="image" src="https://github.com/user-attachments/assets/dce13b32-0a1d-48a0-822a-7d300f1855b0" />
 
 ## Reusable templates
 
