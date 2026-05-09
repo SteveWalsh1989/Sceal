@@ -1,17 +1,104 @@
 # Scéal
 
-Scéal is a local-first macOS notes app built to make everyday writing feel beautiful.
+Scéal is a local-first macOS notes app for daily writing, planning, and reusable working notes.
 
-It is for people who want more than a blank editor, but less than an overbuilt workspace app. Scéal gives you a focused place to journal, think, plan, and collect ideas, while still making your notes feel structured, expressive, and fully your own.
+It stores notes as markdown on your Mac, then adds a native editor on top: visual sections, slash commands, reusable templates, prompt blocks with one-click copy, editable tables, checkboxes, images, and per-section colour.
 
-## Requirements
+<img width="1463" height="921" alt="image" src="https://github.com/user-attachments/assets/a92e5692-053d-463a-965f-528b7b316e7f" />
 
-- macOS 14 or newer
-- Xcode installed locally when building from source
+## What Scéal is
 
-## Data ownership
+- Daily notes for journaling, reflection, planning, and end-of-day capture
+- Freeform list notes for projects, reference material, and longer-running ideas
+- Calendar and list views for moving between recent writing and older entries
+- Search across titles, tags, and note content
+- Local markdown storage under `~/Library/Application Support/Sceal/`
+- Import, export, backup, and restore tools for keeping ownership of your notes
 
-Scéal stores notes locally under `~/Library/Application Support/Sceal/`.
+## Editor features
+
+Scéal keeps the underlying notes markdown-based, but the editor renders common structures into a cleaner writing surface.
+
+- Headings, bullet lists, numbered lists, checkboxes, links, quotes, inline formatting, and fenced code blocks
+- Visual section dividers for splitting longer notes into readable blocks
+- Per-section colours for headings, bullets, and checkboxes
+- Prompt blocks that keep reusable instructions beside the rest of the note, with Copy and delete controls
+- Editable table blocks with row and column controls, header toggling, full-width mode, and resizable columns
+- Image attachments stored alongside the note library
+- Paste handling for links, markdown, images, and table-like content
+
+## Slash commands
+
+Type `/` in the editor to insert structure without leaving the keyboard.
+
+| Command | Inserts |
+| --- | --- |
+| `/div` | Visual section divider |
+| `/heading-1` | Level 1 heading |
+| `/heading-2` | Level 2 heading |
+| `/heading-3` | Level 3 heading |
+| `/code` | Fenced code block |
+| `/prompt` | Copyable prompt block |
+| `/table` | Editable table |
+| Custom template commands | User-created note structures, such as `/meeting` |
+
+Scéal also supports `/section` as a divider alias for notes or habits that already use that wording.
+
+## Sections and colour
+
+Sections are more than separators. A section can carry colour through the headings, bullets, and checkboxes that belong to it, which makes long notes easier to scan without turning the editor into a design tool.
+
+Section colour can be edited directly in the note, and templates can apply a single section colour when they are inserted.
+
+## Reusable templates
+
+Templates are custom slash commands managed from Settings. They are useful for repeated structures such as meetings, daily reviews, project updates, planning notes, or prompt libraries.
+
+- Give each template a title, slash command, and optional menu description
+- Build the template content in a compact version of the note editor
+- Choose whether insertion starts or ends with a section divider
+- Apply one section colour across the inserted template
+- Pick where the cursor lands after insertion, such as after the first heading or on the first empty bullet
+- Use a template as the default for new notes, alongside blank notes and copying the previous note
+
+For example, a Meeting template can be inserted with `/meeting`, add a `Meeting:` heading, create empty bullets, and leave the cursor where the next detail should be typed.
+
+## Prompt blocks
+
+Prompt blocks are for reusable instructions that belong inside a note: summary prompts, review prompts, research prompts, rewrite instructions, or any repeatable text you want to keep close to the surrounding context.
+
+Use `/prompt` to insert a prompt block, edit it inline, copy the full prompt with one click, then delete the block when it is no longer needed.
+
+## Tables
+
+Use `/table` to insert a table without leaving the editor. Tables support editable cells, row and column actions, optional headers, full-width layout, and manual column resizing.
+
+Tables are stored in Scéal's markdown-backed document format so they remain part of the note file while still behaving like rich editor blocks inside the app.
+
+## Personalisation
+
+<img width="849" height="803" alt="image" src="https://github.com/user-attachments/assets/ec5d63af-1554-4146-9a27-2fb4f432c012" />
+
+- Choose the writing font
+- Adjust body text size and sidebar text size
+- Fine-tune line height, list spacing, bullet size, and section gap spacing
+- Pick from built-in light and dark themes
+- Set the accent colour used throughout the app
+- Customise interface colours including the editor background, sidebar, cards, divider styling, and note borders
+- Choose whether tags appear in the sidebar
+- Change the sidebar date format
+- Hide weekends in the calendar
+- Enable or disable spell checking while typing
+
+## Local data and portability
+
+Scéal is built around local ownership rather than cloud-first storage.
+
+- Notes are stored locally on your Mac
+- Date-range export and full-library export are built in
+- Full-library restore validates the archive and writes a pre-restore safety backup
+- Local backups are supported
+- Import from Markdown folders, Scéal exports, Diarly, and Day One is supported
 
 Public docs:
 
@@ -25,77 +112,10 @@ Public docs:
 
 Support is still release-route dependent: GitHub Issues for an open-source release, support email or form for website/direct download, or a Support URL/contact page for Mac App Store.
 
+## Requirements
 
-<img width="1463" height="921" alt="image" src="https://github.com/user-attachments/assets/a92e5692-053d-463a-965f-528b7b316e7f" />
-
-
-## A notes app that feels crafted
-
-Scéal is designed around a simple idea: writing tools should disappear when you need focus, but still give you enough shape and personality to make the experience enjoyable.
-
-That means daily notes that are easy to return to, freeform notes that are flexible enough for real use, and an editor that feels far more intentional than a plain markdown field.
-
-## What can Scéal do
-
-- Daily notes give journaling and reflection a natural home without adding friction
-- Calendar and list views make it easy to move between recent writing and older entries
-- Freeform list notes give you space for ideas, planning, working notes, and long-running reference material
-- Search keeps your notes useful over time instead of letting them disappear into an archive
-- Local-first storage keeps your writing on your Mac and under your control
-
-## A richer writing experience
-
-Scéal is built to make writing feel clearer, more visual, and more rewarding.
-
-- Markdown-based editing with support for headings, lists, checkboxes, links, quotes, code blocks, and inline formatting
-- Visual section dividers that break long notes into cleaner, more readable sections
-- Slash commands for quickly inserting dividers, headings, code blocks, reusable templates, and copy-ready prompt areas without breaking writing flow
-- Prompt areas give reusable prompts a polished, growing text box with quick Copy and delete controls
-- Section-level styling that lets headings, bullets, and checkboxes carry their own colour identity
-- A note editor that feels polished and expressive rather than raw and mechanical
-
-This is one of the things that makes Scéal stand out: it does not just store text well, it helps your notes look and feel better while you are writing them.
-
-## Reusable note templates
-
-Scéal lets you create custom slash-command templates from Settings, so repeated note structures can be inserted without rebuilding them by hand.
-
-- Give each template a title, slash command, and optional menu description
-- Build the template content in a compact version of the note editor
-- Use a single template colour for the sections created by that template
-- Choose whether the inserted template starts or ends with a section divider
-- Pick where the cursor lands after insertion, such as after the first heading or on the first empty bullet
-- Use templates as new-note defaults, alongside blank notes and copying the previous note
-
-For example, a Meeting template can be inserted with `/meeting`, start a new visual section, add a `Meeting:` heading, include empty bullet points, and finish with a divider ready for the next section.
-
-## Personalisation that actually matters
-
-Scéal is not locked into a single look. It gives you meaningful control over how the app feels day to day.
-
-<img width="849" height="803" alt="image" src="https://github.com/user-attachments/assets/ec5d63af-1554-4146-9a27-2fb4f432c012" />
-
-
-- Choose the writing font that suits you
-- Adjust body text size and sidebar text size
-- Fine-tune line height, list spacing, bullet size, and section gap spacing
-- Pick from built-in light and dark themes
-- Set the accent colour used throughout the app
-- Customise core interface colours including the editor background, sidebar, cards, divider styling, and note borders
-- Choose whether tags appear in the sidebar
-- Change the sidebar date format
-
-The result is an app that can feel minimal, warm, sharp, soft, dense, airy, dark, light, or somewhere in between. 
-
-## Built for ownership
-
-Scéal is for people who do not want their notes trapped inside a cloud-first product.
-
-- Notes are stored locally
-- Date-range export and full-library export are built in
-- Full-library restore validates the archive and writes a pre-restore safety backup
-- Local backups are supported
-- Import from Markdown folders, Scéal exports, Diarly, and Day One is supported
+- macOS 14 or newer
+- Xcode installed locally when building from source
 
 ## Build the app locally
 
@@ -119,5 +139,6 @@ To install it locally, drag `dist/Sceal.app` into `/Applications`.
 ## Technical details
 
 - Native macOS app
+- SwiftUI and AppKit editor implementation
 - Local-first storage
 - Notes are stored as markdown on disk
