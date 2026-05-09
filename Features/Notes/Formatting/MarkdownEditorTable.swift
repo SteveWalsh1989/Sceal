@@ -12,6 +12,7 @@ struct MarkdownEditorTable: Equatable, Hashable {
 
   var runtimeID: String
   var hasHeader: Bool
+  var isFullWidth = false
   var columnWidths: [CGFloat]
   var rows: [[String]]
 
@@ -29,6 +30,7 @@ struct MarkdownEditorTable: Equatable, Hashable {
     return MarkdownEditorTable(
       runtimeID: UUID().uuidString,
       hasHeader: false,
+      isFullWidth: false,
       columnWidths: Array(repeating: defaultColumnWidth, count: safeColumns),
       rows: Array(
         repeating: Array(repeating: "", count: safeColumns),
@@ -54,6 +56,7 @@ struct MarkdownEditorTable: Equatable, Hashable {
     return MarkdownEditorTable(
       runtimeID: runtimeID,
       hasHeader: hasHeader,
+      isFullWidth: isFullWidth,
       columnWidths: safeWidths,
       rows: safeRows
     )
@@ -73,6 +76,81 @@ struct MarkdownEditorTable: Equatable, Hashable {
   nonisolated static func clampedColumnWidth(_ width: CGFloat) -> CGFloat {
     max(width, minimumColumnWidth)
   }
+
+  nonisolated func constrained(toAvailableWidth availableWidth: CGFloat?) -> MarkdownEditorTable {
+    var normalized = normalized()
+    guard let availableWidth,
+      availableWidth.isFinite,
+      availableWidth > 0
+    else { return normalized }
+
+    let currentWidth = normalized.columnWidths.reduce(0, +)
+    if normalized.isFullWidth {
+      normalized.columnWidths = Self.scaledColumnWidths(
+        normalized.columnWidths,
+        toTotalWidth: availableWidth
+      )
+    } else if currentWidth > availableWidth {
+      normalized.columnWidths = Self.scaledColumnWidths(
+        normalized.columnWidths,
+        toTotalWidth: availableWidth
+      )
+    }
+    return normalized
+  }
+
+  private nonisolated static func scaledColumnWidths(
+    _ widths: [CGFloat],
+    toTotalWidth totalWidth: CGFloat
+  ) -> [CGFloat] {
+    guard !widths.isEmpty else { return [] }
+    let safeTotalWidth = max(totalWidth, CGFloat(widths.count))
+    let minimumTotalWidth = minimumColumnWidth * CGFloat(widths.count)
+    if safeTotalWidth <= minimumTotalWidth {
+      return Array(repeating: safeTotalWidth / CGFloat(widths.count), count: widths.count)
+    }
+
+    var result = Array(repeating: CGFloat(0), count: widths.count)
+    var unresolvedIndices = Array(widths.indices)
+    var remainingWidth = safeTotalWidth
+
+    while !unresolvedIndices.isEmpty {
+      let unresolvedTotal = unresolvedIndices.reduce(CGFloat(0)) { total, index in
+        total + widths[index]
+      }
+      guard unresolvedTotal > 0 else {
+        let equalWidth = remainingWidth / CGFloat(unresolvedIndices.count)
+        for index in unresolvedIndices {
+          result[index] = equalWidth
+        }
+        break
+      }
+
+      var nextUnresolvedIndices: [Int] = []
+      var pinnedWidth: CGFloat = 0
+      for index in unresolvedIndices {
+        let scaledWidth = widths[index] / unresolvedTotal * remainingWidth
+        if scaledWidth < minimumColumnWidth {
+          result[index] = minimumColumnWidth
+          pinnedWidth += minimumColumnWidth
+        } else {
+          nextUnresolvedIndices.append(index)
+        }
+      }
+
+      if nextUnresolvedIndices.count == unresolvedIndices.count {
+        for index in unresolvedIndices {
+          result[index] = widths[index] / unresolvedTotal * remainingWidth
+        }
+        break
+      }
+
+      remainingWidth -= pinnedWidth
+      unresolvedIndices = nextUnresolvedIndices
+    }
+
+    return result.map { max($0, 1) }
+  }
 }
 
 struct MarkdownEditorTableCell: Equatable, Hashable {
@@ -82,6 +160,7 @@ struct MarkdownEditorTableCell: Equatable, Hashable {
 
 enum EditorTableAction: Hashable {
   case toggleHeader
+  case toggleFullWidth
   case addColumnBefore
   case addColumnAfter
   case deleteColumn
@@ -153,6 +232,7 @@ enum MarkdownEditorTableMarkdown {
     return MarkdownEditorTable(
       runtimeID: UUID().uuidString,
       hasHeader: header.hasHeader,
+      isFullWidth: header.isFullWidth,
       columnWidths: MarkdownEditorTable.normalizedWidths(
         header.widths,
         columnCount: columnCount
@@ -167,7 +247,7 @@ enum MarkdownEditorTableMarkdown {
       .map { String(Int($0.rounded())) }
       .joined(separator: ",")
     var lines: [String] = [
-      "<!-- sceal-table v:1 columns:\(normalized.columnCount) header:\(normalized.hasHeader) widths:\(widths) -->"
+      "<!-- sceal-table v:1 columns:\(normalized.columnCount) header:\(normalized.hasHeader) fullwidth:\(normalized.isFullWidth) widths:\(widths) -->"
     ]
 
     for (rowIndex, row) in normalized.rows.enumerated() {
@@ -190,7 +270,7 @@ enum MarkdownEditorTableMarkdown {
   }
 
   private static func parseHeader(_ line: String) -> (
-    columns: Int, hasHeader: Bool, widths: [CGFloat]
+    columns: Int, hasHeader: Bool, isFullWidth: Bool, widths: [CGFloat]
   )? {
     guard isStartLine(line) else { return nil }
 
@@ -204,6 +284,7 @@ enum MarkdownEditorTableMarkdown {
 
     var columns = 0
     var hasHeader = false
+    var isFullWidth = false
     var widths: [CGFloat] = []
 
     for token in tokens.dropFirst() {
@@ -211,6 +292,8 @@ enum MarkdownEditorTableMarkdown {
         columns = Int(token.dropFirst("columns:".count)) ?? columns
       } else if token.hasPrefix("header:") {
         hasHeader = token.dropFirst("header:".count) == "true"
+      } else if token.hasPrefix("fullwidth:") {
+        isFullWidth = token.dropFirst("fullwidth:".count) == "true"
       } else if token.hasPrefix("widths:") {
         let widthToken = String(token.dropFirst("widths:".count))
         widths =
@@ -221,7 +304,7 @@ enum MarkdownEditorTableMarkdown {
     }
 
     guard columns > 0 else { return nil }
-    return (columns, hasHeader, widths)
+    return (columns, hasHeader, isFullWidth, widths)
   }
 
   private static func parseCellStart(_ line: String) -> MarkdownEditorTableCell? {

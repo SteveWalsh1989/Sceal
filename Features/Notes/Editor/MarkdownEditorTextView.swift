@@ -258,6 +258,9 @@ final class MarkdownEditorTextView: NSTextView {
     }
 
     ensureEditorLayoutForEntireDocument()
+    if constrainTableBlocksToAvailableWidth(in: textStorage) {
+      ensureEditorLayoutForEntireDocument()
+    }
     var activeIDs = Set<String>()
     let fullRange = NSRange(location: 0, length: textStorage.length)
     textStorage.enumerateAttribute(.markdownTableBlock, in: fullRange, options: []) {
@@ -269,6 +272,7 @@ final class MarkdownEditorTextView: NSTextView {
         let tableRect = self.editorRectInViewCoordinates(forCharacterRange: range)
       else { return }
 
+      let availableWidth = self.availableTableWidth(for: tableRect)
       activeIDs.insert(tableID)
       let tableView =
         self.tableBlockViews[tableID]
@@ -299,7 +303,7 @@ final class MarkdownEditorTextView: NSTextView {
         topInset: toolbarInset,
         leftInset: tableRect.minX - overlayX
       )
-      tableView.update(table: table)
+      tableView.update(table: table, availableWidth: availableWidth)
       self.tableBlockViews[tableID] = tableView
     }
 
@@ -335,6 +339,55 @@ final class MarkdownEditorTextView: NSTextView {
       action,
       relativeTo: MarkdownEditorTableCell(row: row, column: column)
     )
+  }
+
+  private func constrainTableBlocksToAvailableWidth(in textStorage: NSTextStorage) -> Bool {
+    let fullRange = NSRange(location: 0, length: textStorage.length)
+    var updates: [(range: NSRange, table: MarkdownEditorTable)] = []
+    textStorage.enumerateAttribute(.markdownTableBlock, in: fullRange, options: []) {
+      [weak self] value, range, _ in
+      guard let self,
+        value as? Bool == true,
+        range.length > 0
+      else { return }
+      let attrs = textStorage.attributes(at: range.location, effectiveRange: nil)
+      guard let table = attrs[.markdownTableModel] as? MarkdownEditorTable,
+        let tableRect = self.editorRectInViewCoordinates(forCharacterRange: range)
+      else { return }
+
+      let constrainedTable = table.constrained(
+        toAvailableWidth: self.availableTableWidth(for: tableRect)
+      )
+      if constrainedTable != table {
+        updates.append((range, constrainedTable))
+      }
+    }
+
+    guard !updates.isEmpty else { return false }
+    textStorage.beginEditing()
+    for update in updates {
+      MarkdownEditorFormatter.updateTableAttachment(
+        in: textStorage,
+        range: update.range,
+        table: update.table,
+        appearance: appearanceSettings
+      )
+      invalidateEditorLayout(forCharacterRange: update.range)
+    }
+    textStorage.endEditing()
+    setNeedsDisplay(bounds)
+    return true
+  }
+
+  private func availableTableWidth(for tableRect: NSRect) -> CGFloat {
+    let fallbackContentWidth = max(bounds.width - textContainerInset.width * 2, 1)
+    let containerWidth = textContainer?.containerSize.width ?? fallbackContentWidth
+    let contentWidth =
+      containerWidth.isFinite
+      ? min(containerWidth, fallbackContentWidth)
+      : fallbackContentWidth
+    let contentRightEdge = textContainerOrigin.x + max(contentWidth, 1)
+    return max(contentRightEdge - tableRect.minX, 1)
   }
 
   private func removeAllTableBlockViews() {

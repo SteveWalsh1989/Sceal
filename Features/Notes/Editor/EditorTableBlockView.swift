@@ -16,7 +16,7 @@ protocol EditorTableBlockViewDelegate: AnyObject {
 
 @MainActor
 final class EditorTableBlockView: NSView, NSTextViewDelegate {
-  static let minimumOverlayWidth: CGFloat = 220
+  static let minimumOverlayWidth: CGFloat = 240
   static let toolbarReservedHeight: CGFloat = 36
   static let resizeHandleOutset: CGFloat = 8
 
@@ -29,6 +29,7 @@ final class EditorTableBlockView: NSView, NSTextViewDelegate {
   private let toolbarContainer = NSVisualEffectView()
   private let toolbarActions: [EditorTableAction] = [
     .toggleHeader,
+    .toggleFullWidth,
     .addColumnBefore,
     .addColumnAfter,
     .deleteColumn,
@@ -41,6 +42,7 @@ final class EditorTableBlockView: NSView, NSTextViewDelegate {
   private var isHovering = false
   private var isHoveringCell = false
   private var tableContentOrigin = NSPoint.zero
+  private var availableTableWidth: CGFloat?
   private var resizingColumnIndex: Int?
   private var resizeStartX: CGFloat = 0
   private var resizeStartWidths: [CGFloat] = []
@@ -71,8 +73,9 @@ final class EditorTableBlockView: NSView, NSTextViewDelegate {
     nil
   }
 
-  func update(table newTable: MarkdownEditorTable) {
-    let normalized = newTable.normalized()
+  func update(table newTable: MarkdownEditorTable, availableWidth: CGFloat? = nil) {
+    availableTableWidth = availableWidth
+    let normalized = newTable.constrained(toAvailableWidth: availableWidth)
     let oldShape = (table.rows.count, table.columnCount)
     let newShape = (normalized.rows.count, normalized.columnCount)
     table = normalized
@@ -116,6 +119,9 @@ final class EditorTableBlockView: NSView, NSTextViewDelegate {
     case .toggleHeader:
       updated.hasHeader.toggle()
 
+    case .toggleFullWidth:
+      updated.isFullWidth.toggle()
+
     case .addColumnBefore:
       updated = insertingColumn(in: updated, at: target.column)
 
@@ -139,7 +145,7 @@ final class EditorTableBlockView: NSView, NSTextViewDelegate {
       activeCell = clampedCell(row: min(target.row, updated.rows.count - 1), column: target.column)
     }
 
-    table = updated.normalized()
+    table = updated.constrained(toAvailableWidth: availableTableWidth)
     rebuildCells()
     delegate?.tableBlockView(self, didChange: table)
   }
@@ -234,9 +240,12 @@ final class EditorTableBlockView: NSView, NSTextViewDelegate {
     let point = convert(event.locationInWindow, from: nil)
     let delta = point.x - resizeStartX
     var updated = table.normalized()
+    updated.isFullWidth = false
     updated.columnWidths = resizeStartWidths
-    updated.columnWidths[resizingColumnIndex] = MarkdownEditorTable.clampedColumnWidth(
-      resizeStartWidths[resizingColumnIndex] + delta
+    updated.columnWidths[resizingColumnIndex] = resizedColumnWidth(
+      resizeStartWidths[resizingColumnIndex] + delta,
+      at: resizingColumnIndex,
+      in: resizeStartWidths
     )
     table = updated.normalized()
     layoutCells()
@@ -363,6 +372,7 @@ final class EditorTableBlockView: NSView, NSTextViewDelegate {
 
     let buttons: [(EditorTableAction, String, String)] = [
       (.toggleHeader, "tablecells.badge.ellipsis", "Add table header"),
+      (.toggleFullWidth, "arrow.left.and.right", "Toggle full width"),
       (.addColumnBefore, "sidebar.left", "Add column before"),
       (.addColumnAfter, "sidebar.right", "Add column after"),
       (.deleteColumn, "rectangle.badge.minus", "Delete column"),
@@ -626,6 +636,11 @@ final class EditorTableBlockView: NSView, NSTextViewDelegate {
   }
 
   private func updateToolbarState() {
+    if let fullWidthButton = toolbarButtons[.toggleFullWidth] {
+      fullWidthButton.state = table.isFullWidth ? .on : .off
+      fullWidthButton.contentTintColor =
+        table.isFullWidth ? appearanceSettings.accentColor : .secondaryLabelColor
+    }
     toolbarButtons[.deleteColumn]?.isEnabled = table.columnCount > 1
     toolbarButtons[.deleteRow]?.isEnabled = canDeleteRow(activeCell.row, in: table)
   }
@@ -645,6 +660,26 @@ final class EditorTableBlockView: NSView, NSTextViewDelegate {
       }
     }
     return nil
+  }
+
+  private func resizedColumnWidth(
+    _ proposedWidth: CGFloat,
+    at columnIndex: Int,
+    in widths: [CGFloat]
+  ) -> CGFloat {
+    let minimumWidth =
+      availableTableWidth.map { min(MarkdownEditorTable.minimumColumnWidth, $0) }
+      ?? MarkdownEditorTable.minimumColumnWidth
+    let minimumClampedWidth = max(proposedWidth, minimumWidth)
+    guard let availableTableWidth else {
+      return MarkdownEditorTable.clampedColumnWidth(minimumClampedWidth)
+    }
+
+    let otherColumnsWidth = widths.enumerated().reduce(CGFloat(0)) { total, entry in
+      entry.offset == columnIndex ? total : total + entry.element
+    }
+    let availableColumnWidth = max(availableTableWidth - otherColumnsWidth, 1)
+    return max(min(minimumClampedWidth, availableColumnWidth), 1)
   }
 
   private func tableContentRect() -> NSRect {

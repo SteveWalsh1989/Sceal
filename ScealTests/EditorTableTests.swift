@@ -42,6 +42,22 @@ final class EditorTableTests: EditorTestCase {
     XCTAssertEqual(MarkdownEditorFormatter.convertToMarkdown(from: display), markdown)
   }
 
+  func testTableRoundTripPreservesFullWidthState() {
+    let table = MarkdownEditorTable(
+      runtimeID: "test",
+      hasHeader: false,
+      isFullWidth: true,
+      columnWidths: [180, 220],
+      rows: [["Left", "Right"]]
+    )
+    let markdown = MarkdownEditorTableMarkdown.serialize(table)
+
+    let display = MarkdownEditorFormatter.formatForDisplay(markdown, appearance: appearance)
+    let converted = MarkdownEditorFormatter.convertToMarkdown(from: display)
+
+    XCTAssertTrue(converted.contains("fullwidth:true"))
+  }
+
   func testDirectTableSlashCommandInsertsDefaultTableAndBlankParagraph() {
     assertTableSlashCommand(command: "/table", primesSlashPopup: false)
   }
@@ -237,7 +253,7 @@ final class EditorTableTests: EditorTestCase {
     )
 
     let buttons = toolbarButtons(in: tableView)
-    XCTAssertEqual(buttons.count, 7)
+    XCTAssertEqual(buttons.count, 8)
     XCTAssertTrue(buttons.allSatisfy { $0.title.isEmpty })
     XCTAssertTrue(buttons.allSatisfy { $0.image != nil })
     XCTAssertTrue(buttons.allSatisfy { $0.imagePosition == .imageOnly })
@@ -324,6 +340,96 @@ final class EditorTableTests: EditorTestCase {
 
     XCTAssertEqual(tableView.table.columnWidths, [180, 720])
     XCTAssertEqual(MarkdownEditorTable.clampedColumnWidth(1_200), 1_200)
+  }
+
+  func testRightTableBorderResizeIsLimitedToAvailableEditorWidth() {
+    let table = MarkdownEditorTable(
+      runtimeID: "test",
+      hasHeader: false,
+      columnWidths: [180, 180],
+      rows: [["A", "B"]]
+    )
+    let tableView = EditorTableBlockView(table: table, appearanceSettings: appearance)
+    tableView.frame = NSRect(x: 0, y: 0, width: 500, height: 88)
+    let window = NSWindow(
+      contentRect: NSRect(x: 0, y: 0, width: 500, height: 120),
+      styleMask: .borderless,
+      backing: .buffered,
+      defer: false
+    )
+    window.contentView?.addSubview(tableView)
+    tableView.update(table: table, availableWidth: 420)
+    tableView.layoutSubtreeIfNeeded()
+
+    tableView.mouseDown(
+      with: tableMouseEvent(
+        type: .leftMouseDown,
+        location: tableView.convert(NSPoint(x: 360, y: 20), to: nil)
+      )
+    )
+    tableView.mouseDragged(
+      with: tableMouseEvent(
+        type: .leftMouseDragged,
+        location: tableView.convert(NSPoint(x: 900, y: 20), to: nil)
+      )
+    )
+    tableView.mouseUp(
+      with: tableMouseEvent(
+        type: .leftMouseUp,
+        location: tableView.convert(NSPoint(x: 900, y: 20), to: nil)
+      )
+    )
+
+    XCTAssertEqual(tableView.table.columnWidths.reduce(0, +), 420)
+    XCTAssertEqual(tableView.table.columnWidths, [180, 240])
+  }
+
+  func testFullWidthTableActionFillsAvailableEditorWidth() {
+    let table = MarkdownEditorTable(
+      runtimeID: "test",
+      hasHeader: false,
+      columnWidths: [120, 180],
+      rows: [["A", "B"]]
+    )
+    let tableView = EditorTableBlockView(table: table, appearanceSettings: appearance)
+    tableView.update(table: table, availableWidth: 480)
+
+    tableView.apply(.toggleFullWidth)
+
+    XCTAssertTrue(tableView.table.isFullWidth)
+    XCTAssertEqual(tableView.table.columnWidths.reduce(0, +), 480, accuracy: 0.01)
+  }
+
+  func testTableConstrainedToAvailableWidthShrinksProportionally() {
+    let table = MarkdownEditorTable(
+      runtimeID: "test",
+      hasHeader: false,
+      columnWidths: [300, 300],
+      rows: [["A", "B"]]
+    )
+
+    let constrained = table.constrained(toAvailableWidth: 420)
+
+    XCTAssertEqual(constrained.columnWidths.reduce(0, +), 420, accuracy: 0.01)
+    XCTAssertEqual(constrained.columnWidths, [210, 210])
+  }
+
+  func testEditorSyncConstrainsTableToEditorWidth() {
+    let table = MarkdownEditorTable(
+      runtimeID: "test",
+      hasHeader: false,
+      columnWidths: [600, 600],
+      rows: [["A", "B"]]
+    )
+    let fixture = makeEditorFixture(markdown: MarkdownEditorTableMarkdown.serialize(table))
+    let textView = fixture.textView
+
+    textView.syncTableBlockViews()
+
+    XCTAssertLessThanOrEqual(
+      firstTableModel(in: textView).columnWidths.reduce(0, +),
+      textView.bounds.width
+    )
   }
 
   func testEditorHitTestRoutesTableCellClicksToCellTextView() {
@@ -532,6 +638,34 @@ final class EditorTableTests: EditorTestCase {
       return ""
     }
     return tableID
+  }
+
+  private func firstTableModel(
+    in textView: MarkdownEditorTextView,
+    file: StaticString = #filePath,
+    line: UInt = #line
+  ) -> MarkdownEditorTable {
+    guard let textStorage = textView.textStorage else {
+      XCTFail("Expected editor text storage.", file: file, line: line)
+      return MarkdownEditorTable.empty()
+    }
+
+    var table: MarkdownEditorTable?
+    textStorage.enumerateAttribute(
+      .markdownTableModel,
+      in: NSRange(location: 0, length: textStorage.length),
+      options: []
+    ) { value, _, stop in
+      guard let value = value as? MarkdownEditorTable else { return }
+      table = value
+      stop.pointee = true
+    }
+
+    guard let table else {
+      XCTFail("Expected rendered table model.", file: file, line: line)
+      return MarkdownEditorTable.empty()
+    }
+    return table
   }
 
   private func toolbarButtons(in view: NSView) -> [NSButton] {
