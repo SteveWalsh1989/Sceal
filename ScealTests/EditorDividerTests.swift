@@ -54,6 +54,47 @@ final class EditorDividerTests: EditorTestCase {
     )
   }
 
+  // Keeps the active section affordance attached to the divider above the caret.
+  func testCaretInsideSectionResolvesPreviousDividerForActiveIcon() throws {
+    let fixture = makeEditorFixture(
+      markdown: "Intro\n<!-- section -->\nFirst\n<!-- section -->\nSecond")
+    let textView = fixture.textView
+    let textStorage = try XCTUnwrap(textView.textStorage)
+    let dividerRanges = sectionDividerRanges(in: textStorage)
+    let string = textView.string as NSString
+    let firstSectionLocation = string.range(of: "First").location
+    let secondSectionLocation = string.range(of: "Second").location
+
+    XCTAssertEqual(dividerRanges.count, 2)
+    XCTAssertEqual(
+      textView.activeSectionDividerRange(
+        forSelection: NSRange(location: firstSectionLocation, length: 0)),
+      dividerRanges[0]
+    )
+    XCTAssertEqual(
+      textView.activeSectionDividerRange(
+        forSelection: NSRange(location: secondSectionLocation, length: 0)),
+      dividerRanges[1]
+    )
+  }
+
+  // Prevents the active section affordance from appearing outside editable section content.
+  func testActiveSectionIconIgnoresPreDividerContentAndSelections() {
+    let fixture = makeEditorFixture(markdown: "Intro\n<!-- section -->\nFirst")
+    let textView = fixture.textView
+    let string = textView.string as NSString
+    let introLocation = string.range(of: "Intro").location
+    let sectionLocation = string.range(of: "First").location
+
+    XCTAssertNil(
+      textView.activeSectionDividerRange(forSelection: NSRange(location: introLocation, length: 0))
+    )
+    XCTAssertNil(
+      textView.activeSectionDividerRange(
+        forSelection: NSRange(location: sectionLocation, length: 2))
+    )
+  }
+
   // Prevents notes ending in a divider from losing the trailing overscroll card.
   func testEndingWithDividerKeepsTrailingSectionForOverscroll() {
     let fixture = makeEditorFixture(markdown: "Body\n<!-- section -->")
@@ -194,5 +235,28 @@ final class EditorDividerTests: EditorTestCase {
       actual.blueComponent, expected.blueComponent, accuracy: 0.001, file: file, line: line)
     XCTAssertEqual(
       actual.alphaComponent, expected.alphaComponent, accuracy: 0.001, file: file, line: line)
+  }
+
+  // Collects rendered section dividers in document order.
+  private func sectionDividerRanges(
+    in textStorage: NSTextStorage,
+    file: StaticString = #filePath,
+    line: UInt = #line
+  ) -> [NSRange] {
+    let fullRange = NSRange(location: 0, length: textStorage.length)
+    var ranges: [NSRange] = []
+
+    textStorage.enumerateAttribute(.markdownSectionDivider, in: fullRange, options: []) {
+      value,
+      range,
+      _ in
+      guard value as? Bool == true else { return }
+      ranges.append((textStorage.string as NSString).lineRange(for: range))
+    }
+
+    if ranges.isEmpty {
+      XCTFail("Expected rendered section dividers.", file: file, line: line)
+    }
+    return ranges
   }
 }

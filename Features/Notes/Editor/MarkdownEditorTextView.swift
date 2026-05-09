@@ -21,6 +21,19 @@ final class MarkdownEditorTextView: NSTextView {
     let dividerMidYs: [CGFloat]
   }
 
+  private struct SectionCardGeometry {
+    let cardRect: NSRect
+    let previousDividerRange: NSRange?
+  }
+
+  private struct SectionIconGeometry {
+    let dividerRange: NSRange
+    let symbolRect: NSRect
+    let buttonRect: NSRect
+    let hitRect: NSRect
+    let revealRect: NSRect
+  }
+
   var appearanceSettings = NoteAppearanceSettings.default
   var noteID: DayNote.ID?
   var imageAttachmentRootURL: URL?
@@ -61,8 +74,12 @@ final class MarkdownEditorTextView: NSTextView {
   // Section icon rendering and hit testing constants.
   private let sectionIconSize: CGFloat = 18
   private let sectionIconPadding: CGFloat = 24
-  private let sectionIconHitPadding: CGFloat = 8
+  private let sectionIconButtonSize: CGFloat = 36
+  private let sectionIconHitSize: CGFloat = 44
+  private let sectionIconRevealSize = NSSize(width: 120, height: 72)
   private var hoveredSectionIconLocation: Int? = nil
+  private var activeSectionIconLocation: Int? = nil
+  private var isSectionIconCursorPushed = false
   private var sectionIconTrackingAreas: [NSTrackingArea] = []
 
   override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -191,6 +208,7 @@ final class MarkdownEditorTextView: NSTextView {
   // Forces layout recalculation and redraws section card backgrounds.
   func refreshSectionLayout() {
     ensureEditorLayoutForEntireDocument()
+    updateTrackingAreas()
     setNeedsDisplay(bounds)
     enclosingScrollView?.contentView.needsDisplay = true
   }
@@ -215,6 +233,54 @@ final class MarkdownEditorTextView: NSTextView {
       stop.pointee = true
     }
     return result
+  }
+
+  // Resolves the section divider that owns a collapsed editor selection.
+  func activeSectionDividerRange(forSelection range: NSRange) -> NSRange? {
+    guard allowsSectionColorEditing, range.length == 0,
+      let textStorage,
+      let snapshot = sectionLayoutSnapshot()
+    else { return nil }
+
+    let location = min(max(range.location, 0), textStorage.length)
+    guard let section = sectionContentRange(containing: location, in: snapshot),
+      let dividerIndex = section.previousDividerIndex
+    else { return nil }
+
+    return snapshot.dividerLineRanges[dividerIndex]
+  }
+
+  // Updates the caret-driven visible section color affordance.
+  func updateActiveSectionIcon(forSelection range: NSRange) {
+    let newLocation = activeSectionDividerRange(forSelection: range)?.location
+    guard activeSectionIconLocation != newLocation else { return }
+
+    activeSectionIconLocation = newLocation
+    setNeedsDisplay(bounds)
+  }
+
+  // Reports whether a divider's icon should be shown from hover or caret activity.
+  private func sectionIconIsRevealed(for dividerRange: NSRange) -> Bool {
+    hoveredSectionIconLocation == dividerRange.location
+      || activeSectionIconLocation == dividerRange.location
+  }
+
+  // Finds the rendered section content range that contains a collapsed selection.
+  private func sectionContentRange(
+    containing location: Int,
+    in snapshot: SectionLayoutSnapshot
+  ) -> SectionContentRange? {
+    snapshot.sections.first { section in
+      if section.range.length == 0 {
+        return location == section.range.location
+      }
+
+      if NSLocationInRange(location, section.range) {
+        return true
+      }
+
+      return section.nextDividerIndex == nil && location == NSMaxRange(section.range)
+    }
   }
 
   // MARK: - Section Layout Snapshot
@@ -295,6 +361,93 @@ final class MarkdownEditorTextView: NSTextView {
     )
   }
 
+  // Resolves card rectangles once so drawing, hover, and click targets share the same layout.
+  private func sectionCardGeometries(in snapshot: SectionLayoutSnapshot) -> [SectionCardGeometry] {
+    let viewBottom = max(bounds.height, enclosingScrollView?.contentSize.height ?? bounds.height)
+
+    return snapshot.sections.compactMap { section in
+      let isLastSection = section.nextDividerIndex == nil
+      guard editorHasVisibleGlyphs(forCharacterRange: section.range) || isLastSection else {
+        return nil
+      }
+
+      let cardTop: CGFloat
+      if let dividerIndex = section.previousDividerIndex {
+        cardTop = snapshot.dividerMidYs[dividerIndex] + sectionCardGapOffset
+      } else {
+        cardTop = 0
+      }
+
+      let cardBottom: CGFloat
+      if let dividerIndex = section.nextDividerIndex {
+        cardBottom = snapshot.dividerMidYs[dividerIndex] - sectionCardGapOffset
+      } else {
+        cardBottom = viewBottom
+      }
+
+      let previousDividerRange = section.previousDividerIndex.map {
+        snapshot.dividerLineRanges[$0]
+      }
+      let cardRect = NSRect(
+        x: cardHInset,
+        y: cardTop,
+        width: bounds.width - (cardHInset * 2),
+        height: max(cardBottom - cardTop, 0)
+      )
+
+      guard cardRect.height > 0 else { return nil }
+      return SectionCardGeometry(
+        cardRect: cardRect,
+        previousDividerRange: previousDividerRange
+      )
+    }
+  }
+
+  // Builds the visible button, click target, and larger reveal zone for a section palette icon.
+  private func sectionIconGeometry(for cardGeometry: SectionCardGeometry) -> SectionIconGeometry? {
+    guard let dividerRange = cardGeometry.previousDividerRange else { return nil }
+
+    let iconCenter = NSPoint(
+      x: cardGeometry.cardRect.maxX - sectionIconPadding - (sectionIconSize / 2),
+      y: cardGeometry.cardRect.minY + sectionIconPadding + (sectionIconSize / 2)
+    )
+    let symbolRect = NSRect(
+      x: iconCenter.x - (sectionIconSize / 2),
+      y: iconCenter.y - (sectionIconSize / 2),
+      width: sectionIconSize,
+      height: sectionIconSize
+    )
+    let buttonRect = NSRect(
+      x: iconCenter.x - (sectionIconButtonSize / 2),
+      y: iconCenter.y - (sectionIconButtonSize / 2),
+      width: sectionIconButtonSize,
+      height: sectionIconButtonSize
+    )
+    let hitRect = NSRect(
+      x: iconCenter.x - (sectionIconHitSize / 2),
+      y: iconCenter.y - (sectionIconHitSize / 2),
+      width: sectionIconHitSize,
+      height: sectionIconHitSize
+    )
+    let revealWidth = min(sectionIconRevealSize.width, cardGeometry.cardRect.width)
+    let revealHeight = min(sectionIconRevealSize.height, cardGeometry.cardRect.height)
+    let anchoredRevealRect = NSRect(
+      x: cardGeometry.cardRect.maxX - revealWidth,
+      y: cardGeometry.cardRect.minY,
+      width: revealWidth,
+      height: revealHeight
+    )
+    let revealRect = anchoredRevealRect.union(hitRect)
+
+    return SectionIconGeometry(
+      dividerRange: dividerRange,
+      symbolRect: symbolRect,
+      buttonRect: buttonRect,
+      hitRect: hitRect,
+      revealRect: revealRect
+    )
+  }
+
   // MARK: - Section Card Backgrounds
 
   // Draws section card backgrounds and palette icons instead of the default background.
@@ -314,50 +467,22 @@ final class MarkdownEditorTextView: NSTextView {
       return
     }
 
-    let viewBottom = max(bounds.height, enclosingScrollView?.contentSize.height ?? bounds.height)
-
-    for section in layoutSnapshot.sections {
-      let isLastSection = section.nextDividerIndex == nil
-      guard editorHasVisibleGlyphs(forCharacterRange: section.range) || isLastSection else {
-        continue
-      }
-
-      let cardTop: CGFloat
-      if let dividerIndex = section.previousDividerIndex {
-        cardTop = layoutSnapshot.dividerMidYs[dividerIndex] + sectionCardGapOffset
-      } else {
-        cardTop = 0
-      }
-
-      let cardBottom: CGFloat
-      if let dividerIndex = section.nextDividerIndex {
-        cardBottom = layoutSnapshot.dividerMidYs[dividerIndex] - sectionCardGapOffset
-      } else {
-        cardBottom = viewBottom
-      }
-
-      let cardRect = NSRect(
-        x: cardHInset,
-        y: cardTop,
-        width: bounds.width - (cardHInset * 2),
-        height: max(cardBottom - cardTop, 0)
-      )
+    for cardGeometry in sectionCardGeometries(in: layoutSnapshot) {
+      let cardRect = cardGeometry.cardRect
       guard cardRect.height > 0, cardRect.intersects(rect) else { continue }
 
       let path = NSBezierPath(roundedRect: cardRect, xRadius: cardRadius, yRadius: cardRadius)
       cardColor.setFill()
       path.fill()
 
-      if allowsSectionColorEditing, let dividerIndex = section.previousDividerIndex {
-        let iconRect = NSRect(
-          x: cardRect.maxX - sectionIconSize - sectionIconPadding,
-          y: cardRect.minY + sectionIconPadding,
-          width: sectionIconSize,
-          height: sectionIconSize
+      if allowsSectionColorEditing,
+        let iconGeometry = sectionIconGeometry(for: cardGeometry),
+        sectionIconIsRevealed(for: iconGeometry.dividerRange)
+      {
+        drawSectionIconButton(
+          in: iconGeometry,
+          hovered: hoveredSectionIconLocation == iconGeometry.dividerRange.location
         )
-        let isHovered =
-          hoveredSectionIconLocation == layoutSnapshot.dividerLineRanges[dividerIndex].location
-        drawSectionIcon(in: iconRect, hovered: isHovered)
       }
     }
     drawCodeBlocks(in: rect, textStorage: textStorage)
@@ -728,9 +853,9 @@ final class MarkdownEditorTextView: NSTextView {
     return lines.joined(separator: "\n")
   }
 
-  // Draws the small palette icon — faint by default, full opacity on hover.
-  private func drawSectionIcon(in rect: NSRect, hovered: Bool) {
-    let color: NSColor = hovered ? .secondaryLabelColor : .quaternaryLabelColor
+  // Draws the palette glyph when the section is active or inside the reveal zone.
+  private func drawSectionIconButton(in geometry: SectionIconGeometry, hovered: Bool) {
+    let iconColor: NSColor = hovered ? .labelColor : .secondaryLabelColor
     guard
       let image = NSImage(
         systemSymbolName: "paintpalette",
@@ -738,18 +863,18 @@ final class MarkdownEditorTextView: NSTextView {
       )?
       .withSymbolConfiguration(
         NSImage.SymbolConfiguration(pointSize: sectionIconSize, weight: .regular)
-          .applying(NSImage.SymbolConfiguration(paletteColors: [color]))
+          .applying(NSImage.SymbolConfiguration(paletteColors: [iconColor]))
       )
     else { return }
     image.draw(
-      in: rect, from: .zero, operation: .sourceOver, fraction: 1.0,
+      in: geometry.symbolRect, from: .zero, operation: .sourceOver, fraction: 1.0,
       respectFlipped: true, hints: nil
     )
   }
 
   // MARK: - Section Icon Hover Tracking
 
-  // Creates hover tracking areas over each section's palette icon.
+  // Creates hover tracking areas over each section's enlarged palette reveal zone.
   override func updateTrackingAreas() {
     super.updateTrackingAreas()
 
@@ -764,35 +889,25 @@ final class MarkdownEditorTextView: NSTextView {
 
     addPromptActionTrackingAreas()
 
-    guard allowsSectionColorEditing, let layoutSnapshot = sectionLayoutSnapshot() else { return }
+    guard allowsSectionColorEditing, let layoutSnapshot = sectionLayoutSnapshot() else {
+      clearHoveredSectionIcon()
+      return
+    }
 
-    for section in layoutSnapshot.sections {
-      guard let dividerIndex = section.previousDividerIndex else { continue }
-      let isLastSection = section.nextDividerIndex == nil
-      guard editorHasVisibleGlyphs(forCharacterRange: section.range) || isLastSection else {
-        continue
-      }
-
-      let cardTop = layoutSnapshot.dividerMidYs[dividerIndex] + sectionCardGapOffset
-      let cardWidth = bounds.width - (cardHInset * 2)
-
-      let iconRect = NSRect(
-        x: cardHInset + cardWidth - sectionIconSize - sectionIconPadding,
-        y: cardTop + sectionIconPadding,
-        width: sectionIconSize,
-        height: sectionIconSize
-      )
-      let trackRect = iconRect.insetBy(dx: -sectionIconHitPadding, dy: -sectionIconHitPadding)
+    for cardGeometry in sectionCardGeometries(in: layoutSnapshot) {
+      guard let iconGeometry = sectionIconGeometry(for: cardGeometry) else { continue }
 
       let area = NSTrackingArea(
-        rect: trackRect,
-        options: [.mouseEnteredAndExited, .activeInActiveApp],
+        rect: iconGeometry.revealRect,
+        options: [.mouseEnteredAndExited, .mouseMoved, .activeInActiveApp],
         owner: self,
-        userInfo: ["dividerLocation": layoutSnapshot.dividerLineRanges[dividerIndex].location]
+        userInfo: ["dividerLocation": iconGeometry.dividerRange.location]
       )
       addTrackingArea(area)
       sectionIconTrackingAreas.append(area)
     }
+
+    refreshHoveredSectionIconFromCurrentMouseLocation()
   }
 
   // Adds hover tracking over prompt blocks and their action buttons.
@@ -828,7 +943,7 @@ final class MarkdownEditorTextView: NSTextView {
     }
   }
 
-  // Shows the pointing hand cursor when hovering a section icon.
+  // Shows the pointing hand cursor when hovering actionable controls.
   override func mouseEntered(with event: NSEvent) {
     if let location = event.trackingArea?.userInfo?["promptCloseLocation"] as? Int {
       hoveredPromptCloseLocation = location
@@ -847,16 +962,23 @@ final class MarkdownEditorTextView: NSTextView {
       NSCursor.pointingHand.push()
       return
     }
-    if let location = event.trackingArea?.userInfo?["dividerLocation"] as? Int {
-      hoveredSectionIconLocation = location
-      setNeedsDisplay(bounds)
-      NSCursor.pointingHand.push()
+    if event.trackingArea?.userInfo?["dividerLocation"] is Int {
+      updateHoveredSectionIcon(at: convert(event.locationInWindow, from: nil))
       return
     }
     super.mouseEntered(with: event)
   }
 
-  // Restores the default cursor when leaving a section icon.
+  // Keeps the section affordance visible while the cursor moves within the reveal zone.
+  override func mouseMoved(with event: NSEvent) {
+    if updateHoveredSectionIcon(at: convert(event.locationInWindow, from: nil)) {
+      return
+    }
+
+    super.mouseMoved(with: event)
+  }
+
+  // Restores the default cursor when leaving actionable controls.
   override func mouseExited(with event: NSEvent) {
     if event.trackingArea?.userInfo?["promptCloseLocation"] != nil {
       hoveredPromptCloseLocation = nil
@@ -876,9 +998,7 @@ final class MarkdownEditorTextView: NSTextView {
       return
     }
     if event.trackingArea?.userInfo?["dividerLocation"] != nil {
-      hoveredSectionIconLocation = nil
-      setNeedsDisplay(bounds)
-      NSCursor.pop()
+      updateHoveredSectionIcon(at: convert(event.locationInWindow, from: nil))
       return
     }
     super.mouseExited(with: event)
@@ -886,30 +1006,80 @@ final class MarkdownEditorTextView: NSTextView {
 
   // MARK: - Section Icon Hit Testing
 
-  // Computes fresh icon rects on every call so hit testing never relies on stale cache.
-  private func sectionIconHitTest(at point: NSPoint) -> NSRange? {
+  @discardableResult
+  private func updateHoveredSectionIcon(at point: NSPoint?) -> Bool {
+    let iconGeometry = point.flatMap { sectionIconRevealHitTest(at: $0) }
+    let newLocation = iconGeometry?.dividerRange.location
+    let previousLocation = hoveredSectionIconLocation
+
+    hoveredSectionIconLocation = newLocation
+    updateSectionIconCursor(isVisible: point.flatMap { sectionIconButtonHitTest(at: $0) } != nil)
+
+    if previousLocation != newLocation {
+      setNeedsDisplay(bounds)
+    }
+
+    return newLocation != nil
+  }
+
+  private func refreshHoveredSectionIconFromCurrentMouseLocation() {
+    guard let window else {
+      clearHoveredSectionIcon()
+      return
+    }
+
+    let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+    if bounds.contains(point) {
+      updateHoveredSectionIcon(at: point)
+    } else {
+      clearHoveredSectionIcon()
+    }
+  }
+
+  private func clearHoveredSectionIcon() {
+    let hadHoveredIcon = hoveredSectionIconLocation != nil
+    hoveredSectionIconLocation = nil
+    updateSectionIconCursor(isVisible: false)
+
+    if hadHoveredIcon {
+      setNeedsDisplay(bounds)
+    }
+  }
+
+  private func updateSectionIconCursor(isVisible: Bool) {
+    if isVisible, !isSectionIconCursorPushed {
+      NSCursor.pointingHand.push()
+      isSectionIconCursorPushed = true
+    } else if !isVisible, isSectionIconCursorPushed {
+      NSCursor.pop()
+      isSectionIconCursorPushed = false
+    }
+  }
+
+  private func sectionIconRevealHitTest(at point: NSPoint) -> SectionIconGeometry? {
     guard allowsSectionColorEditing, let layoutSnapshot = sectionLayoutSnapshot() else {
       return nil
     }
 
-    for section in layoutSnapshot.sections {
-      guard let dividerIndex = section.previousDividerIndex else { continue }
-      let isLastSection = section.nextDividerIndex == nil
-      guard editorHasVisibleGlyphs(forCharacterRange: section.range) || isLastSection else {
-        continue
+    for cardGeometry in sectionCardGeometries(in: layoutSnapshot) {
+      guard let iconGeometry = sectionIconGeometry(for: cardGeometry) else { continue }
+      if iconGeometry.revealRect.contains(point) {
+        return iconGeometry
       }
+    }
+    return nil
+  }
 
-      let cardTop = layoutSnapshot.dividerMidYs[dividerIndex] + sectionCardGapOffset
-      let cardWidth = bounds.width - (cardHInset * 2)
-      let iconRect = NSRect(
-        x: cardHInset + cardWidth - sectionIconSize - sectionIconPadding,
-        y: cardTop + sectionIconPadding,
-        width: sectionIconSize,
-        height: sectionIconSize
-      )
-      let hitRect = iconRect.insetBy(dx: -sectionIconHitPadding, dy: -sectionIconHitPadding)
-      if hitRect.contains(point) {
-        return layoutSnapshot.dividerLineRanges[dividerIndex]
+  // Computes fresh button rects on every call so hit testing never relies on stale cache.
+  private func sectionIconButtonHitTest(at point: NSPoint) -> SectionIconGeometry? {
+    guard allowsSectionColorEditing, let layoutSnapshot = sectionLayoutSnapshot() else {
+      return nil
+    }
+
+    for cardGeometry in sectionCardGeometries(in: layoutSnapshot) {
+      guard let iconGeometry = sectionIconGeometry(for: cardGeometry) else { continue }
+      if iconGeometry.hitRect.contains(point) {
+        return iconGeometry
       }
     }
     return nil
@@ -1355,15 +1525,8 @@ final class MarkdownEditorTextView: NSTextView {
     }
 
     // Section color icon click — computed fresh each time.
-    if let dividerRange = sectionIconHitTest(at: point) {
-      let cardWidth = bounds.width - (cardHInset * 2)
-      let iconRect = NSRect(
-        x: cardHInset + cardWidth - sectionIconSize - sectionIconPadding,
-        y: point.y - sectionIconSize / 2,
-        width: sectionIconSize,
-        height: sectionIconSize
-      )
-      showSectionColorPopover(for: dividerRange, at: iconRect)
+    if let iconGeometry = sectionIconButtonHitTest(at: point) {
+      showSectionColorPopover(for: iconGeometry.dividerRange, at: iconGeometry.buttonRect)
       return
     }
 

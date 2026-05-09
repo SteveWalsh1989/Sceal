@@ -61,6 +61,7 @@ struct MarkdownEditorView: NSViewRepresentable {
       refresh: continuousSpellCheckingEnabled
     )
     context.coordinator.syncTypingAttributesToCurrentSelection(in: textView)
+    textView.updateActiveSectionIcon(forSelection: textView.selectedRange())
     context.coordinator.lastPushedMarkdown = text
     context.coordinator.lastAppliedAppearance = appearanceSettings
     context.coordinator.lastContinuousSpellCheckingEnabled = continuousSpellCheckingEnabled
@@ -142,6 +143,10 @@ struct MarkdownEditorView: NSViewRepresentable {
         clampedRange(selectedRange, maxLength: textView.string.utf16.count)
       )
       context.coordinator.syncTypingAttributesToCurrentSelection(in: textView)
+      if let interactiveTextView = textView as? MarkdownEditorTextView {
+        interactiveTextView.updateActiveSectionIcon(
+          forSelection: interactiveTextView.selectedRange())
+      }
 
       if noteChanged {
         scrollView.contentView.scroll(to: .zero)
@@ -596,10 +601,14 @@ extension MarkdownEditorView {
       if let editorTextView = textView as? MarkdownEditorTextView,
         editorTextView.editorNormalizeSelectionIfNeeded()
       {
+        editorTextView.updateActiveSectionIcon(forSelection: editorTextView.selectedRange())
         return
       }
 
       let range = textView.selectedRange()
+      if let editorTextView = textView as? MarkdownEditorTextView {
+        editorTextView.updateActiveSectionIcon(forSelection: range)
+      }
 
       if slashPopup.isVisible, let triggerLoc = slashTriggerLocation {
         let nsString = textView.string as NSString
@@ -650,8 +659,10 @@ extension MarkdownEditorView {
         if dividerCount != lastDividerCount {
           editorTextView.refreshSectionLayout()
         } else {
+          editorTextView.updateTrackingAreas()
           textView.setNeedsDisplay(textView.bounds)
         }
+        editorTextView.updateActiveSectionIcon(forSelection: editorTextView.selectedRange())
         lastDividerCount = dividerCount
       } else {
         textView.setNeedsDisplay(textView.bounds)
