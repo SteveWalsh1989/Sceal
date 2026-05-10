@@ -56,13 +56,18 @@
         }
 
         Section("File-backed Developer Library") {
+          Button("Copy production library to developer library") {
+            store.copyProductionLibraryToDeveloperLibrary()
+          }
+          .disabled(!store.canCopyProductionLibraryToDeveloper)
+
           Button("Reset and seed developer library", role: .destructive) {
             store.resetDeveloperLibrary()
           }
           .disabled(!store.canResetDeveloperLibrary)
 
           Text(
-            "Replaces the active non-production library with deterministic daily notes, one list note, a group manifest, and a fixture attachment."
+            "Use the production copy when you need real notes in DEBUG without writing to the production library. Reset replaces the active non-production library with deterministic test data."
           )
           .font(.footnote)
           .foregroundStyle(.secondary)

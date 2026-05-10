@@ -313,6 +313,13 @@ final class NotesStore: ObservableObject {
         fileManager: fileManager
       )
     }
+
+    var canCopyProductionLibraryToDeveloper: Bool {
+      DeveloperLibrarySeeder.canCopyProductionLibraryToDeveloper(
+        at: libraryLocation,
+        fileManager: fileManager
+      )
+    }
   #endif
 
   deinit {
@@ -410,23 +417,69 @@ final class NotesStore: ObservableObject {
           calendar: calendar,
           referenceDate: referenceDate
         )
-        notes = snapshot.dailyNotes
-        listNotes = snapshot.listNotes
-        listNoteManifest = snapshot.manifest
-        rebuildNoteIndex()
-        rebuildListNoteIndex()
-        sidebarMode = .daily
-        selectedNoteID = snapshot.dailyNotes.first?.id
-        selectedListNoteID = snapshot.listNotes.first?.id
-        searchText = ""
-        isSearchBarExpanded = false
-        listSearchText = ""
-        isListSearchBarExpanded = false
-        hasLoaded = true
+        applyDeveloperLibrarySnapshot(snapshot)
         userMessage = (text: "Developer library reset.", kind: .info)
       } catch {
         report(error, context: "Resetting developer library failed")
       }
+    }
+
+    // Copies the production library into DEBUG storage so local testing can use real data safely.
+    func copyProductionLibraryToDeveloperLibrary() {
+      guard canCopyProductionLibraryToDeveloper else {
+        userMessage = (
+          text: "Production library copy is not available for this storage location.",
+          kind: .error
+        )
+        return
+      }
+
+      isPerformingFileOperation = true
+      progressMessage = "Copying production library..."
+      defer {
+        isPerformingFileOperation = false
+        progressMessage = nil
+      }
+
+      flushPendingSaves()
+
+      do {
+        if isDemoModeEnabled {
+          disableDemoMode()
+        }
+
+        let snapshot = try DeveloperLibrarySeeder.copyProductionLibraryToDeveloper(
+          at: libraryLocation,
+          fileManager: fileManager
+        )
+        applyDeveloperLibrarySnapshot(snapshot)
+
+        let backupText =
+          snapshot.developerBackupURL == nil ? "" : " Previous developer library was backed up."
+        userMessage = (
+          text:
+            "Copied \(snapshot.dailyNotes.count) daily notes and \(snapshot.listNotes.count) list notes into the developer library.\(backupText)",
+          kind: .info
+        )
+      } catch {
+        report(error, context: "Copying production library failed")
+      }
+    }
+
+    private func applyDeveloperLibrarySnapshot(_ snapshot: DeveloperLibrarySeedSnapshot) {
+      notes = snapshot.dailyNotes
+      listNotes = snapshot.listNotes
+      listNoteManifest = snapshot.manifest
+      rebuildNoteIndex()
+      rebuildListNoteIndex()
+      sidebarMode = .daily
+      selectedNoteID = snapshot.dailyNotes.first?.id
+      selectedListNoteID = snapshot.listNotes.first?.id
+      searchText = ""
+      isSearchBarExpanded = false
+      listSearchText = ""
+      isListSearchBarExpanded = false
+      hasLoaded = true
     }
 
     private func enableDemoMode(relativeTo referenceDate: Date) {

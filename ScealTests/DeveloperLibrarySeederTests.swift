@@ -65,6 +65,104 @@
       }
     }
 
+    func testCopyProductionLibraryToDeveloperCopiesNotesAndBacksUpDeveloperRoot() throws {
+      let workspaceRootURL = try makeTemporaryDirectory()
+      let productionRootURL = workspaceRootURL.appendingPathComponent(
+        "Production", isDirectory: true)
+      let developerRootURL = workspaceRootURL.appendingPathComponent("Developer", isDirectory: true)
+      let productionLocation = ScealLibraryLocation.test(rootURL: productionRootURL)
+      let developerLocation = ScealLibraryLocation.test(rootURL: developerRootURL)
+      let productionRepository = LibraryRepository(libraryLocation: productionLocation)
+      let dailyNote = DayNote(
+        date: makeDate(year: 2026, month: 5, day: 9),
+        title: "Real daily note",
+        tags: ["real"],
+        body: "Production daily body"
+      )
+      let listNote = DayNote(
+        date: makeDate(year: 2026, month: 5, day: 9),
+        id: "real-list-note",
+        title: "Real list note",
+        tags: ["list"],
+        body: "Production list body"
+      )
+      let attachmentDirectoryURL = productionRootURL.appendingPathComponent(
+        "Attachments/real-list-note",
+        isDirectory: true
+      )
+      let staleDeveloperURL = developerRootURL.appendingPathComponent("stale.txt")
+
+      try productionRepository.saveDailyNote(dailyNote)
+      try productionRepository.saveListNote(listNote)
+      try productionRepository.saveListNotesManifest(
+        ListNotesManifest(
+          ungroupedNoteIDs: [listNote.id],
+          groups: []
+        )
+      )
+      try FileManager.default.createDirectory(
+        at: attachmentDirectoryURL,
+        withIntermediateDirectories: true
+      )
+      try Data("attachment".utf8).write(
+        to: attachmentDirectoryURL.appendingPathComponent("file.txt")
+      )
+      try FileManager.default.createDirectory(
+        at: developerRootURL,
+        withIntermediateDirectories: true
+      )
+      try Data("stale developer data".utf8).write(to: staleDeveloperURL)
+
+      let snapshot = try DeveloperLibrarySeeder.copyProductionLibraryToDeveloper(
+        at: developerLocation,
+        productionLocation: productionLocation
+      )
+
+      XCTAssertEqual(snapshot.dailyNotes.map(\.id), [dailyNote.id])
+      XCTAssertEqual(snapshot.listNotes.map(\.id), [listNote.id])
+      XCTAssertEqual(snapshot.manifest.allNoteIDs, [listNote.id])
+      XCTAssertFalse(FileManager.default.fileExists(atPath: staleDeveloperURL.path))
+      XCTAssertTrue(
+        FileManager.default.fileExists(
+          atPath: developerRootURL.appendingPathComponent("Notes/\(dailyNote.fileName)").path
+        )
+      )
+      XCTAssertTrue(
+        FileManager.default.fileExists(
+          atPath: developerRootURL.appendingPathComponent("ListNotes/\(listNote.fileName)").path
+        )
+      )
+      XCTAssertTrue(
+        FileManager.default.fileExists(
+          atPath: developerRootURL.appendingPathComponent(
+            "Attachments/real-list-note/file.txt"
+          ).path
+        )
+      )
+      let backupURL = try XCTUnwrap(snapshot.developerBackupURL)
+      XCTAssertTrue(
+        FileManager.default.fileExists(
+          atPath: backupURL.appendingPathComponent("stale.txt").path
+        )
+      )
+    }
+
+    func testCopyProductionLibraryToDeveloperRefusesMissingProductionRoot() throws {
+      let productionLocation = ScealLibraryLocation.test(rootURL: try makeTemporaryDirectory())
+      let developerLocation = ScealLibraryLocation.test(rootURL: try makeTemporaryDirectory())
+
+      XCTAssertThrowsError(
+        try DeveloperLibrarySeeder.copyProductionLibraryToDeveloper(
+          at: developerLocation,
+          productionLocation: productionLocation
+        )
+      ) { error in
+        guard case DeveloperLibrarySeederError.missingProductionLibrary = error else {
+          return XCTFail("Expected missing production library, got \(error).")
+        }
+      }
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
       let directoryURL = FileManager.default.temporaryDirectory
         .appendingPathComponent(
