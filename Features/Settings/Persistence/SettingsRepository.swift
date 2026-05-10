@@ -71,23 +71,30 @@ struct SettingsRepository {
   // Loads the active plan, defaulting to paid so existing builds keep full feature parity.
   func loadInitialPlan() -> AppPlan {
     #if DEBUG
-      guard
-        let rawValue = userDefaults.string(forKey: Keys.developerPlan),
-        let plan = AppPlan(rawValue: rawValue)
-      else {
-        return .paid
-      }
-
-      return plan
+      return loadDeveloperPlanOverride() ?? .paid
     #else
       return .paid
     #endif
   }
 
-  // Persists the developer-only plan override.
-  func saveDeveloperPlan(_ plan: AppPlan) {
-    userDefaults.set(plan.rawValue, forKey: Keys.developerPlan)
-  }
+  #if DEBUG
+    // Reads the developer-only plan override without treating absence as Free.
+    func loadDeveloperPlanOverride() -> AppPlan? {
+      guard
+        let rawValue = userDefaults.string(forKey: Keys.developerPlan),
+        let plan = AppPlan(rawValue: rawValue)
+      else {
+        return nil
+      }
+
+      return plan
+    }
+
+    // Persists the developer-only plan override.
+    func saveDeveloperPlan(_ plan: AppPlan) {
+      userDefaults.set(plan.rawValue, forKey: Keys.developerPlan)
+    }
+  #endif
 
   // Decodes backup settings from the existing defaults payload.
   func loadBackupSettings() -> BackupSettings {

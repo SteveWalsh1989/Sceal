@@ -22,6 +22,13 @@ enum AppPlan: String, CaseIterable, Codable, Identifiable, Sendable {
   }
 }
 
+extension AppPlan {
+  // Converts durable StoreKit entitlements into the app's capability plan.
+  static func resolving(storeEntitlementState: StoreEntitlementState) -> AppPlan {
+    storeEntitlementState.includes(.paidUnlock) ? .paid : .free
+  }
+}
+
 enum AppCapability: String, CaseIterable, Identifiable, Sendable {
   case additionalTemplates
   case customThemeColors

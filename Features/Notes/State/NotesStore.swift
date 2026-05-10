@@ -288,7 +288,10 @@ final class NotesStore: ObservableObject {
   #if DEBUG
     // Persists a local plan override for testing free and paid feature gates.
     func updateDeveloperPlan(_ plan: AppPlan) {
-      guard activePlan != plan else { return }
+      guard activePlan != plan else {
+        planAccessStore.updateDeveloperPlan(plan)
+        return
+      }
       objectWillChange.send()
       planAccessStore.updateDeveloperPlan(plan)
       refreshBackupHealth()
