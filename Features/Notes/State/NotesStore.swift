@@ -58,8 +58,6 @@ final class NotesStore: ObservableObject {
       clampCalendarBrowseYear()
     }
   }
-  @Published private(set) var continuousSpellCheckingEnabled: Bool
-  @Published private(set) var newNoteDefault: NewNoteDefault
   @Published private(set) var activePlan: AppPlan
   @Published var selectedNoteID: DayNote.ID? {
     didSet {
@@ -127,6 +125,7 @@ final class NotesStore: ObservableObject {
   let settingsRepository: SettingsRepository
   let appearanceSettingsStore: AppearanceSettingsStore
   let backupSettingsStore: BackupSettingsStore
+  let editorPreferencesStore: EditorPreferencesStore
   let noteTemplatesStore: NoteTemplatesStore
   let archiveService: ArchiveService
   private var hasLoaded = false
@@ -161,6 +160,9 @@ final class NotesStore: ObservableObject {
       settingsRepository: resolvedSettingsRepository
     )
     self.backupSettingsStore = resolvedBackupSettingsStore
+    self.editorPreferencesStore = EditorPreferencesStore(
+      settingsRepository: resolvedSettingsRepository
+    )
     self.noteTemplatesStore = NoteTemplatesStore(settingsRepository: resolvedSettingsRepository)
     self.archiveService = ArchiveService(fileManager: fileManager)
     let resolvedLibraryLocation =
@@ -178,8 +180,6 @@ final class NotesStore: ObservableObject {
     let currentYear = calendar.component(.year, from: .now)
     self.notes = sortedNotes
     self.noteIndex = Dictionary(uniqueKeysWithValues: sortedNotes.enumerated().map { ($1.id, $0) })
-    self.continuousSpellCheckingEnabled = settingsRepository.loadContinuousSpellCheckingEnabled()
-    self.newNoteDefault = settingsRepository.loadNewNoteDefault()
     self.activePlan = settingsRepository.loadInitialPlan()
     self.backupHealth = loadedBackupSettings.isConfigured ? .healthy : .notConfigured
     self.calendarBrowseYear = currentYear
@@ -201,6 +201,14 @@ final class NotesStore: ObservableObject {
 
   var backupSettings: BackupSettings {
     backupSettingsStore.settings
+  }
+
+  var continuousSpellCheckingEnabled: Bool {
+    editorPreferencesStore.continuousSpellCheckingEnabled
+  }
+
+  var newNoteDefault: NewNoteDefault {
+    editorPreferencesStore.newNoteDefault
   }
 
   // Returns whether the active plan can use the requested capability.
@@ -563,14 +571,14 @@ final class NotesStore: ObservableObject {
 
   // Persists the new-note default preference to UserDefaults.
   func updateNewNoteDefault(_ value: NewNoteDefault) {
-    newNoteDefault = value
-    settingsRepository.saveNewNoteDefault(value)
+    objectWillChange.send()
+    editorPreferencesStore.updateNewNoteDefault(value)
   }
 
   // Persists the body editor's continuous spell-check setting.
   func updateContinuousSpellCheckingEnabled(_ value: Bool) {
-    continuousSpellCheckingEnabled = value
-    settingsRepository.saveContinuousSpellCheckingEnabled(value)
+    objectWillChange.send()
+    editorPreferencesStore.updateContinuousSpellCheckingEnabled(value)
   }
 
   // Moves a note to a new date by re-creating it with the target date's ID and file.
