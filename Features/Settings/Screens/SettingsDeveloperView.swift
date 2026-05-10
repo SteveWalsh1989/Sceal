@@ -17,7 +17,7 @@
             "Active plan",
             selection: Binding(
               get: { store.activePlan },
-              set: { store.updateDeveloperPlan($0) }
+              set: { scheduleDeveloperPlanUpdate($0) }
             )
           ) {
             ForEach(AppPlan.allCases) { plan in
@@ -78,6 +78,12 @@
         }
       }
       .formStyle(.grouped)
+    }
+
+    private func scheduleDeveloperPlanUpdate(_ plan: AppPlan) {
+      Task { @MainActor in
+        store.updateDeveloperPlan(plan)
+      }
     }
   }
 #endif

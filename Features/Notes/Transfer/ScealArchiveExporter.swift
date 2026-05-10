@@ -64,10 +64,6 @@ enum ScealArchiveExporter {
     return zipURL
   }
 
-  // Removes the temp directory that contains the zip after the caller has moved it.
-  nonisolated static func cleanUp(zipURL: URL) {
-    ZipArchiveWriter.cleanUp(zipURL: zipURL)
-  }
 }
 
 enum ScealArchiveExporterError: LocalizedError {

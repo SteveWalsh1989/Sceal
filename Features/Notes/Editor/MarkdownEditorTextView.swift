@@ -2301,8 +2301,7 @@ final class MarkdownEditorTextView: NSTextView {
 }
 
 extension MarkdownEditorTextView: EditorTableBlockViewDelegate {
-  func tableBlockView(_ tableBlockView: EditorTableBlockView, didChange table: MarkdownEditorTable)
-  {
+  func tableBlockView(_ _: EditorTableBlockView, didChange table: MarkdownEditorTable) {
     guard let textStorage,
       let tableRange = tableRange(for: table.runtimeID, in: textStorage)
     else { return }
@@ -2324,7 +2323,7 @@ extension MarkdownEditorTextView: EditorTableBlockViewDelegate {
 
   func tableBlockView(
     _ tableBlockView: EditorTableBlockView,
-    didFocus cell: MarkdownEditorTableCell?
+    didFocus _: MarkdownEditorTableCell?
   ) {
     activeTableBlockID = tableBlockView.table.runtimeID
     updateTrackingAreas()

@@ -20,10 +20,6 @@ struct MarkdownEditorTable: Equatable, Hashable {
     max(columnWidths.count, rows.map(\.count).max() ?? 0)
   }
 
-  nonisolated var bodyRowCount: Int {
-    hasHeader ? max(rows.count - 1, 0) : rows.count
-  }
-
   static func empty(columns: Int = 2, bodyRows: Int = 3) -> MarkdownEditorTable {
     let safeColumns = max(columns, 1)
     let safeRows = max(bodyRows, 1)

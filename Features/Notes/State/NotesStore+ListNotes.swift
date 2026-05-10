@@ -14,13 +14,6 @@ extension NotesStore {
 
   private static let listNotesLogger = Logger(subsystem: "com.sceal.app", category: "listNotes")
 
-  // MARK: - Directory Management
-
-  // Returns the list notes directory, creating it if needed.
-  func listNotesDirectoryURL() throws -> URL {
-    try libraryRepository.listNotesDirectoryURL()
-  }
-
   // MARK: - Loading
 
   // Loads all list notes and the manifest from disk, reconciling any mismatches.

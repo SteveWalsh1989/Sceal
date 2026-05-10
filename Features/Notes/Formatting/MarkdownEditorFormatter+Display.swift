@@ -785,17 +785,6 @@ extension MarkdownEditorFormatter {
 
   // MARK: - Helpers
 
-  // Extracts an optional capture group from a regex match, returning nil when unmatched.
-  static func extractGroup(
-    _ match: NSTextCheckingResult, index: Int, in line: String
-  ) -> String? {
-    let range = match.range(at: index)
-    guard range.location != NSNotFound, let swiftRange = Range(range, in: line) else {
-      return nil
-    }
-    return String(line[swiftRange])
-  }
-
   // Returns the display font size for heading levels 1-3.
   static func headingFontSize(for level: Int) -> CGFloat {
     switch level {

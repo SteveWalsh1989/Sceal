@@ -1028,15 +1028,6 @@ final class NotesStore: ObservableObject {
     try libraryRepository.deleteDailyNoteFile(for: note)
   }
 
-  // Encodes appearance settings to UserDefaults.
-  func persistAppearanceSettings() {
-    do {
-      try appearanceSettingsStore.persistSettings()
-    } catch {
-      report(error, context: "Saving appearance settings failed")
-    }
-  }
-
   // Returns the notes directory, creating it if needed.
   func notesDirectoryURL() throws -> URL {
     try libraryRepository.dailyNotesDirectoryURL()
