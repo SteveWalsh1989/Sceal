@@ -32,10 +32,10 @@ enum MarkdownEditorFormatter {
   static let sectionDividerSpacingBefore: CGFloat = 10
   static let sectionDividerSpacingAfter: CGFloat = 6
   static let sectionDividerLineHeight: CGFloat = 1
-  static let promptBlockStartMarker = "<!-- prompt -->"
-  static let promptBlockEndMarker = "<!-- /prompt -->"
-  static let promptBoundaryStartKind = "start"
-  static let promptBoundaryEndKind = "end"
+  static let promptBlockStartMarker = MarkdownEditorPromptBlockMarkdown.startMarker
+  static let promptBlockEndMarker = MarkdownEditorPromptBlockMarkdown.endMarker
+  static let promptBoundaryStartKind = MarkdownEditorPromptBlockMarkdown.startBoundaryKind
+  static let promptBoundaryEndKind = MarkdownEditorPromptBlockMarkdown.endBoundaryKind
   static let imageDefaultWidth = MarkdownEditorImageMarkdown.defaultWidth
   static let imageMinimumWidth = MarkdownEditorImageMarkdown.minimumWidth
   static let imageMaximumWidth = MarkdownEditorImageMarkdown.maximumWidth
@@ -43,8 +43,6 @@ enum MarkdownEditorFormatter {
 
   // Cached regex patterns to avoid recreation per format pass.
   static let hcolorRegex = try! NSRegularExpression(pattern: #"^<!-- hcolor:(\w+) -->$"#)
-  static let promptBlockStartRegex = try! NSRegularExpression(pattern: #"^<!-- prompt -->$"#)
-  static let promptBlockEndRegex = try! NSRegularExpression(pattern: #"^<!-- /prompt -->$"#)
   static let boldRegex = try! NSRegularExpression(pattern: #"\*\*(.+?)\*\*"#)
   static let italicRegex = try! NSRegularExpression(
     pattern: #"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)"#)
@@ -234,8 +232,6 @@ enum MarkdownEditorFormatter {
     var pendingHeadingColor: NSColor? = nil
     var pendingHeadingColorName: String? = nil
     let hcolorRegex = Self.hcolorRegex
-    let promptStartRegex = Self.promptBlockStartRegex
-    let promptEndRegex = Self.promptBlockEndRegex
     let tableBlocks = tableBlocks(in: lines)
     var skippingTableUntilIndex: Int? = nil
     // Per-section color state — applies to content after the most recent divider.
@@ -289,8 +285,7 @@ enum MarkdownEditorFormatter {
       skippedPreviousImageWidthMarker = false
 
       if !insideCodeBlock,
-        promptStartRegex.firstMatch(
-          in: line, range: NSRange(location: 0, length: line.utf16.count)) != nil
+        MarkdownEditorPromptBlockMarkdown.boundaryKind(for: line) == promptBoundaryStartKind
       {
         if let colorName = pendingHeadingColorName {
           result.append(NSAttributedString(string: "<!-- hcolor:\(colorName) -->\n"))
@@ -304,8 +299,7 @@ enum MarkdownEditorFormatter {
       }
 
       if !insideCodeBlock, insidePromptBlock,
-        promptEndRegex.firstMatch(
-          in: line, range: NSRange(location: 0, length: line.utf16.count)) != nil
+        MarkdownEditorPromptBlockMarkdown.boundaryKind(for: line) == promptBoundaryEndKind
       {
         insidePromptBlock = false
         result.append(

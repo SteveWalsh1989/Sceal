@@ -926,8 +926,7 @@ extension MarkdownEditorView {
           return handled
 
         case .promptBlock:
-          let snippet =
-            "\(MarkdownEditorFormatter.promptBlockStartMarker)\n\n\(MarkdownEditorFormatter.promptBlockEndMarker)"
+          let snippet = MarkdownEditorPromptBlockMarkdown.emptyBlock
           let displaySnippet = MarkdownEditorFormatter.formatForDisplay(
             snippet, appearance: parent.appearanceSettings)
           let insertionLocation = lineRange.location + 2

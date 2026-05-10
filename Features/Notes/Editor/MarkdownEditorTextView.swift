@@ -836,9 +836,9 @@ final class MarkdownEditorTextView: NSTextView {
       value, range, _ in
       guard let kind = value as? String else { return }
       let lineRange = nsString.lineRange(for: range)
-      if kind == MarkdownEditorFormatter.promptBoundaryStartKind {
+      if MarkdownEditorPromptBlockMarkdown.isStartBoundaryKind(kind) {
         openingLineRange = lineRange
-      } else if kind == MarkdownEditorFormatter.promptBoundaryEndKind,
+      } else if MarkdownEditorPromptBlockMarkdown.isEndBoundaryKind(kind),
         let startLineRange = openingLineRange
       {
         result.append(

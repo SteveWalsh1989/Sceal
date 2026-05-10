@@ -45,12 +45,12 @@ extension MarkdownEditorFormatter {
       if attrs[.markdownPromptBoundary] as? Bool == true,
         let kind = attrs[.markdownPromptBoundaryKind] as? String
       {
-        if kind == promptBoundaryStartKind {
+        if MarkdownEditorPromptBlockMarkdown.isStartBoundaryKind(kind) {
           insidePromptBlock = true
-          markdownLine = promptBlockStartMarker
+          markdownLine = MarkdownEditorPromptBlockMarkdown.marker(forBoundaryKind: kind)
         } else {
           insidePromptBlock = false
-          markdownLine = promptBlockEndMarker
+          markdownLine = MarkdownEditorPromptBlockMarkdown.marker(forBoundaryKind: kind)
         }
       } else if insidePromptBlock {
         markdownLine = lineText
@@ -108,7 +108,7 @@ extension MarkdownEditorFormatter {
     if attrs[.markdownPromptBoundary] as? Bool == true,
       let kind = attrs[.markdownPromptBoundaryKind] as? String
     {
-      return kind == promptBoundaryStartKind ? promptBlockStartMarker : promptBlockEndMarker
+      return MarkdownEditorPromptBlockMarkdown.marker(forBoundaryKind: kind)
     }
 
     // Prompt block — pass through without inline markdown reconstruction.
