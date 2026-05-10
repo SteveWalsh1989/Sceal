@@ -1,0 +1,15 @@
+{
+  "ungroupedNoteIDs": [
+    "project-alpha"
+  ],
+  "groups": [
+    {
+      "id": "group-active",
+      "name": "Active",
+      "noteIDs": [
+        "project-alpha"
+      ],
+      "isCollapsed": false
+    }
+  ]
+}
