@@ -314,12 +314,6 @@ extension MarkdownEditorFormatter {
   }
 
   private static func imageWidthValue(from value: Any?) -> CGFloat? {
-    if let width = value as? CGFloat {
-      return width
-    }
-    if let number = value as? NSNumber {
-      return CGFloat(truncating: number)
-    }
-    return nil
+    MarkdownEditorImageMarkdown.widthValue(from: value)
   }
 }

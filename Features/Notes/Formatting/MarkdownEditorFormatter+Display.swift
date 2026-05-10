@@ -496,44 +496,23 @@ extension MarkdownEditorFormatter {
   }
 
   static func clampedImageWidth(_ width: CGFloat) -> CGFloat {
-    min(max(width, imageMinimumWidth), imageMaximumWidth)
+    MarkdownEditorImageMarkdown.clampedWidth(width)
   }
 
   static func parseImageWidthMarker(_ line: String) -> CGFloat? {
-    guard
-      let match = imageWidthRegex.firstMatch(
-        in: line,
-        range: NSRange(location: 0, length: line.utf16.count)
-      ),
-      let widthRange = Range(match.range(at: 1), in: line),
-      let width = Double(line[widthRange])
-    else { return nil }
-
-    return clampedImageWidth(CGFloat(width))
+    MarkdownEditorImageMarkdown.parseWidthMarker(line)
   }
 
   static func parseMarkdownImage(_ line: String) -> (title: String, path: String)? {
-    guard
-      let match = imageRegex.firstMatch(
-        in: line,
-        range: NSRange(location: 0, length: line.utf16.count)
-      ),
-      let titleRange = Range(match.range(at: 1), in: line),
-      let pathRange = Range(match.range(at: 2), in: line)
-    else { return nil }
-
-    return (
-      title: unescapedImageText(String(line[titleRange])),
-      path: String(line[pathRange])
-    )
+    MarkdownEditorImageMarkdown.parseImage(line)
   }
 
   static func imageWidthMarker(for width: CGFloat) -> String {
-    "<!-- sceal-image-width:\(Int(clampedImageWidth(width).rounded())) -->"
+    MarkdownEditorImageMarkdown.widthMarker(for: width)
   }
 
   static func imageMarkdownLine(title: String, path: String) -> String {
-    "![\(escapedImageText(title))](\(path))"
+    MarkdownEditorImageMarkdown.imageLine(title: title, path: path)
   }
 
   private static func imageParagraphStyle(for appearance: NoteAppearanceSettings)
@@ -665,18 +644,6 @@ extension MarkdownEditorFormatter {
       ),
       withAttributes: attrs
     )
-  }
-
-  private static func escapedImageText(_ text: String) -> String {
-    text
-      .replacingOccurrences(of: "\\", with: "\\\\")
-      .replacingOccurrences(of: "]", with: "\\]")
-  }
-
-  private static func unescapedImageText(_ text: String) -> String {
-    text
-      .replacingOccurrences(of: "\\]", with: "]")
-      .replacingOccurrences(of: "\\\\", with: "\\")
   }
 
   // Creates an invisible marker that MarkdownEditorTextView renders as a card gap.

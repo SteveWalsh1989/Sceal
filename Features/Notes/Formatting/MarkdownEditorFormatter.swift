@@ -36,10 +36,10 @@ enum MarkdownEditorFormatter {
   static let promptBlockEndMarker = "<!-- /prompt -->"
   static let promptBoundaryStartKind = "start"
   static let promptBoundaryEndKind = "end"
-  static let imageDefaultWidth: CGFloat = 420
-  static let imageMinimumWidth: CGFloat = 160
-  static let imageMaximumWidth: CGFloat = 760
-  static let imageResizeStep: CGFloat = 80
+  static let imageDefaultWidth = MarkdownEditorImageMarkdown.defaultWidth
+  static let imageMinimumWidth = MarkdownEditorImageMarkdown.minimumWidth
+  static let imageMaximumWidth = MarkdownEditorImageMarkdown.maximumWidth
+  static let imageResizeStep = MarkdownEditorImageMarkdown.resizeStep
 
   // Cached regex patterns to avoid recreation per format pass.
   static let hcolorRegex = try! NSRegularExpression(pattern: #"^<!-- hcolor:(\w+) -->$"#)
@@ -49,10 +49,6 @@ enum MarkdownEditorFormatter {
   )
   static let promptBlockStartRegex = try! NSRegularExpression(pattern: #"^<!-- prompt -->$"#)
   static let promptBlockEndRegex = try! NSRegularExpression(pattern: #"^<!-- /prompt -->$"#)
-  static let imageWidthRegex = try! NSRegularExpression(
-    pattern: #"^<!-- sceal-image-width:([0-9]+(?:\.[0-9]+)?) -->$"#)
-  static let imageRegex = try! NSRegularExpression(
-    pattern: #"^!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)$"#)
   static let boldRegex = try! NSRegularExpression(pattern: #"\*\*(.+?)\*\*"#)
   static let italicRegex = try! NSRegularExpression(
     pattern: #"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)"#)
