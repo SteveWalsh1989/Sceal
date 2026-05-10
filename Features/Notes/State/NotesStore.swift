@@ -58,7 +58,6 @@ final class NotesStore: ObservableObject {
       clampCalendarBrowseYear()
     }
   }
-  @Published private(set) var activePlan: AppPlan
   @Published var selectedNoteID: DayNote.ID? {
     didSet {
       guard sidebarMode == .calendar else { return }
@@ -126,6 +125,7 @@ final class NotesStore: ObservableObject {
   let appearanceSettingsStore: AppearanceSettingsStore
   let backupSettingsStore: BackupSettingsStore
   let editorPreferencesStore: EditorPreferencesStore
+  let planAccessStore: PlanAccessStore
   let noteTemplatesStore: NoteTemplatesStore
   let archiveService: ArchiveService
   private var hasLoaded = false
@@ -163,6 +163,7 @@ final class NotesStore: ObservableObject {
     self.editorPreferencesStore = EditorPreferencesStore(
       settingsRepository: resolvedSettingsRepository
     )
+    self.planAccessStore = PlanAccessStore(settingsRepository: resolvedSettingsRepository)
     self.noteTemplatesStore = NoteTemplatesStore(settingsRepository: resolvedSettingsRepository)
     self.archiveService = ArchiveService(fileManager: fileManager)
     let resolvedLibraryLocation =
@@ -180,7 +181,6 @@ final class NotesStore: ObservableObject {
     let currentYear = calendar.component(.year, from: .now)
     self.notes = sortedNotes
     self.noteIndex = Dictionary(uniqueKeysWithValues: sortedNotes.enumerated().map { ($1.id, $0) })
-    self.activePlan = settingsRepository.loadInitialPlan()
     self.backupHealth = loadedBackupSettings.isConfigured ? .healthy : .notConfigured
     self.calendarBrowseYear = currentYear
     self.selectedNoteID = sortedNotes.first?.id
@@ -188,7 +188,11 @@ final class NotesStore: ObservableObject {
   }
 
   var featureAccess: AppFeatureAccess {
-    AppFeatureAccess(plan: activePlan)
+    planAccessStore.featureAccess
+  }
+
+  var activePlan: AppPlan {
+    planAccessStore.activePlan
   }
 
   var appearanceSettings: NoteAppearanceSettings {
@@ -213,15 +217,15 @@ final class NotesStore: ObservableObject {
 
   // Returns whether the active plan can use the requested capability.
   func hasAccess(to capability: AppCapability) -> Bool {
-    featureAccess.allows(capability)
+    planAccessStore.hasAccess(to: capability)
   }
 
   #if DEBUG
     // Persists a local plan override for testing free and paid feature gates.
     func updateDeveloperPlan(_ plan: AppPlan) {
       guard activePlan != plan else { return }
-      activePlan = plan
-      settingsRepository.saveDeveloperPlan(plan)
+      objectWillChange.send()
+      planAccessStore.updateDeveloperPlan(plan)
       refreshBackupHealth()
     }
   #endif
