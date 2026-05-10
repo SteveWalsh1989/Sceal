@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 import OSLog
 
@@ -27,8 +28,8 @@ extension NotesStore {
       return
     }
 
-    backupSettings.schedule = schedule
-    backupSettings.lastBackupErrorDescription = nil
+    objectWillChange.send()
+    backupSettingsStore.updateSchedule(schedule)
     persistBackupSettings()
     refreshBackupHealth()
   }
@@ -40,7 +41,8 @@ extension NotesStore {
       return
     }
 
-    backupSettings.backupOnInactive = value
+    objectWillChange.send()
+    backupSettingsStore.updateBackupOnInactive(value)
     persistBackupSettings()
   }
 
@@ -67,13 +69,11 @@ extension NotesStore {
       let bookmarkData = try bookmarkData(for: selectedFolderURL)
       try validateBackupFolder(at: selectedFolderURL, bookmarkData: bookmarkData)
 
-      backupSettings.folderBookmarkData = bookmarkData
-      backupSettings.folderDisplayPath = selectedFolderURL.path
-      backupSettings.lastSuccessfulBackupAt = nil
-      backupSettings.lastAttemptedBackupAt = nil
-      backupSettings.lastBackupErrorDescription = nil
-      backupSettings.lastBackupArchiveName = nil
-      backupSettings.lastBackupBytes = nil
+      objectWillChange.send()
+      backupSettingsStore.configureFolder(
+        bookmarkData: bookmarkData,
+        displayPath: selectedFolderURL.path
+      )
       persistBackupSettings()
       refreshBackupHealth()
       performBackup(trigger: .locationConfigured, respectSchedule: false)
@@ -92,13 +92,8 @@ extension NotesStore {
       return
     }
 
-    backupSettings.folderBookmarkData = nil
-    backupSettings.folderDisplayPath = nil
-    backupSettings.lastSuccessfulBackupAt = nil
-    backupSettings.lastAttemptedBackupAt = nil
-    backupSettings.lastBackupErrorDescription = nil
-    backupSettings.lastBackupArchiveName = nil
-    backupSettings.lastBackupBytes = nil
+    objectWillChange.send()
+    backupSettingsStore.removeFolder()
     persistBackupSettings()
     refreshBackupHealth()
   }
@@ -232,8 +227,8 @@ extension NotesStore {
 
     isBackupRunning = true
     backupHealth = .running
-    backupSettings.lastAttemptedBackupAt = backupDate
-    backupSettings.lastBackupErrorDescription = nil
+    objectWillChange.send()
+    backupSettingsStore.markBackupAttempted(at: backupDate)
     persistBackupSettings()
 
     let fm = fileManager
@@ -257,10 +252,12 @@ extension NotesStore {
 
         await MainActor.run { [weak self] in
           guard let self else { return }
-          self.backupSettings.lastSuccessfulBackupAt = backupDate
-          self.backupSettings.lastBackupErrorDescription = nil
-          self.backupSettings.lastBackupArchiveName = archiveURL.lastPathComponent
-          self.backupSettings.lastBackupBytes = archiveSize
+          self.objectWillChange.send()
+          self.backupSettingsStore.markBackupSucceeded(
+            at: backupDate,
+            archiveName: archiveURL.lastPathComponent,
+            bytes: archiveSize
+          )
           self.persistBackupSettings()
           self.isBackupRunning = false
           self.isPerformingFileOperation = false
@@ -276,7 +273,8 @@ extension NotesStore {
         await MainActor.run { [weak self] in
           guard let self else { return }
           Self.backupLogger.error("Backup failed: \(error.localizedDescription)")
-          self.backupSettings.lastBackupErrorDescription = error.localizedDescription
+          self.objectWillChange.send()
+          self.backupSettingsStore.markBackupFailed(error.localizedDescription)
           self.persistBackupSettings()
           self.isBackupRunning = false
           self.isPerformingFileOperation = false
@@ -336,7 +334,7 @@ extension NotesStore {
 
   func persistBackupSettings() {
     do {
-      try settingsRepository.saveBackupSettings(backupSettings)
+      try backupSettingsStore.persistSettings()
     } catch {
       report(error, context: "Saving backup settings failed")
     }

@@ -105,7 +105,6 @@ final class NotesStore: ObservableObject {
   @Published var userMessage: (text: String, kind: UserMessageKind)?
   @Published var isPerformingFileOperation = false
   @Published var progressMessage: String?
-  @Published var backupSettings: BackupSettings
   @Published var backupHealth: BackupHealth
   @Published var isBackupRunning = false
   #if DEBUG
@@ -127,6 +126,7 @@ final class NotesStore: ObservableObject {
   let libraryRepository: LibraryRepository
   let settingsRepository: SettingsRepository
   let appearanceSettingsStore: AppearanceSettingsStore
+  let backupSettingsStore: BackupSettingsStore
   let noteTemplatesStore: NoteTemplatesStore
   let archiveService: ArchiveService
   private var hasLoaded = false
@@ -157,6 +157,10 @@ final class NotesStore: ObservableObject {
     self.appearanceSettingsStore = AppearanceSettingsStore(
       settingsRepository: resolvedSettingsRepository
     )
+    let resolvedBackupSettingsStore = BackupSettingsStore(
+      settingsRepository: resolvedSettingsRepository
+    )
+    self.backupSettingsStore = resolvedBackupSettingsStore
     self.noteTemplatesStore = NoteTemplatesStore(settingsRepository: resolvedSettingsRepository)
     self.archiveService = ArchiveService(fileManager: fileManager)
     let resolvedLibraryLocation =
@@ -170,14 +174,13 @@ final class NotesStore: ObservableObject {
       fileManager: fileManager
     )
     let sortedNotes = previewNotes.sorted(by: { $0.date > $1.date })
-    let loadedBackupSettings = settingsRepository.loadBackupSettings()
+    let loadedBackupSettings = resolvedBackupSettingsStore.settings
     let currentYear = calendar.component(.year, from: .now)
     self.notes = sortedNotes
     self.noteIndex = Dictionary(uniqueKeysWithValues: sortedNotes.enumerated().map { ($1.id, $0) })
     self.continuousSpellCheckingEnabled = settingsRepository.loadContinuousSpellCheckingEnabled()
     self.newNoteDefault = settingsRepository.loadNewNoteDefault()
     self.activePlan = settingsRepository.loadInitialPlan()
-    self.backupSettings = loadedBackupSettings
     self.backupHealth = loadedBackupSettings.isConfigured ? .healthy : .notConfigured
     self.calendarBrowseYear = currentYear
     self.selectedNoteID = sortedNotes.first?.id
@@ -194,6 +197,10 @@ final class NotesStore: ObservableObject {
 
   var noteTemplates: [NoteTemplate] {
     noteTemplatesStore.templates
+  }
+
+  var backupSettings: BackupSettings {
+    backupSettingsStore.settings
   }
 
   // Returns whether the active plan can use the requested capability.
