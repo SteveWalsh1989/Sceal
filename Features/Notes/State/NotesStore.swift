@@ -32,9 +32,10 @@ struct NoteMonthSection: Identifiable, Equatable, Sendable {
   }
 }
 
-enum UserMessageKind {
+enum UserMessageKind: Equatable {
   case error
   case info
+  case warning
 }
 
 #if DEBUG
@@ -78,6 +79,7 @@ final class NotesStore: ObservableObject {
   }
   @Published private(set) var isLoading = false
   @Published var userMessage: (text: String, kind: UserMessageKind)?
+  @Published private(set) var libraryLoadWarnings: [LibraryLoadWarning] = []
   @Published var isPerformingFileOperation = false
   @Published var progressMessage: String?
   @Published var backupHealth: BackupHealth
@@ -604,8 +606,12 @@ final class NotesStore: ObservableObject {
 
     isLoading = true
 
+    var warnings: [LibraryLoadWarning] = []
+    var didLoadDailyNotes = false
+
     do {
-      try loadNotes()
+      warnings.append(contentsOf: try loadNotes())
+      didLoadDailyNotes = true
       Self.logger.info("Loaded \(self.notes.count) notes")
       userMessage = nil
     } catch {
@@ -621,7 +627,13 @@ final class NotesStore: ObservableObject {
       }
     }
 
-    loadListNotesIfNeeded()
+    warnings.append(contentsOf: loadListNotesIfNeeded())
+    libraryLoadWarnings = warnings
+    if didLoadDailyNotes {
+      userMessage =
+        warnings.isEmpty
+        ? nil : (text: Self.libraryLoadWarningMessage(for: warnings), kind: .warning)
+    }
 
     hasLoaded = true
     isLoading = false
@@ -907,8 +919,9 @@ final class NotesStore: ObservableObject {
   }
 
   // Reads all .md files from the notes directory and seeds if empty.
-  private func loadNotes() throws {
-    let loadedNotes = try libraryRepository.loadDailyNotes()
+  private func loadNotes() throws -> [LibraryLoadWarning] {
+    let snapshot = try libraryRepository.loadDailyNotesSnapshot()
+    let loadedNotes = snapshot.notes
     if loadedNotes.isEmpty {
       try seedStarterNotes()
     } else {
@@ -917,6 +930,7 @@ final class NotesStore: ObservableObject {
     }
 
     selectedNoteID = notes.first?.id
+    return snapshot.warnings
   }
 
   // Seeds recent example notes so the first launch shows formatting features immediately.
@@ -1158,5 +1172,38 @@ final class NotesStore: ObservableObject {
       error.localizedDescription.isEmpty ? String(describing: error) : error.localizedDescription
     Self.logger.error("\(context): \(message)")
     userMessage = (text: "\(context). \(message)", kind: .error)
+  }
+
+  private static func libraryLoadWarningMessage(for warnings: [LibraryLoadWarning]) -> String {
+    let summary = [
+      warningCountText(
+        for: warnings, kind: .dailyNote, singular: "daily note", plural: "daily notes"),
+      warningCountText(for: warnings, kind: .listNote, singular: "list note", plural: "list notes"),
+      warningCountText(
+        for: warnings,
+        kind: .listNotesManifest,
+        singular: "group manifest",
+        plural: "group manifests"
+      ),
+    ]
+    .compactMap(\.self)
+    .joined(separator: ", ")
+    let backedUpManifest = warnings.contains {
+      $0.kind == .listNotesManifest && $0.recoveryFileName != nil
+    }
+    let backupText = backedUpManifest ? " Invalid groups file was backed up." : ""
+    return
+      "Some library files could not be loaded: \(summary). Originals were left on disk.\(backupText)"
+  }
+
+  private static func warningCountText(
+    for warnings: [LibraryLoadWarning],
+    kind: LibraryLoadWarning.Kind,
+    singular: String,
+    plural: String
+  ) -> String? {
+    let count = warnings.filter { $0.kind == kind }.count
+    guard count > 0 else { return nil }
+    return "\(count) \(count == 1 ? singular : plural)"
   }
 }

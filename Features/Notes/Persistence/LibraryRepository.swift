@@ -10,6 +10,25 @@ import OSLog
 struct LibraryListNotesSnapshot: Equatable, Sendable {
   let notes: [DayNote]
   let manifest: ListNotesManifest
+  let warnings: [LibraryLoadWarning]
+}
+
+struct LibraryDailyNotesSnapshot: Equatable, Sendable {
+  let notes: [DayNote]
+  let warnings: [LibraryLoadWarning]
+}
+
+struct LibraryLoadWarning: Equatable, Sendable {
+  enum Kind: Equatable, Sendable {
+    case dailyNote
+    case listNote
+    case listNotesManifest
+  }
+
+  let kind: Kind
+  let fileName: String
+  let detail: String
+  let recoveryFileName: String?
 }
 
 struct LibraryRepository {
@@ -26,19 +45,34 @@ struct LibraryRepository {
 
   // Loads all valid daily markdown notes, preserving the current skip-corrupt behavior.
   func loadDailyNotes() throws -> [DayNote] {
+    try loadDailyNotesSnapshot().notes
+  }
+
+  // Loads valid daily notes while returning warnings for skipped files.
+  func loadDailyNotesSnapshot() throws -> LibraryDailyNotesSnapshot {
     let fileURLs = try markdownFileURLs(in: dailyNotesDirectoryURL())
-    return
-      fileURLs
-      .compactMap { url -> DayNote? in
+    var warnings: [LibraryLoadWarning] = []
+    let notes =
+      fileURLs.compactMap { url -> DayNote? in
         do {
           return try loadDailyNote(from: url)
         } catch {
           Self.logger.error(
             "Skipping corrupt note \(url.lastPathComponent): \(error.localizedDescription)")
+          warnings.append(
+            LibraryLoadWarning(
+              kind: .dailyNote,
+              fileName: url.lastPathComponent,
+              detail: error.localizedDescription,
+              recoveryFileName: nil
+            )
+          )
           return nil
         }
       }
       .sorted(by: { $0.date > $1.date })
+
+    return LibraryDailyNotesSnapshot(notes: notes, warnings: warnings)
   }
 
   // Writes one daily note using the supported markdown codec.
@@ -54,6 +88,7 @@ struct LibraryRepository {
   // Loads list notes and a reconciled manifest, then persists the reconciliation.
   func loadListNotes() throws -> LibraryListNotesSnapshot {
     let fileURLs = try markdownFileURLs(in: listNotesDirectoryURL())
+    var warnings: [LibraryLoadWarning] = []
     let notes =
       fileURLs
       .compactMap { url -> DayNote? in
@@ -63,15 +98,27 @@ struct LibraryRepository {
           Self.logger.error(
             "Skipping corrupt list note \(url.lastPathComponent): \(error.localizedDescription)"
           )
+          warnings.append(
+            LibraryLoadWarning(
+              kind: .listNote,
+              fileName: url.lastPathComponent,
+              detail: error.localizedDescription,
+              recoveryFileName: nil
+            )
+          )
           return nil
         }
       }
       .sorted(by: { $0.date > $1.date })
 
-    var manifest = loadListNotesManifest()
+    let manifestResult = loadListNotesManifestResult(backsUpInvalidManifest: true)
+    var manifest = manifestResult.manifest
+    if let warning = manifestResult.warning {
+      warnings.append(warning)
+    }
     reconcileManifest(&manifest, with: Set(notes.map(\.id)))
     try saveListNotesManifest(manifest)
-    return LibraryListNotesSnapshot(notes: notes, manifest: manifest)
+    return LibraryListNotesSnapshot(notes: notes, manifest: manifest, warnings: warnings)
   }
 
   // Writes one list note using the supported markdown codec.
@@ -135,14 +182,86 @@ struct LibraryRepository {
 
   // Reads the list-note manifest, returning empty when the file is missing or invalid.
   func loadListNotesManifest() -> ListNotesManifest {
-    guard
-      let data = try? Data(contentsOf: manifestFileURL()),
-      let manifest = try? JSONDecoder().decode(ListNotesManifest.self, from: data)
-    else {
-      return .empty
+    loadListNotesManifestResult(backsUpInvalidManifest: false).manifest
+  }
+
+  private struct ManifestLoadResult {
+    let manifest: ListNotesManifest
+    let warning: LibraryLoadWarning?
+  }
+
+  private func loadListNotesManifestResult(backsUpInvalidManifest: Bool) -> ManifestLoadResult {
+    let manifestURL: URL
+    do {
+      manifestURL = try manifestFileURL()
+    } catch {
+      Self.logger.error("Resolving list-note manifest failed: \(error.localizedDescription)")
+      return ManifestLoadResult(manifest: .empty, warning: nil)
     }
 
-    return manifest
+    guard fileManager.fileExists(atPath: manifestURL.path) else {
+      return ManifestLoadResult(manifest: .empty, warning: nil)
+    }
+
+    do {
+      let data = try Data(contentsOf: manifestURL)
+      let manifest = try JSONDecoder().decode(ListNotesManifest.self, from: data)
+      return ManifestLoadResult(manifest: manifest, warning: nil)
+    } catch {
+      Self.logger.error(
+        "Invalid list-note manifest \(manifestURL.lastPathComponent): \(error.localizedDescription)"
+      )
+      let recoveryFileName =
+        backsUpInvalidManifest ? backupInvalidManifest(at: manifestURL) : nil
+      let warning = LibraryLoadWarning(
+        kind: .listNotesManifest,
+        fileName: manifestURL.lastPathComponent,
+        detail: error.localizedDescription,
+        recoveryFileName: recoveryFileName
+      )
+      return ManifestLoadResult(manifest: .empty, warning: warning)
+    }
+  }
+
+  private func backupInvalidManifest(at manifestURL: URL) -> String? {
+    let backupURL = invalidManifestBackupURL(for: manifestURL)
+
+    do {
+      try fileManager.copyItem(at: manifestURL, to: backupURL)
+      Self.logger.warning(
+        "Backed up invalid list-note manifest to \(backupURL.lastPathComponent)"
+      )
+      return backupURL.lastPathComponent
+    } catch {
+      Self.logger.error(
+        "Backing up invalid list-note manifest failed: \(error.localizedDescription)"
+      )
+      return nil
+    }
+  }
+
+  private func invalidManifestBackupURL(for manifestURL: URL) -> URL {
+    let directoryURL = manifestURL.deletingLastPathComponent()
+    let timestamp = Self.backupTimestamp()
+    var backupURL = directoryURL.appendingPathComponent("groups.invalid-\(timestamp).json")
+    var suffix = 2
+
+    while fileManager.fileExists(atPath: backupURL.path) {
+      backupURL = directoryURL.appendingPathComponent(
+        "groups.invalid-\(timestamp)-\(suffix).json"
+      )
+      suffix += 1
+    }
+
+    return backupURL
+  }
+
+  private static func backupTimestamp() -> String {
+    let formatter = DateFormatter()
+    formatter.calendar = Calendar(identifier: .gregorian)
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.dateFormat = "yyyyMMdd-HHmmss"
+    return formatter.string(from: .now)
   }
 
   // Writes the list-note manifest using the current pretty-printed JSON format.

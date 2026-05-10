@@ -17,17 +17,20 @@ extension NotesStore {
   // MARK: - Loading
 
   // Loads all list notes and the manifest from disk, reconciling any mismatches.
-  func loadListNotesIfNeeded() {
+  @discardableResult
+  func loadListNotesIfNeeded() -> [LibraryLoadWarning] {
     do {
       let snapshot = try libraryRepository.loadListNotes()
       listNotes = snapshot.notes
       rebuildListNoteIndex()
       listNoteManifest = snapshot.manifest
       Self.listNotesLogger.info("Loaded \(snapshot.notes.count) list notes")
+      return snapshot.warnings
     } catch {
       Self.listNotesLogger.error("Loading list notes failed: \(error.localizedDescription)")
       listNotes = []
       listNoteManifest = .empty
+      return []
     }
   }
 
@@ -56,10 +59,10 @@ extension NotesStore {
 
   // Generates a unique ID for a new list note (date + 6-char hex suffix).
   private func generateListNoteID(for date: Date = .now) -> String {
-    let datePrefix = NoteDateFormatters.storageDate.string(from: date)
-    let hexChars = "abcdef0123456789"
-    let suffix = String((0..<6).map { _ in hexChars.randomElement()! })
-    return "\(datePrefix)-\(suffix)"
+    ListNoteIDGenerator.makeID(
+      for: date,
+      existingIDs: Set(listNotes.map(\.id)).union(listNoteManifest.allNoteIDs)
+    )
   }
 
   // Creates a new blank list note, saves it, and selects it.
@@ -255,10 +258,12 @@ extension NotesStore {
 
   // Moves a note into a specific group.
   func moveNoteToGroup(noteID: String, groupID: String) {
-    listNoteManifest.removeNoteID(noteID)
     guard let groupIndex = listNoteManifest.groups.firstIndex(where: { $0.id == groupID }) else {
+      Self.listNotesLogger.warning("Ignoring list note move to missing group \(groupID)")
       return
     }
+
+    listNoteManifest.removeNoteID(noteID)
     listNoteManifest.groups[groupIndex].noteIDs.append(noteID)
     saveManifest()
   }
@@ -291,10 +296,12 @@ extension NotesStore {
 
   // Moves a note to a specific index within a group.
   func moveNoteToGroup(noteID: String, groupID: String, atIndex index: Int) {
-    listNoteManifest.removeNoteID(noteID)
     guard let groupIndex = listNoteManifest.groups.firstIndex(where: { $0.id == groupID }) else {
+      Self.listNotesLogger.warning("Ignoring list note move to missing group \(groupID)")
       return
     }
+
+    listNoteManifest.removeNoteID(noteID)
     let clampedIndex = min(index, listNoteManifest.groups[groupIndex].noteIDs.count)
     listNoteManifest.groups[groupIndex].noteIDs.insert(noteID, at: clampedIndex)
     saveManifest()
@@ -426,5 +433,45 @@ extension NotesStore {
     case .daily: return bodyBinding(for: noteID)
     case .list: return listNoteBodyBinding(for: noteID)
     }
+  }
+}
+
+nonisolated enum ListNoteIDGenerator {
+  private static let primarySuffixLength = 6
+  private static let fallbackSuffixLength = 12
+  private static let generationAttemptLimit = 64
+  private static let hexCharacters = Array("abcdef0123456789")
+
+  // Retries random suffixes so a new list note never overwrites an existing note file.
+  static func makeID(
+    for date: Date,
+    existingIDs: Set<DayNote.ID>,
+    suffixProvider: () -> String = { randomHexSuffix(length: primarySuffixLength) }
+  ) -> DayNote.ID {
+    let datePrefix = NoteDateFormatters.storageDate.string(from: date)
+
+    for _ in 0..<generationAttemptLimit {
+      let candidate = "\(datePrefix)-\(suffixProvider())"
+      if !existingIDs.contains(candidate) {
+        return candidate
+      }
+    }
+
+    return fallbackID(datePrefix: datePrefix, existingIDs: existingIDs)
+  }
+
+  private static func fallbackID(datePrefix: String, existingIDs: Set<DayNote.ID>) -> DayNote.ID {
+    for _ in 0..<generationAttemptLimit {
+      let candidate = "\(datePrefix)-\(randomHexSuffix(length: fallbackSuffixLength))"
+      if !existingIDs.contains(candidate) {
+        return candidate
+      }
+    }
+
+    return "\(datePrefix)-\(UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased())"
+  }
+
+  private static func randomHexSuffix(length: Int) -> String {
+    String((0..<length).map { _ in hexCharacters.randomElement() ?? "0" })
   }
 }

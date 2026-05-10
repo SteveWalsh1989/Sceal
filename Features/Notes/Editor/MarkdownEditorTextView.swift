@@ -76,6 +76,8 @@ final class MarkdownEditorTextView: NSTextView {
   private var hoveredPromptBlockLocation: Int? = nil
   private var hoveredPromptCopyLocation: Int? = nil
   private var hoveredPromptCloseLocation: Int? = nil
+  private var isRefreshingPromptBlockParagraphStyles = false
+  private var lastPromptBlockTextContainerWidth: CGFloat?
   private var promptBlockTrackingAreas: [NSTrackingArea] = []
   private var promptCopyTrackingAreas: [NSTrackingArea] = []
   private var promptCloseTrackingAreas: [NSTrackingArea] = []
@@ -224,6 +226,7 @@ final class MarkdownEditorTextView: NSTextView {
 
   // Forces layout recalculation and redraws section card backgrounds.
   func refreshSectionLayout() {
+    refreshPromptBlockParagraphStyles(force: true)
     ensureEditorLayoutForEntireDocument()
     syncTableBlockViews()
     updateTrackingAreas()
@@ -233,7 +236,50 @@ final class MarkdownEditorTextView: NSTextView {
 
   override func layout() {
     super.layout()
+    refreshPromptBlockParagraphStyles()
     syncTableBlockViews()
+  }
+
+  // Keeps prompt text wrapping inside the drawn box as the editor width changes.
+  func refreshPromptBlockParagraphStyles(force: Bool = false) {
+    guard !isRefreshingPromptBlockParagraphStyles, let textStorage else { return }
+    let textContainerWidth =
+      textContainer?.containerSize.width ?? bounds.width - textContainerInset.width * 2
+    guard textContainerWidth.isFinite, textContainerWidth > 0 else { return }
+
+    if !force,
+      let lastPromptBlockTextContainerWidth,
+      abs(lastPromptBlockTextContainerWidth - textContainerWidth) < 0.5
+    {
+      return
+    }
+    lastPromptBlockTextContainerWidth = textContainerWidth
+
+    let fullRange = NSRange(location: 0, length: textStorage.length)
+    guard fullRange.length > 0 else { return }
+
+    var promptRanges: [NSRange] = []
+    textStorage.enumerateAttribute(.markdownPromptBlock, in: fullRange, options: []) {
+      value, range, _ in
+      if value as? Bool == true {
+        promptRanges.append(range)
+      }
+    }
+    guard !promptRanges.isEmpty else { return }
+
+    let paragraphStyle = MarkdownEditorFormatter.promptBlockParagraphStyle(
+      for: appearanceSettings,
+      textContainerWidth: textContainerWidth
+    )
+
+    isRefreshingPromptBlockParagraphStyles = true
+    textStorage.beginEditing()
+    for range in promptRanges {
+      textStorage.addAttribute(.paragraphStyle, value: paragraphStyle, range: range)
+    }
+    textStorage.endEditing()
+    isRefreshingPromptBlockParagraphStyles = false
+    setNeedsDisplay(bounds)
   }
 
   override func hitTest(_ point: NSPoint) -> NSView? {
@@ -1816,7 +1862,9 @@ final class MarkdownEditorTextView: NSTextView {
     [
       .font: appearanceSettings.bodyFont,
       .foregroundColor: NSColor.labelColor,
-      .paragraphStyle: MarkdownEditorFormatter.promptBlockParagraphStyle(for: appearanceSettings),
+      .paragraphStyle: MarkdownEditorFormatter.promptBlockParagraphStyle(
+        for: appearanceSettings,
+        textContainerWidth: textContainer?.containerSize.width),
       .markdownPromptBlock: true,
     ]
   }

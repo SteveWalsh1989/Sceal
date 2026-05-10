@@ -279,6 +279,7 @@ struct MarkdownEditorView: NSViewRepresentable {
       Self.applyBottomOverscroll(to: textView, in: scrollView)
     }
     if let editorTextView = textView as? MarkdownEditorTextView {
+      editorTextView.refreshPromptBlockParagraphStyles(force: true)
       editorTextView.syncTableBlockViews()
     }
     textView.setNeedsDisplay(textView.bounds)
@@ -939,7 +940,7 @@ extension MarkdownEditorView {
             return NSRange(location: insertionLocation, length: 0)
           }
           if handled {
-            textView.typingAttributes = promptBlockTypingAttributes()
+            textView.typingAttributes = promptBlockTypingAttributes(for: textView)
             textView.setNeedsDisplay(textView.bounds)
             flushPendingMarkdownPushIfNeeded(from: textStorage)
           }
@@ -1083,7 +1084,7 @@ extension MarkdownEditorView {
 
         let newlineAttrs =
           continuedPromptBlock
-          ? promptBlockTypingAttributes()
+          ? promptBlockTypingAttributes(for: textView)
           : MarkdownEditorFormatter.baseTypingAttributes(for: parent.appearanceSettings)
         textStorage.insert(
           NSAttributedString(string: "\n", attributes: newlineAttrs), at: splitPoint)
@@ -1126,7 +1127,7 @@ extension MarkdownEditorView {
       if continuedCodeBlock {
         textView.typingAttributes = codeBlockTypingAttributes()
       } else if continuedPromptBlock {
-        textView.typingAttributes = promptBlockTypingAttributes()
+        textView.typingAttributes = promptBlockTypingAttributes(for: textView)
       } else if continuedBlockquote, continuedListType == nil {
         textView.typingAttributes = [
           .font: parent.appearanceSettings.bodyFont,
@@ -1824,12 +1825,15 @@ extension MarkdownEditorView {
       ]
     }
 
-    private func promptBlockTypingAttributes() -> [NSAttributedString.Key: Any] {
+    private func promptBlockTypingAttributes(for textView: NSTextView? = nil)
+      -> [NSAttributedString.Key: Any]
+    {
       [
         .font: parent.appearanceSettings.bodyFont,
         .foregroundColor: NSColor.labelColor,
         .paragraphStyle: MarkdownEditorFormatter.promptBlockParagraphStyle(
-          for: parent.appearanceSettings),
+          for: parent.appearanceSettings,
+          textContainerWidth: textView?.textContainer?.containerSize.width),
         .markdownPromptBlock: true,
       ]
     }

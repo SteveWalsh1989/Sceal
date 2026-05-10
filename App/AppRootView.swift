@@ -299,10 +299,20 @@ private struct AppToastView: View {
   }
 
   private var iconName: String {
-    kind == .error ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
+    switch kind {
+    case .error, .warning:
+      "exclamationmark.triangle.fill"
+    case .info:
+      "checkmark.circle.fill"
+    }
   }
 
   private var iconColor: Color {
-    kind == .error ? .orange : .green
+    switch kind {
+    case .error, .warning:
+      .orange
+    case .info:
+      .green
+    }
   }
 }

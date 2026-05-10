@@ -38,6 +38,26 @@ final class LibraryRepositoryTests: XCTestCase {
     XCTAssertEqual(reloadedNote.body, note.body)
   }
 
+  // Surfaces skipped daily-note files without preventing valid notes from loading.
+  func testDailyNoteSnapshotReportsCorruptFiles() throws {
+    let repository = makeRepository()
+    let notesDirectoryURL = try repository.dailyNotesDirectoryURL()
+    try copyFixture("2026-05-10-composite.md", to: notesDirectoryURL)
+    try "not front matter".write(
+      to: notesDirectoryURL.appendingPathComponent("2026-05-12.md"),
+      atomically: true,
+      encoding: .utf8
+    )
+
+    let snapshot = try repository.loadDailyNotesSnapshot()
+
+    XCTAssertEqual(snapshot.notes.map(\.id), ["2026-05-10"])
+    XCTAssertEqual(snapshot.warnings.count, 1)
+    XCTAssertEqual(snapshot.warnings.first?.kind, .dailyNote)
+    XCTAssertEqual(snapshot.warnings.first?.fileName, "2026-05-12.md")
+    XCTAssertNil(snapshot.warnings.first?.recoveryFileName)
+  }
+
   // List note loading reconciles groups.json without touching any live library path.
   func testLoadsListNotesAndReconcilesManifestInInjectedRoot() throws {
     let repository = makeRepository()
@@ -56,6 +76,32 @@ final class LibraryRepositoryTests: XCTestCase {
     XCTAssertEqual(snapshot.notes.map(\.id), ["project-alpha"])
     XCTAssertEqual(snapshot.manifest, manifest)
     XCTAssertEqual(repository.loadListNotesManifest(), manifest)
+  }
+
+  // Keeps an invalid groups.json recoverable before replacing it with a reconciled manifest.
+  func testLoadListNotesBacksUpInvalidManifestBeforeRewriting() throws {
+    let repository = makeRepository()
+    let listNotesDirectoryURL = try repository.listNotesDirectoryURL()
+    try copyFixture("project-alpha.md", to: listNotesDirectoryURL)
+    let invalidManifest = "{ invalid json"
+    try invalidManifest.write(
+      to: listNotesDirectoryURL.appendingPathComponent("groups.json"),
+      atomically: true,
+      encoding: .utf8
+    )
+
+    let snapshot = try repository.loadListNotes()
+
+    XCTAssertEqual(snapshot.notes.map(\.id), ["project-alpha"])
+    XCTAssertEqual(snapshot.manifest.ungroupedNoteIDs, ["project-alpha"])
+    XCTAssertTrue(snapshot.manifest.groups.isEmpty)
+    XCTAssertEqual(snapshot.warnings.count, 1)
+    XCTAssertEqual(snapshot.warnings.first?.kind, .listNotesManifest)
+    let backupFileName = try XCTUnwrap(snapshot.warnings.first?.recoveryFileName)
+    let backupURL = listNotesDirectoryURL.appendingPathComponent(backupFileName)
+    XCTAssertTrue(FileManager.default.fileExists(atPath: backupURL.path))
+    XCTAssertEqual(try String(contentsOf: backupURL, encoding: .utf8), invalidManifest)
+    XCTAssertEqual(repository.loadListNotesManifest(), snapshot.manifest)
   }
 
   // Delete helpers remove only the requested file inside the injected root.

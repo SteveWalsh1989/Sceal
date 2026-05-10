@@ -32,6 +32,10 @@ enum MarkdownEditorFormatter {
   static let sectionDividerSpacingBefore: CGFloat = 10
   static let sectionDividerSpacingAfter: CGFloat = 6
   static let sectionDividerLineHeight: CGFloat = 1
+  private static let promptBlockTextLeadingIndent: CGFloat = 18
+  private static let promptBlockMinimumTrailingIndent: CGFloat = 26
+  private static let promptBlockPreferredTrailingIndent: CGFloat = 114
+  private static let promptBlockMinimumWrapWidth: CGFloat = 50
   static let promptBlockStartMarker = MarkdownEditorPromptBlockMarkdown.startMarker
   static let promptBlockEndMarker = MarkdownEditorPromptBlockMarkdown.endMarker
   static let promptBoundaryStartKind = MarkdownEditorPromptBlockMarkdown.startBoundaryKind
@@ -139,17 +143,34 @@ enum MarkdownEditorFormatter {
   }
 
   // Paragraph style for prompt blocks; the trailing inset leaves room for the copy button.
-  static func promptBlockParagraphStyle(for appearance: NoteAppearanceSettings)
+  static func promptBlockParagraphStyle(
+    for appearance: NoteAppearanceSettings,
+    textContainerWidth: CGFloat? = nil
+  )
     -> NSParagraphStyle
   {
     let style = NSMutableParagraphStyle()
     style.baseWritingDirection = .leftToRight
-    style.firstLineHeadIndent = 18
-    style.headIndent = 18
-    style.tailIndent = -114
+    style.firstLineHeadIndent = promptBlockTextLeadingIndent
+    style.headIndent = promptBlockTextLeadingIndent
+    style.tailIndent = -promptBlockTrailingIndent(textContainerWidth: textContainerWidth)
     style.paragraphSpacing = 2
     style.lineHeightMultiple = appearance.lineHeight
     return style.copy() as! NSParagraphStyle
+  }
+
+  // Shrinks the copy-button reservation when the editor is too narrow to wrap text safely.
+  private static func promptBlockTrailingIndent(textContainerWidth: CGFloat?) -> CGFloat {
+    guard let textContainerWidth, textContainerWidth.isFinite, textContainerWidth > 0 else {
+      return promptBlockPreferredTrailingIndent
+    }
+
+    let maximumIndentLeavingWrapRoom =
+      textContainerWidth - promptBlockTextLeadingIndent - promptBlockMinimumWrapWidth
+    return min(
+      promptBlockPreferredTrailingIndent,
+      max(promptBlockMinimumTrailingIndent, maximumIndentLeavingWrapRoom)
+    )
   }
 
   // Default typing attributes applied to new text in the editor.
