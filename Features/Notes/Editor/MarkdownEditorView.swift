@@ -1596,16 +1596,16 @@ extension MarkdownEditorView {
           continue
         }
 
-        guard sectionInfo.useSectionColor,
+        guard
           let rawType = attrs[.markdownListType] as? String,
           let listType = MarkdownListType(rawValue: rawType)
         else { continue }
 
         let color: NSColor? = {
-          if let n = sectionInfo.bulletColorName {
+          if sectionInfo.useSectionColor, let n = sectionInfo.headingColorName {
             return MarkdownEditorFormatter.headingColor(named: n)
           }
-          if let n = sectionInfo.headingColorName {
+          if let n = sectionInfo.bulletColorName {
             return MarkdownEditorFormatter.headingColor(named: n)
           }
           return nil

@@ -27,15 +27,25 @@ final class MarkdownEditorSectionDirectiveTests: XCTestCase {
     XCTAssertTrue(directive.usesSectionColor)
   }
 
-  // Keeps section serialization canonical by omitting false color-use flags.
-  func testSerializesSectionMarkerWithoutFalseFlag() {
+  // Keeps older colored section markers using the default same-color behavior.
+  func testColoredSectionMarkerDefaultsToUsingSectionColor() throws {
+    let directive = try XCTUnwrap(
+      MarkdownEditorSectionDirectiveMarkdown.parse("<!-- section heading:blue -->")
+    )
+
+    XCTAssertEqual(directive.headingColorName, "blue")
+    XCTAssertTrue(directive.usesSectionColor)
+  }
+
+  // Keeps different-color mode explicit so reloads do not revert to same-color mode.
+  func testSerializesSectionMarkerWithExplicitFalseFlag() {
     XCTAssertEqual(
       MarkdownEditorSectionDirectiveMarkdown.marker(
         headingColorName: "blue",
-        bulletColorName: "blue",
+        bulletColorName: "turquoise",
         usesSectionColor: false
       ),
-      "<!-- section heading:blue bullet:blue -->"
+      "<!-- section heading:blue bullet:turquoise usesectioncolor:false -->"
     )
   }
 

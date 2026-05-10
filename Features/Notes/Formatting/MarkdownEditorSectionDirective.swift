@@ -20,6 +20,10 @@ struct MarkdownEditorSectionDirective: Equatable, Sendable {
     self.bulletColorName = bulletColorName
     self.usesSectionColor = usesSectionColor
   }
+
+  var useSectionColorAttributeValue: Bool? {
+    headingColorName != nil || bulletColorName != nil ? usesSectionColor : nil
+  }
 }
 
 enum MarkdownEditorSectionDirectiveMarkdown {
@@ -37,10 +41,15 @@ enum MarkdownEditorSectionDirectiveMarkdown {
       )
     else { return nil }
 
+    let headingColorName = capturedGroup(match, index: 1, in: line)
+    let bulletColorName = capturedGroup(match, index: 2, in: line)
+    let explicitUseSectionColor = capturedGroup(match, index: 3, in: line)
+    let hasColor = headingColorName != nil || bulletColorName != nil
+
     return MarkdownEditorSectionDirective(
-      headingColorName: capturedGroup(match, index: 1, in: line),
-      bulletColorName: capturedGroup(match, index: 2, in: line),
-      usesSectionColor: capturedGroup(match, index: 3, in: line) == "true"
+      headingColorName: headingColorName,
+      bulletColorName: bulletColorName,
+      usesSectionColor: explicitUseSectionColor.map { $0 == "true" } ?? hasColor
     )
   }
 
@@ -66,8 +75,11 @@ enum MarkdownEditorSectionDirectiveMarkdown {
     if let bulletColorName {
       parts.append("bullet:\(bulletColorName)")
     }
-    if usesSectionColor {
+    let hasColor = headingColorName != nil || bulletColorName != nil
+    if usesSectionColor, hasColor {
       parts.append("usesectioncolor:true")
+    } else if !usesSectionColor, hasColor {
+      parts.append("usesectioncolor:false")
     }
     return "<!-- \(parts.joined(separator: " ")) -->"
   }

@@ -55,7 +55,7 @@ extension MarkdownEditorFormatter {
         appearance: appearance,
         headingColorName: section.headingColorName,
         bulletColorName: section.bulletColorName,
-        useSectionColor: section.usesSectionColor ? true : nil
+        useSectionColor: section.useSectionColorAttributeValue
       )
     }
 
@@ -741,15 +741,19 @@ extension MarkdownEditorFormatter {
       return mutable
     }
 
-    // Bullets and checkboxes inherit section color when useSectionColor is on.
-    guard useSectionColor,
+    // Bullets and checkboxes use the heading color in same-color mode, otherwise their own color.
+    guard
       let rawType = attrs[.markdownListType] as? String,
       let listType = MarkdownListType(rawValue: rawType)
     else { return nil }
 
     let sectionColor: NSColor? = {
-      if let name = bulletColorName { return headingColor(named: name) }
-      if let name = headingColorName { return headingColor(named: name) }
+      if useSectionColor, let name = headingColorName {
+        return headingColor(named: name)
+      }
+      if let name = bulletColorName {
+        return headingColor(named: name)
+      }
       return nil
     }()
     guard let color = sectionColor else { return nil }

@@ -416,7 +416,7 @@ final class MarkdownEditorTextView: NSTextView {
       result = (
         headingColorName: attrs[.markdownSectionHeadingColor] as? String,
         bulletColorName: attrs[.markdownSectionBulletColor] as? String,
-        useSectionColor: attrs[.markdownSectionUseSectionColor] as? Bool ?? false
+        useSectionColor: attrs[.markdownSectionUseSectionColor] as? Bool ?? true
       )
       stop.pointee = true
     }
@@ -2104,7 +2104,8 @@ final class MarkdownEditorTextView: NSTextView {
 
     let popover = NSPopover()
     popover.behavior = .transient
-    popover.contentSize = NSSize(width: 264, height: 208)
+    popover.contentSize = EditorSectionColorPopoverViewController.contentSize(
+      useSectionColor: currentUseSC)
 
     let controller = EditorSectionColorPopoverViewController(
       headingColorName: currentHeading,
@@ -2150,13 +2151,15 @@ final class MarkdownEditorTextView: NSTextView {
       } else {
         textStorage.removeAttribute(.markdownSectionHeadingColor, range: trimmed)
       }
-      if let name = bulletColorName {
+      if !useSectionColor, let name = bulletColorName {
         textStorage.addAttribute(.markdownSectionBulletColor, value: name, range: trimmed)
       } else {
         textStorage.removeAttribute(.markdownSectionBulletColor, range: trimmed)
       }
       if useSectionColor {
         textStorage.addAttribute(.markdownSectionUseSectionColor, value: true, range: trimmed)
+      } else if headingColorName != nil || bulletColorName != nil {
+        textStorage.addAttribute(.markdownSectionUseSectionColor, value: false, range: trimmed)
       } else {
         textStorage.removeAttribute(.markdownSectionUseSectionColor, range: trimmed)
       }
@@ -2175,12 +2178,12 @@ final class MarkdownEditorTextView: NSTextView {
 
     let headingColorName = dividerAttrs[.markdownSectionHeadingColor] as? String
     let bulletColorName = dividerAttrs[.markdownSectionBulletColor] as? String
-    let useSC = dividerAttrs[.markdownSectionUseSectionColor] as? Bool ?? false
+    let useSC = dividerAttrs[.markdownSectionUseSectionColor] as? Bool ?? true
 
     let headingColor = headingColorName.flatMap { MarkdownEditorFormatter.headingColor(named: $0) }
     let bulletColor: NSColor? = {
+      if useSC, let n = headingColorName { return MarkdownEditorFormatter.headingColor(named: n) }
       if let n = bulletColorName { return MarkdownEditorFormatter.headingColor(named: n) }
-      if let n = headingColorName { return MarkdownEditorFormatter.headingColor(named: n) }
       return nil
     }()
 

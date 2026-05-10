@@ -365,7 +365,7 @@ enum MarkdownEditorFormatter {
             appearance: appearance,
             headingColorName: section.headingColorName,
             bulletColorName: section.bulletColorName,
-            useSectionColor: section.usesSectionColor ? true : nil
+            useSectionColor: section.useSectionColorAttributeValue
           ))
         justEmittedDivider = true
         continue

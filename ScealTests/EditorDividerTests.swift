@@ -145,6 +145,57 @@ final class EditorDividerTests: EditorTestCase {
     )
   }
 
+  // Keeps colored section markers using the heading color for list markers by default.
+  func testSectionColorDefaultsToHeadingColorForBulletMarkers() throws {
+    let display = MarkdownEditorFormatter.formatForDisplay(
+      "<!-- section heading:turquoise -->\n# Meeting:\n- Item",
+      appearance: appearance
+    )
+    let expectedColor = try XCTUnwrap(ThemePalette.color(named: "turquoise"))
+    let string = display.string as NSString
+    let headingRange = string.range(of: "Meeting:")
+    let bulletRange = string.range(of: MarkdownEditorFormatter.bulletMarker)
+
+    XCTAssertNotEqual(headingRange.location, NSNotFound)
+    XCTAssertNotEqual(bulletRange.location, NSNotFound)
+    assertColor(
+      display.attribute(.foregroundColor, at: headingRange.location, effectiveRange: nil)
+        as? NSColor,
+      matches: expectedColor
+    )
+    assertColor(
+      display.attribute(.foregroundColor, at: bulletRange.location, effectiveRange: nil)
+        as? NSColor,
+      matches: expectedColor
+    )
+  }
+
+  // Keeps different-color mode applying the bullet color when same-color mode is off.
+  func testSectionBulletColorAppliesWhenSameColorModeIsOff() throws {
+    let display = MarkdownEditorFormatter.formatForDisplay(
+      "<!-- section heading:turquoise bullet:pink usesectioncolor:false -->\n# Meeting:\n- Item",
+      appearance: appearance
+    )
+    let headingColor = try XCTUnwrap(ThemePalette.color(named: "turquoise"))
+    let bulletColor = try XCTUnwrap(ThemePalette.color(named: "pink"))
+    let string = display.string as NSString
+    let headingRange = string.range(of: "Meeting:")
+    let bulletRange = string.range(of: MarkdownEditorFormatter.bulletMarker)
+
+    XCTAssertNotEqual(headingRange.location, NSNotFound)
+    XCTAssertNotEqual(bulletRange.location, NSNotFound)
+    assertColor(
+      display.attribute(.foregroundColor, at: headingRange.location, effectiveRange: nil)
+        as? NSColor,
+      matches: headingColor
+    )
+    assertColor(
+      display.attribute(.foregroundColor, at: bulletRange.location, effectiveRange: nil)
+        as? NSColor,
+      matches: bulletColor
+    )
+  }
+
   // Prevents backspace from leaving a hidden section marker above the caret.
   func testBackspaceBelowDividerRemovesIt() {
     let markdown = MarkdownBox("<!-- section -->\nBody")
