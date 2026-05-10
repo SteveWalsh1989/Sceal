@@ -93,6 +93,11 @@ extension NotesStore {
 
   // Applies a custom color override, copying from the built-in theme on first edit.
   func updateColorOverride(mutate: (inout ThemeColorSet) -> Void) {
+    guard hasAccess(to: .customThemeColors) else {
+      userMessage = (text: "Paid is required for custom theme colors.", kind: .info)
+      return
+    }
+
     updateAppearanceSettings { settings in
       var colors = settings.resolvedColors
       mutate(&colors)

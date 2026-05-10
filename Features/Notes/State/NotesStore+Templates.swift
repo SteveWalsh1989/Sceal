@@ -17,6 +17,18 @@ extension NotesStore {
     }
   }
 
+  var accessibleNoteTemplates: [NoteTemplate] {
+    guard let templateLimit = featureAccess.templateLimit else {
+      return sortedNoteTemplates
+    }
+
+    return Array(sortedNoteTemplates.prefix(templateLimit))
+  }
+
+  var canCreateNoteTemplate: Bool {
+    featureAccess.canCreateTemplate(currentTemplateCount: noteTemplates.count)
+  }
+
   // Creates a new editable template and selects a unique generated command.
   @discardableResult
   func createNoteTemplate() -> NoteTemplate.ID {
@@ -27,6 +39,26 @@ extension NotesStore {
     sortTemplates()
     persistNoteTemplates()
     return template.id
+  }
+
+  // Creates a template from UI actions only when the active plan allows it.
+  @discardableResult
+  func createNoteTemplateIfAllowed() -> NoteTemplate.ID? {
+    guard canCreateNoteTemplate else {
+      userMessage = (text: "Paid is required to create more templates.", kind: .info)
+      return nil
+    }
+
+    return createNoteTemplate()
+  }
+
+  // Returns whether the template is present but outside the active plan's template limit.
+  func isNoteTemplateLockedByPlan(_ templateID: NoteTemplate.ID) -> Bool {
+    guard let templateLimit = featureAccess.templateLimit else { return false }
+    guard let index = sortedNoteTemplates.firstIndex(where: { $0.id == templateID }) else {
+      return false
+    }
+    return index >= templateLimit
   }
 
   // Deletes the template and persists the updated template list.
@@ -74,7 +106,7 @@ extension NotesStore {
   func enabledSlashCommandTemplates(excluding excludedID: NoteTemplate.ID? = nil)
     -> [NoteTemplate]
   {
-    noteTemplates.filter { template in
+    accessibleNoteTemplates.filter { template in
       template.id != excludedID
         && template.isEnabled
         && templateCommandValidationMessage(for: template.id) == nil

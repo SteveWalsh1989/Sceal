@@ -20,6 +20,10 @@ struct SettingsThemesView: View {
     store.appearanceSettings.resolvedColors
   }
 
+  private var canCustomizeColors: Bool {
+    store.hasAccess(to: .customThemeColors)
+  }
+
   var body: some View {
     Form {
       Section("Dark Themes") {
@@ -65,37 +69,45 @@ struct SettingsThemesView: View {
             color in
             store.updateColorOverride { $0.sidebarBackground = color }
           }
+          .disabled(!canCustomizeColors)
 
           ColorTokenRow(label: "Editor background", color: resolvedColors.editorBackground) {
             color in
             store.updateColorOverride { $0.editorBackground = color }
           }
+          .disabled(!canCustomizeColors)
 
           ColorTokenRow(label: "Selected card", color: resolvedColors.selectedCard) { color in
             store.updateColorOverride { $0.selectedCard = color }
           }
+          .disabled(!canCustomizeColors)
 
           ColorTokenRow(label: "Unselected card", color: resolvedColors.unselectedCard) { color in
             store.updateColorOverride { $0.unselectedCard = color }
           }
+          .disabled(!canCustomizeColors)
 
           ColorTokenRow(label: "Section card fill", color: resolvedColors.sectionCardFill) {
             color in
             store.updateColorOverride { $0.sectionCardFill = color }
           }
+          .disabled(!canCustomizeColors)
 
           ColorTokenRow(label: "Control background", color: resolvedColors.controlBackground) {
             color in
             store.updateColorOverride { $0.controlBackground = color }
           }
+          .disabled(!canCustomizeColors)
 
           ColorTokenRow(label: "Divider", color: resolvedColors.divider) { color in
             store.updateColorOverride { $0.divider = color }
           }
+          .disabled(!canCustomizeColors)
 
           ColorTokenRow(label: "Note body border", color: resolvedColors.noteBodyBorder) { color in
             store.updateColorOverride { $0.noteBodyBorder = color }
           }
+          .disabled(!canCustomizeColors)
         }
       } header: {
         Text("Customize Colors")

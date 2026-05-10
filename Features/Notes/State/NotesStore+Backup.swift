@@ -7,8 +7,26 @@ extension NotesStore {
   private static let backupLogger = Logger(subsystem: "com.sceal.app", category: "backup")
   private static let backupCheckIntervalNanoseconds: UInt64 = 300_000_000_000
 
+  var availableBackupSchedules: [BackupSchedule] {
+    BackupSchedule.allCases.filter(featureAccess.canUseBackupSchedule)
+  }
+
+  var effectiveBackupSchedule: BackupSchedule {
+    featureAccess.effectiveBackupSchedule(backupSettings.schedule)
+  }
+
+  var isBackupOnInactiveAvailable: Bool {
+    hasAccess(to: .automaticBackupSchedules)
+  }
+
   // Persists the selected automatic backup schedule.
   func updateBackupSchedule(_ schedule: BackupSchedule) {
+    guard featureAccess.canUseBackupSchedule(schedule) else {
+      userMessage = (text: "Paid is required for automatic backup schedules.", kind: .info)
+      refreshBackupHealth()
+      return
+    }
+
     backupSettings.schedule = schedule
     backupSettings.lastBackupErrorDescription = nil
     persistBackupSettings()
@@ -17,6 +35,11 @@ extension NotesStore {
 
   // Persists whether backups should run when the app becomes inactive.
   func updateBackupOnInactive(_ value: Bool) {
+    guard isBackupOnInactiveAvailable || !value else {
+      userMessage = (text: "Paid is required for inactive-window backups.", kind: .info)
+      return
+    }
+
     backupSettings.backupOnInactive = value
     persistBackupSettings()
   }
@@ -124,7 +147,7 @@ extension NotesStore {
       return
     }
 
-    if backupSettings.schedule != .manualOnly, isBackupDue(at: now) {
+    if effectiveBackupSchedule != .manualOnly, isBackupDue(at: now) {
       backupHealth = .overdue
       return
     }
@@ -134,7 +157,7 @@ extension NotesStore {
 
   // Returns the next automatic backup date when a schedule is configured.
   func nextBackupDueDate(from referenceDate: Date = .now) -> Date? {
-    guard backupSettings.isConfigured, let interval = backupSettings.schedule.automaticInterval
+    guard backupSettings.isConfigured, let interval = effectiveBackupSchedule.automaticInterval
     else {
       return nil
     }
@@ -171,6 +194,11 @@ extension NotesStore {
 
   private func performBackup(trigger: BackupTrigger, respectSchedule: Bool) {
     guard backupSettings.isConfigured else {
+      return
+    }
+
+    guard trigger.archiveKind == .manual || hasAccess(to: .automaticBackupSchedules) else {
+      refreshBackupHealth()
       return
     }
 

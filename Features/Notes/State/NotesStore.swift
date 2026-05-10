@@ -62,6 +62,7 @@ final class NotesStore: ObservableObject {
   @Published private(set) var continuousSpellCheckingEnabled: Bool
   @Published private(set) var newNoteDefault: NewNoteDefault
   @Published var noteTemplates: [NoteTemplate]
+  @Published private(set) var activePlan: AppPlan
   @Published var selectedNoteID: DayNote.ID? {
     didSet {
       guard sidebarMode == .calendar else { return }
@@ -142,6 +143,7 @@ final class NotesStore: ObservableObject {
   private static let appearanceSettingsDefaultsKey = "sceal.noteAppearanceSettings"
   private static let continuousSpellCheckingEnabledKey = "sceal.continuousSpellCheckingEnabled"
   private static let newNoteDefaultKey = "sceal.newNoteDefault"
+  private static let developerPlanDefaultsKey = "sceal.developer.plan"
   nonisolated static let backupSettingsDefaultsKey = "sceal.backupSettings"
 
   init(
@@ -170,12 +172,32 @@ final class NotesStore: ObservableObject {
     )
     self.newNoteDefault = Self.loadNewNoteDefault(from: userDefaults)
     self.noteTemplates = Self.loadNoteTemplates(from: userDefaults)
+    self.activePlan = Self.loadInitialPlan(from: userDefaults)
     self.backupSettings = loadedBackupSettings
     self.backupHealth = loadedBackupSettings.isConfigured ? .healthy : .notConfigured
     self.calendarBrowseYear = currentYear
     self.selectedNoteID = sortedNotes.first?.id
     self.hasLoaded = !previewNotes.isEmpty
   }
+
+  var featureAccess: AppFeatureAccess {
+    AppFeatureAccess(plan: activePlan)
+  }
+
+  // Returns whether the active plan can use the requested capability.
+  func hasAccess(to capability: AppCapability) -> Bool {
+    featureAccess.allows(capability)
+  }
+
+  #if DEBUG
+    // Persists a local plan override for testing free and paid feature gates.
+    func updateDeveloperPlan(_ plan: AppPlan) {
+      guard activePlan != plan else { return }
+      activePlan = plan
+      userDefaults.set(plan.rawValue, forKey: Self.developerPlanDefaultsKey)
+      refreshBackupHealth()
+    }
+  #endif
 
   deinit {
     periodicFlushTask?.cancel()
@@ -940,6 +962,22 @@ final class NotesStore: ObservableObject {
     }
 
     return value
+  }
+
+  // Loads the active plan, defaulting to paid so existing builds keep full feature parity.
+  private static func loadInitialPlan(from userDefaults: UserDefaults) -> AppPlan {
+    #if DEBUG
+      guard
+        let rawValue = userDefaults.string(forKey: developerPlanDefaultsKey),
+        let plan = AppPlan(rawValue: rawValue)
+      else {
+        return .paid
+      }
+
+      return plan
+    #else
+      return .paid
+    #endif
   }
 
   // Returns the notes directory, creating it if needed.

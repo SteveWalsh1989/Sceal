@@ -68,8 +68,11 @@ struct SettingsTemplatesView: View {
 
       List(selection: $selectedTemplateID) {
         ForEach(store.sortedNoteTemplates) { template in
-          TemplateListRow(template: template)
-            .tag(template.id)
+          TemplateListRow(
+            template: template,
+            isLocked: store.isNoteTemplateLockedByPlan(template.id)
+          )
+          .tag(template.id)
         }
       }
       .listStyle(.sidebar)
@@ -78,11 +81,12 @@ struct SettingsTemplatesView: View {
 
       HStack {
         Button {
-          selectedTemplateID = store.createNoteTemplate()
+          createTemplate()
         } label: {
           Image(systemName: "plus")
         }
         .help("Add template")
+        .disabled(!store.canCreateNoteTemplate)
 
         Button {
           deleteSelectedTemplate()
@@ -109,12 +113,13 @@ struct SettingsTemplatesView: View {
       .help("Show template list")
 
       Button {
-        selectedTemplateID = store.createNoteTemplate()
+        createTemplate()
         isTemplateListCollapsed = false
       } label: {
         Image(systemName: "plus")
       }
       .help("Add template")
+      .disabled(!store.canCreateNoteTemplate)
 
       Spacer()
     }
@@ -127,6 +132,7 @@ struct SettingsTemplatesView: View {
     if let template = selectedTemplate {
       TemplateDetailView(store: store, template: template)
         .id(template.id)
+        .disabled(store.isNoteTemplateLockedByPlan(template.id))
     } else {
       ContentUnavailableView("No Template Selected", systemImage: "text.badge.plus")
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -144,6 +150,11 @@ struct SettingsTemplatesView: View {
     guard let selectedTemplateID else { return }
     store.deleteNoteTemplate(id: selectedTemplateID)
     self.selectedTemplateID = store.sortedNoteTemplates.first?.id
+  }
+
+  private func createTemplate() {
+    guard let templateID = store.createNoteTemplateIfAllowed() else { return }
+    selectedTemplateID = templateID
   }
 
   private func resolvedTemplateListWidth(totalWidth: CGFloat) -> CGFloat {
@@ -186,18 +197,27 @@ struct SettingsTemplatesView: View {
 
 private struct TemplateListRow: View {
   let template: NoteTemplate
+  let isLocked: Bool
 
   var body: some View {
     VStack(alignment: .leading, spacing: 3) {
-      Text(template.title.isEmpty ? "Untitled Template" : template.title)
-        .lineLimit(1)
+      HStack(spacing: 6) {
+        Text(template.title.isEmpty ? "Untitled Template" : template.title)
+          .lineLimit(1)
+
+        if isLocked {
+          Text("Paid")
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.secondary)
+        }
+      }
 
       Text(template.slashCommand)
         .font(.caption)
         .foregroundStyle(template.isEnabled ? .secondary : .tertiary)
         .lineLimit(1)
     }
-    .opacity(template.isEnabled ? 1 : 0.55)
+    .opacity(template.isEnabled && !isLocked ? 1 : 0.55)
   }
 }
 

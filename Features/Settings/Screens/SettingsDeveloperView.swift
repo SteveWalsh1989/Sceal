@@ -12,6 +12,33 @@
 
     var body: some View {
       Form {
+        Section("Plan") {
+          Picker(
+            "Active plan",
+            selection: Binding(
+              get: { store.activePlan },
+              set: { store.updateDeveloperPlan($0) }
+            )
+          ) {
+            ForEach(AppPlan.allCases) { plan in
+              Text(plan.displayName).tag(plan)
+            }
+          }
+          .pickerStyle(.segmented)
+
+          ForEach(AppCapability.allCases) { capability in
+            LabeledContent(capability.displayName) {
+              if store.hasAccess(to: capability) {
+                Text("Included")
+                  .foregroundStyle(.secondary)
+              } else {
+                Text("Locked")
+                  .foregroundStyle(.orange)
+              }
+            }
+          }
+        }
+
         Section("Demo Library") {
           Toggle(
             "Use demo notes",

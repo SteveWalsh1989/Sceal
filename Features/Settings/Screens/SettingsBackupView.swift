@@ -53,11 +53,11 @@ struct SettingsBackupView: View {
         Picker(
           "Backup frequency",
           selection: Binding(
-            get: { store.backupSettings.schedule },
+            get: { store.effectiveBackupSchedule },
             set: { store.updateBackupSchedule($0) }
           )
         ) {
-          ForEach(BackupSchedule.allCases, id: \.self) { schedule in
+          ForEach(store.availableBackupSchedules, id: \.self) { schedule in
             Text(schedule.displayName).tag(schedule)
           }
         }
@@ -66,10 +66,11 @@ struct SettingsBackupView: View {
         Toggle(
           "Back up when Scéal becomes inactive",
           isOn: Binding(
-            get: { store.backupSettings.backupOnInactive },
+            get: { store.isBackupOnInactiveAvailable && store.backupSettings.backupOnInactive },
             set: { store.updateBackupOnInactive($0) }
           )
         )
+        .disabled(!store.isBackupOnInactiveAvailable)
 
         Text(
           "Automatic backups run while Scéal is open and catch up next time it launches if one is overdue."
@@ -135,7 +136,7 @@ struct SettingsBackupView: View {
   }
 
   private var retentionSummary: String {
-    guard let count = store.backupSettings.schedule.retainedAutomaticBackupCount else {
+    guard let count = store.effectiveBackupSchedule.retainedAutomaticBackupCount else {
       return "Manual backups are never pruned automatically."
     }
 
