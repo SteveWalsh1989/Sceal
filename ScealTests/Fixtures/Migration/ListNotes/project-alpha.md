@@ -9,3 +9,4 @@ tags: ["project","list"]
 - Reference note
 - Should keep custom list-note ID on decode
 
+![Plan](../Attachments/project-alpha/alpha-plan.txt)
