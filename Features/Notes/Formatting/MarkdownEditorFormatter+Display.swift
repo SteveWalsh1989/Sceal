@@ -186,7 +186,7 @@ extension MarkdownEditorFormatter {
       let searchRange = NSRange(location: range.location, length: currentEnd - range.location)
       let text = (attrStr.string as NSString).substring(with: searchRange)
       guard
-        let match = boldRegex.firstMatch(
+        let match = MarkdownEditorInlineMarkdown.boldRegex.firstMatch(
           in: text, range: NSRange(location: 0, length: text.utf16.count))
       else { break }
 
@@ -212,7 +212,7 @@ extension MarkdownEditorFormatter {
       let searchRange = NSRange(location: range.location, length: currentEnd - range.location)
       let text = (attrStr.string as NSString).substring(with: searchRange)
       guard
-        let match = italicRegex.firstMatch(
+        let match = MarkdownEditorInlineMarkdown.italicRegex.firstMatch(
           in: text, range: NSRange(location: 0, length: text.utf16.count))
       else { break }
 
@@ -238,7 +238,7 @@ extension MarkdownEditorFormatter {
       let searchRange = NSRange(location: range.location, length: currentEnd - range.location)
       let text = (attrStr.string as NSString).substring(with: searchRange)
       guard
-        let match = strikethroughRegex.firstMatch(
+        let match = MarkdownEditorInlineMarkdown.strikethroughRegex.firstMatch(
           in: text, range: NSRange(location: 0, length: text.utf16.count))
       else { break }
 
@@ -263,7 +263,7 @@ extension MarkdownEditorFormatter {
       let searchRange = NSRange(location: range.location, length: currentEnd - range.location)
       let text = (attrStr.string as NSString).substring(with: searchRange)
       guard
-        let match = inlineCodeRegex.firstMatch(
+        let match = MarkdownEditorInlineMarkdown.inlineCodeRegex.firstMatch(
           in: text, range: NSRange(location: 0, length: text.utf16.count))
       else { break }
 
@@ -289,7 +289,7 @@ extension MarkdownEditorFormatter {
       let searchRange = NSRange(location: range.location, length: currentEnd - range.location)
       let text = (attrStr.string as NSString).substring(with: searchRange)
       guard
-        let match = linkRegex.firstMatch(
+        let match = MarkdownEditorInlineMarkdown.linkRegex.firstMatch(
           in: text, range: NSRange(location: 0, length: text.utf16.count))
       else { break }
 
@@ -327,7 +327,7 @@ extension MarkdownEditorFormatter {
     in attrStr: NSMutableAttributedString,
     range: NSRange
   ) {
-    guard let urlDetector = Self.urlDetector else { return }
+    guard let urlDetector = MarkdownEditorInlineMarkdown.urlDetector else { return }
 
     let matches = urlDetector.matches(in: attrStr.string, range: range)
     for match in matches {

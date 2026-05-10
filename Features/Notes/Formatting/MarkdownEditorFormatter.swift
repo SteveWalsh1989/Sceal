@@ -41,16 +41,6 @@ enum MarkdownEditorFormatter {
   static let imageMaximumWidth = MarkdownEditorImageMarkdown.maximumWidth
   static let imageResizeStep = MarkdownEditorImageMarkdown.resizeStep
 
-  // Cached regex patterns to avoid recreation per format pass.
-  static let boldRegex = try! NSRegularExpression(pattern: #"\*\*(.+?)\*\*"#)
-  static let italicRegex = try! NSRegularExpression(
-    pattern: #"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)"#)
-  static let strikethroughRegex = try! NSRegularExpression(pattern: #"~~(.+?)~~"#)
-  static let inlineCodeRegex = try! NSRegularExpression(pattern: #"`([^`]+)`"#)
-  static let linkRegex = try! NSRegularExpression(
-    pattern: #"\[([^\]]+)\]\(([^\)]+)\)"#)
-  static let urlDetector = try? NSDataDetector(
-    types: NSTextCheckingResult.CheckingType.link.rawValue)
   private static let paragraphStyleCacheLock = NSLock()
   private static var bodyParagraphStyles: [BodyParagraphStyleKey: NSParagraphStyle] = [:]
   private static var listParagraphStyles: [ListParagraphStyleKey: NSParagraphStyle] = [:]

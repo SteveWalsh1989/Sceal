@@ -252,34 +252,14 @@ extension MarkdownEditorFormatter {
         return
       }
 
-      // Build the inner content with bold/italic/link wrapping
-      var inner: String
-      if isCode {
-        inner = "`\(text)`"
-      } else if isBold && isItalic, let url = linkURL {
-        inner = "***[\(text)](\(url))***"
-      } else if isBold && isItalic {
-        inner = "***\(text)***"
-      } else if isBold, let url = linkURL {
-        inner = "**[\(text)](\(url))**"
-      } else if isBold {
-        inner = "**\(text)**"
-      } else if isItalic, let url = linkURL {
-        inner = "*[\(text)](\(url))*"
-      } else if isItalic {
-        inner = "*\(text)*"
-      } else if let url = linkURL {
-        inner = "[\(text)](\(url))"
-      } else {
-        inner = text
-      }
-
-      // Wrap with strikethrough delimiters if needed
-      if isStrike {
-        result += "~~\(inner)~~"
-      } else {
-        result += inner
-      }
+      result += MarkdownEditorInlineMarkdown.serializedSpan(
+        text: text,
+        isBold: isBold,
+        isItalic: isItalic,
+        isStrikethrough: isStrike,
+        isCode: isCode,
+        linkURL: linkURL
+      )
     }
 
     return result
