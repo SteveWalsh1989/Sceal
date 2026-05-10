@@ -125,9 +125,9 @@ final class NotesStore: ObservableObject {
 
   let fileManager: FileManager
   let calendar: Calendar
-  let userDefaults: UserDefaults
   let libraryLocation: ScealLibraryLocation
   let libraryRepository: LibraryRepository
+  let settingsRepository: SettingsRepository
   private var hasLoaded = false
   private var noteIndex: [DayNote.ID: Int] = [:]
   var listNoteIndex: [DayNote.ID: Int] = [:]
@@ -141,11 +141,6 @@ final class NotesStore: ObservableObject {
   #endif
 
   private static let logger = Logger(subsystem: "com.sceal.app", category: "store")
-  private static let appearanceSettingsDefaultsKey = "sceal.noteAppearanceSettings"
-  private static let continuousSpellCheckingEnabledKey = "sceal.continuousSpellCheckingEnabled"
-  private static let newNoteDefaultKey = "sceal.newNoteDefault"
-  private static let developerPlanDefaultsKey = "sceal.developer.plan"
-  nonisolated static let backupSettingsDefaultsKey = "sceal.backupSettings"
 
   init(
     fileManager: FileManager = .default,
@@ -156,7 +151,7 @@ final class NotesStore: ObservableObject {
   ) {
     self.fileManager = fileManager
     self.calendar = calendar
-    self.userDefaults = userDefaults
+    self.settingsRepository = SettingsRepository(userDefaults: userDefaults)
     let resolvedLibraryLocation =
       libraryLocation
       ?? ScealLibraryLocation.defaultForCurrentBuild(
@@ -168,17 +163,15 @@ final class NotesStore: ObservableObject {
       fileManager: fileManager
     )
     let sortedNotes = previewNotes.sorted(by: { $0.date > $1.date })
-    let loadedBackupSettings = Self.loadBackupSettings(from: userDefaults)
+    let loadedBackupSettings = settingsRepository.loadBackupSettings()
     let currentYear = calendar.component(.year, from: .now)
     self.notes = sortedNotes
     self.noteIndex = Dictionary(uniqueKeysWithValues: sortedNotes.enumerated().map { ($1.id, $0) })
-    self.appearanceSettings = Self.loadAppearanceSettings(from: userDefaults)
-    self.continuousSpellCheckingEnabled = Self.loadContinuousSpellCheckingEnabled(
-      from: userDefaults
-    )
-    self.newNoteDefault = Self.loadNewNoteDefault(from: userDefaults)
-    self.noteTemplates = Self.loadNoteTemplates(from: userDefaults)
-    self.activePlan = Self.loadInitialPlan(from: userDefaults)
+    self.appearanceSettings = settingsRepository.loadAppearanceSettings()
+    self.continuousSpellCheckingEnabled = settingsRepository.loadContinuousSpellCheckingEnabled()
+    self.newNoteDefault = settingsRepository.loadNewNoteDefault()
+    self.noteTemplates = settingsRepository.loadNoteTemplates()
+    self.activePlan = settingsRepository.loadInitialPlan()
     self.backupSettings = loadedBackupSettings
     self.backupHealth = loadedBackupSettings.isConfigured ? .healthy : .notConfigured
     self.calendarBrowseYear = currentYear
@@ -200,7 +193,7 @@ final class NotesStore: ObservableObject {
     func updateDeveloperPlan(_ plan: AppPlan) {
       guard activePlan != plan else { return }
       activePlan = plan
-      userDefaults.set(plan.rawValue, forKey: Self.developerPlanDefaultsKey)
+      settingsRepository.saveDeveloperPlan(plan)
       refreshBackupHealth()
     }
   #endif
@@ -551,13 +544,13 @@ final class NotesStore: ObservableObject {
   // Persists the new-note default preference to UserDefaults.
   func updateNewNoteDefault(_ value: NewNoteDefault) {
     newNoteDefault = value
-    userDefaults.set(value.rawValue, forKey: Self.newNoteDefaultKey)
+    settingsRepository.saveNewNoteDefault(value)
   }
 
   // Persists the body editor's continuous spell-check setting.
   func updateContinuousSpellCheckingEnabled(_ value: Bool) {
     continuousSpellCheckingEnabled = value
-    userDefaults.set(value, forKey: Self.continuousSpellCheckingEnabledKey)
+    settingsRepository.saveContinuousSpellCheckingEnabled(value)
   }
 
   // Moves a note to a new date by re-creating it with the target date's ID and file.
@@ -882,62 +875,10 @@ final class NotesStore: ObservableObject {
   // Encodes appearance settings to UserDefaults.
   func persistAppearanceSettings() {
     do {
-      let data = try JSONEncoder().encode(appearanceSettings)
-      userDefaults.set(data, forKey: Self.appearanceSettingsDefaultsKey)
+      try settingsRepository.saveAppearanceSettings(appearanceSettings)
     } catch {
       report(error, context: "Saving appearance settings failed")
     }
-  }
-
-  // Decodes appearance settings from UserDefaults with defaults.
-  private static func loadAppearanceSettings(from userDefaults: UserDefaults)
-    -> NoteAppearanceSettings
-  {
-    guard
-      let data = userDefaults.data(forKey: appearanceSettingsDefaultsKey),
-      let settings = try? JSONDecoder().decode(NoteAppearanceSettings.self, from: data)
-    else {
-      return .default
-    }
-
-    return settings.clamped
-  }
-
-  // Reads the body editor spell-check preference, defaulting to enabled for new installs.
-  private static func loadContinuousSpellCheckingEnabled(from userDefaults: UserDefaults) -> Bool {
-    guard userDefaults.object(forKey: continuousSpellCheckingEnabledKey) != nil else {
-      return true
-    }
-
-    return userDefaults.bool(forKey: continuousSpellCheckingEnabledKey)
-  }
-
-  // Reads the new-note default preference from UserDefaults.
-  private static func loadNewNoteDefault(from userDefaults: UserDefaults) -> NewNoteDefault {
-    guard
-      let rawValue = userDefaults.string(forKey: newNoteDefaultKey),
-      let value = NewNoteDefault(rawValue: rawValue)
-    else {
-      return .blank
-    }
-
-    return value
-  }
-
-  // Loads the active plan, defaulting to paid so existing builds keep full feature parity.
-  private static func loadInitialPlan(from userDefaults: UserDefaults) -> AppPlan {
-    #if DEBUG
-      guard
-        let rawValue = userDefaults.string(forKey: developerPlanDefaultsKey),
-        let plan = AppPlan(rawValue: rawValue)
-      else {
-        return .paid
-      }
-
-      return plan
-    #else
-      return .paid
-    #endif
   }
 
   // Returns the notes directory, creating it if needed.

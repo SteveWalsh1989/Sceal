@@ -365,22 +365,10 @@ extension NotesStore {
 
   func persistBackupSettings() {
     do {
-      let data = try JSONEncoder().encode(backupSettings)
-      userDefaults.set(data, forKey: Self.backupSettingsDefaultsKey)
+      try settingsRepository.saveBackupSettings(backupSettings)
     } catch {
       report(error, context: "Saving backup settings failed")
     }
-  }
-
-  nonisolated static func loadBackupSettings(from userDefaults: UserDefaults) -> BackupSettings {
-    guard
-      let data = userDefaults.data(forKey: backupSettingsDefaultsKey),
-      let settings = try? JSONDecoder().decode(BackupSettings.self, from: data)
-    else {
-      return .default
-    }
-
-    return settings
   }
 
   nonisolated private static func requireBookmarkData(from settings: BackupSettings) throws -> Data

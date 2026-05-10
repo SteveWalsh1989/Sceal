@@ -8,9 +8,6 @@ import Foundation
 import SwiftUI
 
 extension NotesStore {
-  private static let noteTemplatesDefaultsKey = "sceal.noteTemplates"
-  private static let noteTemplatesSeededKey = "sceal.noteTemplatesSeeded"
-
   var sortedNoteTemplates: [NoteTemplate] {
     noteTemplates.sorted {
       $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
@@ -234,34 +231,10 @@ extension NotesStore {
     return nil
   }
 
-  // Loads templates from defaults and seeds the starter only once for each install.
-  static func loadNoteTemplates(from userDefaults: UserDefaults) -> [NoteTemplate] {
-    if let data = userDefaults.data(forKey: noteTemplatesDefaultsKey),
-      let templates = try? JSONDecoder().decode([NoteTemplate].self, from: data)
-    {
-      return templates.map { $0.normalizedForCurrentVersion() }.sorted {
-        $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
-      }
-    }
-
-    guard !userDefaults.bool(forKey: noteTemplatesSeededKey) else {
-      return []
-    }
-
-    let starterTemplates = [NoteTemplate.starterMeeting]
-    if let data = try? JSONEncoder().encode(starterTemplates) {
-      userDefaults.set(data, forKey: noteTemplatesDefaultsKey)
-    }
-    userDefaults.set(true, forKey: noteTemplatesSeededKey)
-    return starterTemplates
-  }
-
   // Encodes custom templates to UserDefaults so they are restored on launch.
   func persistNoteTemplates() {
     do {
-      let data = try JSONEncoder().encode(noteTemplates)
-      userDefaults.set(data, forKey: Self.noteTemplatesDefaultsKey)
-      userDefaults.set(true, forKey: Self.noteTemplatesSeededKey)
+      try settingsRepository.saveNoteTemplates(noteTemplates)
     } catch {
       report(error, context: "Saving templates failed")
     }
