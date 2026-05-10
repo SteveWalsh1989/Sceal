@@ -28,6 +28,14 @@ struct SettingsThemesView: View {
     hasOverrides && !canCustomizeColors
   }
 
+  private var customThemeLockTitle: String {
+    "Custom colors require Paid"
+  }
+
+  private var customThemeLockMessage: String {
+    "Free uses built-in themes. Paid unlocks fully custom theme colors, additional templates, and automatic backup schedules."
+  }
+
   var body: some View {
     Form {
       Section("Dark Themes") {
@@ -70,54 +78,103 @@ struct SettingsThemesView: View {
           }
 
           if hasLockedCustomColors {
-            Label("Custom colors are saved but inactive in Free.", systemImage: "lock.fill")
-              .font(.caption)
-              .foregroundStyle(.orange)
+            UpgradeLockedStatus(
+              text: "Custom colors are saved but inactive in Free.",
+              capability: .customThemeColors,
+              title: customThemeLockTitle,
+              message: customThemeLockMessage
+            )
+          } else if !canCustomizeColors {
+            UpgradeLockedBanner(
+              capability: .customThemeColors,
+              title: customThemeLockTitle,
+              message: customThemeLockMessage
+            )
           }
 
-          ColorTokenRow(label: "Sidebar background", color: resolvedColors.sidebarBackground) {
+          ColorTokenRow(
+            label: "Sidebar background",
+            color: resolvedColors.sidebarBackground,
+            isLocked: !canCustomizeColors,
+            lockTitle: customThemeLockTitle,
+            lockMessage: customThemeLockMessage
+          ) {
             color in
             store.updateColorOverride { $0.sidebarBackground = color }
           }
-          .disabled(!canCustomizeColors)
 
-          ColorTokenRow(label: "Editor background", color: resolvedColors.editorBackground) {
+          ColorTokenRow(
+            label: "Editor background",
+            color: resolvedColors.editorBackground,
+            isLocked: !canCustomizeColors,
+            lockTitle: customThemeLockTitle,
+            lockMessage: customThemeLockMessage
+          ) {
             color in
             store.updateColorOverride { $0.editorBackground = color }
           }
-          .disabled(!canCustomizeColors)
 
-          ColorTokenRow(label: "Selected card", color: resolvedColors.selectedCard) { color in
+          ColorTokenRow(
+            label: "Selected card",
+            color: resolvedColors.selectedCard,
+            isLocked: !canCustomizeColors,
+            lockTitle: customThemeLockTitle,
+            lockMessage: customThemeLockMessage
+          ) { color in
             store.updateColorOverride { $0.selectedCard = color }
           }
-          .disabled(!canCustomizeColors)
 
-          ColorTokenRow(label: "Unselected card", color: resolvedColors.unselectedCard) { color in
+          ColorTokenRow(
+            label: "Unselected card",
+            color: resolvedColors.unselectedCard,
+            isLocked: !canCustomizeColors,
+            lockTitle: customThemeLockTitle,
+            lockMessage: customThemeLockMessage
+          ) { color in
             store.updateColorOverride { $0.unselectedCard = color }
           }
-          .disabled(!canCustomizeColors)
 
-          ColorTokenRow(label: "Section card fill", color: resolvedColors.sectionCardFill) {
+          ColorTokenRow(
+            label: "Section card fill",
+            color: resolvedColors.sectionCardFill,
+            isLocked: !canCustomizeColors,
+            lockTitle: customThemeLockTitle,
+            lockMessage: customThemeLockMessage
+          ) {
             color in
             store.updateColorOverride { $0.sectionCardFill = color }
           }
-          .disabled(!canCustomizeColors)
 
-          ColorTokenRow(label: "Control background", color: resolvedColors.controlBackground) {
+          ColorTokenRow(
+            label: "Control background",
+            color: resolvedColors.controlBackground,
+            isLocked: !canCustomizeColors,
+            lockTitle: customThemeLockTitle,
+            lockMessage: customThemeLockMessage
+          ) {
             color in
             store.updateColorOverride { $0.controlBackground = color }
           }
-          .disabled(!canCustomizeColors)
 
-          ColorTokenRow(label: "Divider", color: resolvedColors.divider) { color in
+          ColorTokenRow(
+            label: "Divider",
+            color: resolvedColors.divider,
+            isLocked: !canCustomizeColors,
+            lockTitle: customThemeLockTitle,
+            lockMessage: customThemeLockMessage
+          ) { color in
             store.updateColorOverride { $0.divider = color }
           }
-          .disabled(!canCustomizeColors)
 
-          ColorTokenRow(label: "Note body border", color: resolvedColors.noteBodyBorder) { color in
+          ColorTokenRow(
+            label: "Note body border",
+            color: resolvedColors.noteBodyBorder,
+            isLocked: !canCustomizeColors,
+            lockTitle: customThemeLockTitle,
+            lockMessage: customThemeLockMessage
+          ) { color in
             store.updateColorOverride { $0.noteBodyBorder = color }
           }
-          .disabled(!canCustomizeColors)
         }
       } header: {
         Text("Customize Colors")
@@ -189,13 +246,26 @@ private struct ThemePreviewCard: View {
 private struct ColorTokenRow: View {
   let label: String
   let color: ThemeColor
+  let isLocked: Bool
+  let lockTitle: String
+  let lockMessage: String
   let onChange: (ThemeColor) -> Void
 
   @State private var pickerColor: Color
 
-  init(label: String, color: ThemeColor, onChange: @escaping (ThemeColor) -> Void) {
+  init(
+    label: String,
+    color: ThemeColor,
+    isLocked: Bool,
+    lockTitle: String,
+    lockMessage: String,
+    onChange: @escaping (ThemeColor) -> Void
+  ) {
     self.label = label
     self.color = color
+    self.isLocked = isLocked
+    self.lockTitle = lockTitle
+    self.lockMessage = lockMessage
     self.onChange = onChange
     self._pickerColor = State(initialValue: color.color)
   }
@@ -207,11 +277,25 @@ private struct ColorTokenRow: View {
 
       Spacer()
 
+      if isLocked {
+        UpgradeLockIndicator(
+          capability: .customThemeColors,
+          title: lockTitle,
+          message: lockMessage
+        )
+      }
+
       ColorPicker("", selection: $pickerColor, supportsOpacity: true)
         .labelsHidden()
         .frame(width: 44)
+        .disabled(isLocked)
+        .opacity(isLocked ? 0.45 : 1)
     }
     .onChange(of: pickerColor) { _, newColor in
+      guard !isLocked else {
+        pickerColor = color.color
+        return
+      }
       let resolved =
         NSColor(newColor).usingColorSpace(.sRGB)
         ?? NSColor(newColor)

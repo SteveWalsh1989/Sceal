@@ -23,6 +23,14 @@ struct SettingsTemplatesView: View {
     selectedTemplateID.flatMap { store.noteTemplate(withID: $0) }
   }
 
+  private var additionalTemplatesLockTitle: String {
+    "More templates require Paid"
+  }
+
+  private var additionalTemplatesLockMessage: String {
+    "Free includes one custom template. Paid unlocks additional templates, custom theme colors, and automatic backup schedules."
+  }
+
   var body: some View {
     GeometryReader { proxy in
       HStack(spacing: 0) {
@@ -80,13 +88,7 @@ struct SettingsTemplatesView: View {
       Divider()
 
       HStack {
-        Button {
-          createTemplate()
-        } label: {
-          Image(systemName: "plus")
-        }
-        .help("Add template")
-        .disabled(!store.canCreateNoteTemplate)
+        addTemplateControl
 
         Button {
           deleteSelectedTemplate()
@@ -112,14 +114,7 @@ struct SettingsTemplatesView: View {
       }
       .help("Show template list")
 
-      Button {
-        createTemplate()
-        isTemplateListCollapsed = false
-      } label: {
-        Image(systemName: "plus")
-      }
-      .help("Add template")
-      .disabled(!store.canCreateNoteTemplate)
+      collapsedAddTemplateControl
 
       Spacer()
     }
@@ -130,12 +125,63 @@ struct SettingsTemplatesView: View {
   @ViewBuilder
   private var templateDetail: some View {
     if let template = selectedTemplate {
-      TemplateDetailView(store: store, template: template)
-        .id(template.id)
-        .disabled(store.isNoteTemplateLockedByPlan(template.id))
+      let isLocked = store.isNoteTemplateLockedByPlan(template.id)
+      VStack(spacing: 0) {
+        if isLocked {
+          UpgradeLockedBanner(
+            capability: .additionalTemplates,
+            title: "Template locked on Free",
+            message: additionalTemplatesLockMessage
+          )
+          .padding(.horizontal, 14)
+          .padding(.top, 12)
+        }
+
+        TemplateDetailView(store: store, template: template)
+          .id(template.id)
+          .disabled(isLocked)
+          .opacity(isLocked ? 0.58 : 1)
+      }
     } else {
       ContentUnavailableView("No Template Selected", systemImage: "text.badge.plus")
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+  }
+
+  @ViewBuilder
+  private var addTemplateControl: some View {
+    if store.canCreateNoteTemplate {
+      Button {
+        createTemplate()
+      } label: {
+        Image(systemName: "plus")
+      }
+      .help("Add template")
+    } else {
+      UpgradeLockIndicator(
+        capability: .additionalTemplates,
+        title: additionalTemplatesLockTitle,
+        message: additionalTemplatesLockMessage
+      )
+    }
+  }
+
+  @ViewBuilder
+  private var collapsedAddTemplateControl: some View {
+    if store.canCreateNoteTemplate {
+      Button {
+        createTemplate()
+        isTemplateListCollapsed = false
+      } label: {
+        Image(systemName: "plus")
+      }
+      .help("Add template")
+    } else {
+      UpgradeLockIndicator(
+        capability: .additionalTemplates,
+        title: additionalTemplatesLockTitle,
+        message: additionalTemplatesLockMessage
+      )
     }
   }
 
@@ -206,9 +252,12 @@ private struct TemplateListRow: View {
           .lineLimit(1)
 
         if isLocked {
-          Text("Paid")
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(.secondary)
+          UpgradeLockIndicator(
+            capability: .additionalTemplates,
+            title: "Template locked on Free",
+            message:
+              "This saved template is outside the Free plan limit. Paid unlocks all saved templates, custom theme colors, and automatic backup schedules."
+          )
         }
       }
 

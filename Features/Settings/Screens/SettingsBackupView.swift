@@ -3,6 +3,14 @@ import SwiftUI
 struct SettingsBackupView: View {
   @ObservedObject var store: NotesStore
 
+  private var automaticBackupLockTitle: String {
+    "Automatic backups require Paid"
+  }
+
+  private var automaticBackupLockMessage: String {
+    "Free keeps manual backups available. Paid unlocks scheduled backups, inactive-window backups, additional templates, and custom theme colors."
+  }
+
   var body: some View {
     Form {
       Section {
@@ -50,41 +58,64 @@ struct SettingsBackupView: View {
       }
 
       Section("Schedule") {
-        Picker(
-          "Backup frequency",
-          selection: Binding(
-            get: { store.effectiveBackupSchedule },
-            set: { store.updateBackupSchedule($0) }
-          )
-        ) {
-          ForEach(store.availableBackupSchedules, id: \.self) { schedule in
-            Text(schedule.displayName).tag(schedule)
+        HStack {
+          Picker(
+            "Backup frequency",
+            selection: Binding(
+              get: { store.effectiveBackupSchedule },
+              set: { store.updateBackupSchedule($0) }
+            )
+          ) {
+            ForEach(store.availableBackupSchedules, id: \.self) { schedule in
+              Text(schedule.displayName).tag(schedule)
+            }
+          }
+          .pickerStyle(.menu)
+
+          if !store.hasAccess(to: .automaticBackupSchedules) {
+            UpgradeLockIndicator(
+              capability: .automaticBackupSchedules,
+              title: automaticBackupLockTitle,
+              message: automaticBackupLockMessage
+            )
           }
         }
-        .pickerStyle(.menu)
 
         if hasLockedAutomaticSchedule {
-          Label(
-            "\(store.backupSettings.schedule.displayName) is saved but paused in Free.",
-            systemImage: "lock.fill"
+          UpgradeLockedStatus(
+            text: "\(store.backupSettings.schedule.displayName) is saved but paused in Free.",
+            capability: .automaticBackupSchedules,
+            title: automaticBackupLockTitle,
+            message: automaticBackupLockMessage
           )
-          .font(.caption)
-          .foregroundStyle(.orange)
         }
 
-        Toggle(
-          "Back up when Scéal becomes inactive",
-          isOn: Binding(
-            get: { store.isBackupOnInactiveAvailable && store.backupSettings.backupOnInactive },
-            set: { store.updateBackupOnInactive($0) }
+        HStack {
+          Toggle(
+            "Back up when Scéal becomes inactive",
+            isOn: Binding(
+              get: { store.isBackupOnInactiveAvailable && store.backupSettings.backupOnInactive },
+              set: { store.updateBackupOnInactive($0) }
+            )
           )
-        )
-        .disabled(!store.isBackupOnInactiveAvailable)
+          .disabled(!store.isBackupOnInactiveAvailable)
+
+          if !store.isBackupOnInactiveAvailable {
+            UpgradeLockIndicator(
+              capability: .automaticBackupSchedules,
+              title: automaticBackupLockTitle,
+              message: automaticBackupLockMessage
+            )
+          }
+        }
 
         if hasLockedInactiveBackup {
-          Label("Inactive-window backups are saved but paused in Free.", systemImage: "lock.fill")
-            .font(.caption)
-            .foregroundStyle(.orange)
+          UpgradeLockedStatus(
+            text: "Inactive-window backups are saved but paused in Free.",
+            capability: .automaticBackupSchedules,
+            title: automaticBackupLockTitle,
+            message: automaticBackupLockMessage
+          )
         }
 
         Text(
