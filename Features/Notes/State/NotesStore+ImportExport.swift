@@ -131,10 +131,7 @@ extension NotesStore {
     let fm = fileManager
     let noteCount = filtered.count
     let templatesSnapshot = noteTemplates
-    let attachmentsRootURL = libraryLocation.rootURL.appendingPathComponent(
-      NoteImageAttachmentStore.attachmentsFolderName,
-      isDirectory: true
-    )
+    let attachmentsRootURL = libraryRepository.attachmentsRootURL
     Task.detached { [weak self] in
       do {
         let zipURL = try ScealArchiveExporter.exportNotes(
@@ -201,12 +198,7 @@ extension NotesStore {
 
     let attachmentsRootURL: URL?
     do {
-      attachmentsRootURL = try NoteImageAttachmentStore.attachmentRootDirectoryURL(
-        fileManager: fileManager,
-        rootURL: libraryLocation.rootURL.appendingPathComponent(
-          NoteImageAttachmentStore.attachmentsFolderName,
-          isDirectory: true
-        ),
+      attachmentsRootURL = try libraryRepository.attachmentsRootDirectoryURL(
         createIfNeeded: false
       )
     } catch {
@@ -471,13 +463,7 @@ extension NotesStore {
     let attachmentsDir: URL
     do {
       notesDir = try notesDirectoryURL()
-      attachmentsDir = try NoteImageAttachmentStore.attachmentRootDirectoryURL(
-        fileManager: fileManager,
-        rootURL: libraryLocation.rootURL.appendingPathComponent(
-          NoteImageAttachmentStore.attachmentsFolderName,
-          isDirectory: true
-        )
-      )
+      attachmentsDir = try libraryRepository.attachmentsRootDirectoryURL()
     } catch {
       report(error, context: context)
       return
@@ -604,25 +590,11 @@ extension NotesStore {
   }
 
   private func libraryStorageURLs() throws -> ScealLibraryStorageURLs {
-    let notesURL = try notesDirectoryURL()
-    let listNotesURL = try listNotesDirectoryURL()
-    let attachmentsURL = try NoteImageAttachmentStore.attachmentRootDirectoryURL(
-      fileManager: fileManager,
-      rootURL: libraryLocation.rootURL.appendingPathComponent(
-        NoteImageAttachmentStore.attachmentsFolderName,
-        isDirectory: true
-      )
-    )
-
-    return ScealLibraryStorageURLs(
-      notesDirectoryURL: notesURL,
-      listNotesDirectoryURL: listNotesURL,
-      attachmentsRootURL: attachmentsURL
-    )
+    try libraryRepository.storageURLs()
   }
 
   private func restoreSafetyArchiveDirectoryURL() throws -> URL {
-    try libraryLocation.restoreSafetyArchiveDirectoryURL(fileManager: fileManager)
+    try libraryRepository.restoreSafetyArchiveDirectoryURL()
   }
 
   // Shows the user-facing import result message with consistent formatting across importers.

@@ -595,14 +595,9 @@ final class NotesStore: ObservableObject {
 
     do {
       try save(movedNote)
-      try NoteImageAttachmentStore.moveAttachments(
+      try libraryRepository.moveAttachments(
         from: sourceNote.id,
-        to: movedNote.id,
-        fileManager: fileManager,
-        rootURL: libraryLocation.rootURL.appendingPathComponent(
-          NoteImageAttachmentStore.attachmentsFolderName,
-          isDirectory: true
-        )
+        to: movedNote.id
       )
       try deleteFile(for: sourceNote)
     } catch {
@@ -635,14 +630,7 @@ final class NotesStore: ObservableObject {
 
     do {
       try deleteFile(for: note)
-      try NoteImageAttachmentStore.deleteAttachments(
-        for: note.id,
-        fileManager: fileManager,
-        rootURL: libraryLocation.rootURL.appendingPathComponent(
-          NoteImageAttachmentStore.attachmentsFolderName,
-          isDirectory: true
-        )
-      )
+      try libraryRepository.deleteAttachments(for: note.id)
     } catch {
       report(error, context: "Deleting note failed")
       return

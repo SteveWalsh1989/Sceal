@@ -84,6 +84,55 @@ struct LibraryRepository {
     try deleteFileIfPresent(at: listNotesDirectoryURL().appendingPathComponent(note.fileName))
   }
 
+  var attachmentsRootURL: URL {
+    libraryLocation.rootURL.appendingPathComponent(
+      NoteImageAttachmentStore.attachmentsFolderName,
+      isDirectory: true
+    )
+  }
+
+  // Returns the attachment root, creating it when the caller intends to write attachments.
+  func attachmentsRootDirectoryURL(createIfNeeded: Bool = true) throws -> URL {
+    try NoteImageAttachmentStore.attachmentRootDirectoryURL(
+      fileManager: fileManager,
+      rootURL: attachmentsRootURL,
+      createIfNeeded: createIfNeeded
+    )
+  }
+
+  // Moves all attachment files when a daily note changes its storage ID.
+  func moveAttachments(from oldNoteID: DayNote.ID, to newNoteID: DayNote.ID) throws {
+    try NoteImageAttachmentStore.moveAttachments(
+      from: oldNoteID,
+      to: newNoteID,
+      fileManager: fileManager,
+      rootURL: attachmentsRootURL
+    )
+  }
+
+  // Deletes all attachment files for the requested note ID.
+  func deleteAttachments(for noteID: DayNote.ID) throws {
+    try NoteImageAttachmentStore.deleteAttachments(
+      for: noteID,
+      fileManager: fileManager,
+      rootURL: attachmentsRootURL
+    )
+  }
+
+  // Returns the directories used by full-library restore.
+  func storageURLs() throws -> ScealLibraryStorageURLs {
+    try ScealLibraryStorageURLs(
+      notesDirectoryURL: dailyNotesDirectoryURL(),
+      listNotesDirectoryURL: listNotesDirectoryURL(),
+      attachmentsRootURL: attachmentsRootDirectoryURL()
+    )
+  }
+
+  // Returns the restore safety archive directory, creating it if needed.
+  func restoreSafetyArchiveDirectoryURL() throws -> URL {
+    try libraryLocation.restoreSafetyArchiveDirectoryURL(fileManager: fileManager)
+  }
+
   // Reads the list-note manifest, returning empty when the file is missing or invalid.
   func loadListNotesManifest() -> ListNotesManifest {
     guard

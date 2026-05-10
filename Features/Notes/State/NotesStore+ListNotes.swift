@@ -119,14 +119,7 @@ extension NotesStore {
 
     do {
       try libraryRepository.deleteListNoteFile(for: note)
-      try NoteImageAttachmentStore.deleteAttachments(
-        for: note.id,
-        fileManager: fileManager,
-        rootURL: libraryLocation.rootURL.appendingPathComponent(
-          NoteImageAttachmentStore.attachmentsFolderName,
-          isDirectory: true
-        )
-      )
+      try libraryRepository.deleteAttachments(for: note.id)
     } catch {
       report(error, context: "Deleting list note failed")
       return

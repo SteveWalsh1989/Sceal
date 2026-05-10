@@ -72,6 +72,51 @@ final class LibraryRepositoryTests: XCTestCase {
     XCTAssertFalse(FileManager.default.fileExists(atPath: noteURL.path))
   }
 
+  // Attachment moves and deletes stay inside the injected library root.
+  func testMovesAndDeletesAttachmentsInsideInjectedRoot() throws {
+    let repository = makeRepository()
+    let attachmentsRootURL = try repository.attachmentsRootDirectoryURL()
+    let sourceDirectoryURL = attachmentsRootURL.appendingPathComponent(
+      "2026-05-14",
+      isDirectory: true
+    )
+    let destinationDirectoryURL = attachmentsRootURL.appendingPathComponent(
+      "2026-05-15",
+      isDirectory: true
+    )
+    let movedImageURL = destinationDirectoryURL.appendingPathComponent("image.png")
+
+    try FileManager.default.createDirectory(
+      at: sourceDirectoryURL, withIntermediateDirectories: true)
+    try Data("image".utf8).write(to: sourceDirectoryURL.appendingPathComponent("image.png"))
+
+    try repository.moveAttachments(from: "2026-05-14", to: "2026-05-15")
+
+    XCTAssertFalse(FileManager.default.fileExists(atPath: sourceDirectoryURL.path))
+    XCTAssertTrue(FileManager.default.fileExists(atPath: movedImageURL.path))
+
+    try repository.deleteAttachments(for: "2026-05-15")
+
+    XCTAssertFalse(FileManager.default.fileExists(atPath: destinationDirectoryURL.path))
+  }
+
+  // Restore and storage directories are resolved through the repository boundary.
+  func testStorageAndRestoreDirectoriesUseInjectedRoot() throws {
+    let repository = makeRepository()
+    let storageURLs = try repository.storageURLs()
+    let restoreURL = try repository.restoreSafetyArchiveDirectoryURL()
+    let rootURL = repository.libraryLocation.rootURL
+
+    XCTAssertEqual(storageURLs.notesDirectoryURL.deletingLastPathComponent(), rootURL)
+    XCTAssertEqual(storageURLs.listNotesDirectoryURL.deletingLastPathComponent(), rootURL)
+    XCTAssertEqual(storageURLs.attachmentsRootURL.deletingLastPathComponent(), rootURL)
+    XCTAssertEqual(restoreURL.deletingLastPathComponent(), rootURL)
+    XCTAssertTrue(FileManager.default.fileExists(atPath: storageURLs.notesDirectoryURL.path))
+    XCTAssertTrue(FileManager.default.fileExists(atPath: storageURLs.listNotesDirectoryURL.path))
+    XCTAssertTrue(FileManager.default.fileExists(atPath: storageURLs.attachmentsRootURL.path))
+    XCTAssertTrue(FileManager.default.fileExists(atPath: restoreURL.path))
+  }
+
   private func makeRepository() -> LibraryRepository {
     let rootURL = FileManager.default.temporaryDirectory
       .appendingPathComponent("LibraryRepositoryTests-\(UUID().uuidString)", isDirectory: true)

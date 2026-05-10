@@ -227,10 +227,7 @@ extension NotesStore {
     let templatesSnapshot = noteTemplates
     let backupSettingsSnapshot = backupSettings
     let backupDate = Date.now
-    let attachmentsRootURL = libraryLocation.rootURL.appendingPathComponent(
-      NoteImageAttachmentStore.attachmentsFolderName,
-      isDirectory: true
-    )
+    let attachmentsRootURL = libraryRepository.attachmentsRootURL
 
     isBackupRunning = true
     backupHealth = .running

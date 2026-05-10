@@ -134,10 +134,7 @@ struct NotesEditorView: View {
             searchText: isListMode ? store.listSearchText : store.searchText,
             customSlashTemplates: store.enabledSlashCommandTemplates(),
             libraryRootURL: store.libraryLocation.rootURL,
-            imageAttachmentRootURL: store.libraryLocation.rootURL.appendingPathComponent(
-              NoteImageAttachmentStore.attachmentsFolderName,
-              isDirectory: true
-            ),
+            imageAttachmentRootURL: store.libraryRepository.attachmentsRootURL,
             onPromptCopied: {
               showToast("Copied", .info)
             }
