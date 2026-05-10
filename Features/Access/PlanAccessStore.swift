@@ -44,6 +44,16 @@ final class PlanAccessStore: ObservableObject {
     activePlan = resolvedPlan
   }
 
+  // Refreshes entitlement state through the purchase boundary without exposing StoreKit to views.
+  @discardableResult
+  func refreshStoreEntitlements(
+    using purchaseService: StorePurchaseServicing
+  ) async throws -> StoreEntitlementState {
+    let entitlementState = try await purchaseService.refreshEntitlements()
+    updateStoreEntitlements(entitlementState)
+    return entitlementState
+  }
+
   #if DEBUG
     // Persists a local plan override for testing free and paid feature gates.
     func updateDeveloperPlan(_ plan: AppPlan) {

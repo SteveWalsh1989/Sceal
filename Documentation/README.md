@@ -7,6 +7,7 @@ This folder contains public-facing operational docs for preparing Scéal for bro
 - [Backup and restore](backup-restore.md)
 - [Import and export](import-export.md)
 - [Release process](release-process.md)
+- [StoreKit preparation](storekit-preparation.md)
 - [Uninstall](uninstall.md)
 - [Known limitations](known-limitations.md)
 - [Support routes](support.md)

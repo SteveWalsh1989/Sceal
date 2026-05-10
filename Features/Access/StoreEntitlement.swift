@@ -11,12 +11,32 @@ nonisolated enum StoreEntitlement: String, CaseIterable, Codable, Identifiable, 
 
   var id: String { rawValue }
 
+  var productID: String {
+    switch self {
+    case .paidUnlock:
+      return "com.stevewalsh.sceal.paidUnlock"
+    }
+  }
+
   var displayName: String {
     switch self {
     case .paidUnlock:
       return "Paid unlock"
     }
   }
+
+  init?(productID: String) {
+    guard let entitlement = Self.allCases.first(where: { $0.productID == productID }) else {
+      return nil
+    }
+
+    self = entitlement
+  }
+}
+
+nonisolated enum StoreProductIdentifier {
+  static let paidUnlock = StoreEntitlement.paidUnlock.productID
+  static let all = StoreEntitlement.allCases.map(\.productID)
 }
 
 nonisolated struct StoreEntitlementState: Codable, Equatable, Sendable {

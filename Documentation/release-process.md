@@ -100,6 +100,6 @@ This direct-download process intentionally does not include:
 
 - Sparkle auto-updates.
 - DMG packaging.
-- StoreKit or paid unlocks.
+- Production StoreKit paid unlocks.
 - Mac App Store archive/export/submission.
 - App Store Connect metadata.

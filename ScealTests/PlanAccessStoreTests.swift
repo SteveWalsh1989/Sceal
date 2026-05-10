@@ -34,6 +34,20 @@ final class PlanAccessStoreTests: NotesStoreTestCase {
     XCTAssertTrue(store.hasAccess(to: .customThemeColors))
   }
 
+  // Store entitlement refreshes can be driven by a purchase service without exposing StoreKit.
+  func testStoreEntitlementRefreshUsesPurchaseService() async throws {
+    let store = PlanAccessStore(
+      settingsRepository: SettingsRepository(userDefaults: makeUserDefaults())
+    )
+    let purchaseService = LocalStorePurchaseService(entitlementState: .paid)
+    store.updateStoreEntitlements(.none)
+
+    let entitlementState = try await store.refreshStoreEntitlements(using: purchaseService)
+
+    XCTAssertEqual(entitlementState, .paid)
+    XCTAssertEqual(store.activePlan, .paid)
+  }
+
   #if DEBUG
     // Developer overrides persist with the existing debug defaults key.
     func testDeveloperPlanOverridePersists() {
