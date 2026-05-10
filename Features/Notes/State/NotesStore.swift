@@ -52,22 +52,6 @@ enum UserMessageKind {
 
 @MainActor
 final class NotesStore: ObservableObject {
-  @Published var notes: [DayNote] {
-    didSet {
-      cachedMonthSections = nil
-      clampCalendarBrowseYear()
-    }
-  }
-  @Published var selectedNoteID: DayNote.ID? {
-    didSet {
-      guard sidebarMode == .calendar else { return }
-      syncCalendarBrowseYearToSelectedNote()
-    }
-  }
-  @Published var searchText: String = "" {
-    didSet { cachedMonthSections = nil }
-  }
-  @Published var isSearchBarExpanded = false
   @Published var sidebarMode: SidebarMode = .daily {
     didSet {
       #if DEBUG
@@ -92,7 +76,6 @@ final class NotesStore: ObservableObject {
       }
     }
   }
-  @Published var calendarBrowseYear: Int
   @Published private(set) var isLoading = false
   @Published var userMessage: (text: String, kind: UserMessageKind)?
   @Published var isPerformingFileOperation = false
@@ -119,13 +102,13 @@ final class NotesStore: ObservableObject {
   let settingsRepository: SettingsRepository
   let appearanceSettingsStore: AppearanceSettingsStore
   let backupSettingsStore: BackupSettingsStore
+  let dailyNotesStore: DailyNotesStore
   let editorPreferencesStore: EditorPreferencesStore
   let planAccessStore: PlanAccessStore
   let listNotesStore: ListNotesStore
   let noteTemplatesStore: NoteTemplatesStore
   let archiveService: ArchiveService
   private var hasLoaded = false
-  private var noteIndex: [DayNote.ID: Int] = [:]
   private var cachedMonthSections: [NoteMonthSection]?
   private var pendingSaveTasks: [DayNote.ID: Task<Void, Never>] = [:]
   var pendingListNoteSaveTasks: [DayNote.ID: Task<Void, Never>] = [:]
@@ -175,11 +158,12 @@ final class NotesStore: ObservableObject {
     let sortedNotes = previewNotes.sorted(by: { $0.date > $1.date })
     let loadedBackupSettings = resolvedBackupSettingsStore.settings
     let currentYear = calendar.component(.year, from: .now)
-    self.notes = sortedNotes
-    self.noteIndex = Dictionary(uniqueKeysWithValues: sortedNotes.enumerated().map { ($1.id, $0) })
+    self.dailyNotesStore = DailyNotesStore(
+      notes: sortedNotes,
+      selectedNoteID: sortedNotes.first?.id,
+      calendarBrowseYear: currentYear
+    )
     self.backupHealth = loadedBackupSettings.isConfigured ? .healthy : .notConfigured
-    self.calendarBrowseYear = currentYear
-    self.selectedNoteID = sortedNotes.first?.id
     self.hasLoaded = !previewNotes.isEmpty
   }
 
@@ -209,6 +193,51 @@ final class NotesStore: ObservableObject {
 
   var newNoteDefault: NewNoteDefault {
     editorPreferencesStore.newNoteDefault
+  }
+
+  var notes: [DayNote] {
+    get { dailyNotesStore.notes }
+    set {
+      objectWillChange.send()
+      dailyNotesStore.replaceNotes(newValue)
+      cachedMonthSections = nil
+      clampCalendarBrowseYear()
+    }
+  }
+
+  var selectedNoteID: DayNote.ID? {
+    get { dailyNotesStore.selectedNoteID }
+    set {
+      objectWillChange.send()
+      dailyNotesStore.selectNote(newValue)
+      guard sidebarMode == .calendar else { return }
+      syncCalendarBrowseYearToSelectedNote()
+    }
+  }
+
+  var searchText: String {
+    get { dailyNotesStore.searchText }
+    set {
+      objectWillChange.send()
+      dailyNotesStore.updateSearchText(newValue)
+      cachedMonthSections = nil
+    }
+  }
+
+  var isSearchBarExpanded: Bool {
+    get { dailyNotesStore.isSearchBarExpanded }
+    set {
+      objectWillChange.send()
+      dailyNotesStore.updateSearchBarExpanded(newValue)
+    }
+  }
+
+  var calendarBrowseYear: Int {
+    get { dailyNotesStore.calendarBrowseYear }
+    set {
+      objectWillChange.send()
+      dailyNotesStore.updateCalendarBrowseYear(newValue)
+    }
   }
 
   var listNotes: [DayNote] {
@@ -580,10 +609,7 @@ final class NotesStore: ObservableObject {
       }
     #endif
 
-    if let index = noteIndex[noteID], notes.indices.contains(index), notes[index].id == noteID {
-      return notes[index]
-    }
-    return notes.first(where: { $0.id == noteID })
+    return dailyNotesStore.note(withID: noteID)
   }
 
   // Sets the selected note ID.
@@ -986,7 +1012,7 @@ final class NotesStore: ObservableObject {
 
   // Rebuilds the ID-to-array-index lookup dictionary.
   func rebuildNoteIndex() {
-    noteIndex = Dictionary(uniqueKeysWithValues: notes.enumerated().map { ($1.id, $0) })
+    dailyNotesStore.rebuildNoteIndex()
   }
 
   // Keeps the visible calendar year inside the available note range after note changes.
