@@ -195,6 +195,16 @@ final class NotesStore: ObservableObject {
     editorPreferencesStore.newNoteDefault
   }
 
+  var effectiveNewNoteDefault: NewNoteDefault {
+    guard case .template(let templateID) = newNoteDefault,
+      isNoteTemplateLockedByPlan(templateID)
+    else {
+      return newNoteDefault
+    }
+
+    return .blank
+  }
+
   var notes: [DayNote] {
     get { dailyNotesStore.notes }
     set {
@@ -696,6 +706,11 @@ final class NotesStore: ObservableObject {
 
   // Persists the new-note default preference to UserDefaults.
   func updateNewNoteDefault(_ value: NewNoteDefault) {
+    if case .template(let templateID) = value, isNoteTemplateLockedByPlan(templateID) {
+      userMessage = (text: "Paid is required to use that template as a default.", kind: .info)
+      return
+    }
+
     objectWillChange.send()
     editorPreferencesStore.updateNewNoteDefault(value)
   }
@@ -892,7 +907,7 @@ final class NotesStore: ObservableObject {
       return DayNote.empty(for: startOfDay, calendar: calendar)
     }
 
-    if case .copyPrevious = newNoteDefault, let mostRecent = notes.first {
+    if case .copyPrevious = effectiveNewNoteDefault, let mostRecent = notes.first {
       return DayNote(
         date: startOfDay,
         title: mostRecent.title,
@@ -901,7 +916,7 @@ final class NotesStore: ObservableObject {
       )
     }
 
-    if case .template(let templateID) = newNoteDefault,
+    if case .template(let templateID) = effectiveNewNoteDefault,
       let template = noteTemplate(withID: templateID)
     {
       return DayNote(

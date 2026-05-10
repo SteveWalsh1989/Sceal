@@ -84,6 +84,28 @@
       )
     }
 
+    // Free can use two themes per mode and preserves paid theme choices for later.
+    func testFreePlanPreservesButDoesNotApplyPremiumThemeSelection() {
+      let store = makeStore(userDefaults: makeUserDefaults())
+
+      store.updateThemeID(AppTheme.charcoal.id)
+      store.updateDeveloperPlan(.free)
+
+      XCTAssertEqual(store.appearanceSettings.themeID, AppTheme.charcoal.id)
+      XCTAssertEqual(store.effectiveAppearanceSettings.themeID, AppTheme.defaultDark.id)
+      XCTAssertTrue(store.isThemeLockedByPlan(AppTheme.charcoal.id))
+      XCTAssertFalse(store.isThemeLockedByPlan(AppTheme.midnight.id))
+
+      store.updateThemeID(AppTheme.slate.id)
+
+      XCTAssertEqual(store.appearanceSettings.themeID, AppTheme.charcoal.id)
+      XCTAssertNotNil(store.userMessage)
+
+      store.updateDeveloperPlan(.paid)
+
+      XCTAssertEqual(store.effectiveAppearanceSettings.themeID, AppTheme.charcoal.id)
+    }
+
     // Free preserves stored backup settings but treats paid schedules as manual at runtime.
     func testFreePlanUsesManualBackupScheduleWithoutMutatingStoredSchedule() {
       let store = makeStore(userDefaults: makeUserDefaults())
@@ -109,6 +131,31 @@
       XCTAssertFalse(store.backupSettings.backupOnInactive)
       XCTAssertFalse(store.isBackupOnInactiveAvailable)
       XCTAssertNotNil(store.userMessage)
+    }
+
+    // Free can use the included template as a default but not templates beyond the limit.
+    func testFreePlanBlocksLockedTemplateAsNewNoteDefaultWithoutDeletingStoredChoice() {
+      let userDefaults = makeUserDefaults()
+      let store = makeStore(userDefaults: userDefaults)
+      let paidTemplateID = store.createNoteTemplate()
+
+      store.updateDeveloperPlan(.free)
+      store.updateNewNoteDefault(.template("starter-meeting"))
+
+      XCTAssertEqual(store.newNoteDefault, .template("starter-meeting"))
+      XCTAssertEqual(store.effectiveNewNoteDefault, .template("starter-meeting"))
+
+      store.updateNewNoteDefault(.template(paidTemplateID))
+
+      XCTAssertEqual(store.newNoteDefault, .template("starter-meeting"))
+      XCTAssertNotNil(store.userMessage)
+
+      store.updateDeveloperPlan(.paid)
+      store.updateNewNoteDefault(.template(paidTemplateID))
+      store.updateDeveloperPlan(.free)
+
+      XCTAssertEqual(store.newNoteDefault, .template(paidTemplateID))
+      XCTAssertEqual(store.effectiveNewNoteDefault, .blank)
     }
   }
 #endif

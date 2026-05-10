@@ -36,12 +36,27 @@ struct SettingsThemesView: View {
     "Free uses built-in themes. Paid unlocks fully custom theme colors, additional templates, and automatic backup schedules."
   }
 
+  private var premiumThemeLockTitle: String {
+    "Premium themes require Paid"
+  }
+
+  private var premiumThemeLockMessage: String {
+    "Free includes two dark themes and two light themes. Paid unlocks the full theme library, custom colors, additional templates, and automatic backup schedules."
+  }
+
+  private var hasLockedActiveTheme: Bool {
+    store.isThemeLockedByPlan(store.appearanceSettings.themeID)
+  }
+
   var body: some View {
     Form {
       Section("Dark Themes") {
         ThemeGrid(
           themes: AppTheme.darkThemes(),
-          selectedID: store.appearanceSettings.themeID
+          selectedID: store.effectiveAppearanceSettings.themeID,
+          isLocked: store.isThemeLockedByPlan,
+          lockTitle: premiumThemeLockTitle,
+          lockMessage: premiumThemeLockMessage
         ) { theme in
           store.updateThemeID(theme.id)
         }
@@ -50,7 +65,10 @@ struct SettingsThemesView: View {
       Section("Light Themes") {
         ThemeGrid(
           themes: AppTheme.lightThemes(),
-          selectedID: store.appearanceSettings.themeID
+          selectedID: store.effectiveAppearanceSettings.themeID,
+          isLocked: store.isThemeLockedByPlan,
+          lockTitle: premiumThemeLockTitle,
+          lockMessage: premiumThemeLockMessage
         ) { theme in
           store.updateThemeID(theme.id)
         }
@@ -75,6 +93,17 @@ struct SettingsThemesView: View {
               }
               .controlSize(.small)
             }
+          }
+
+          if hasLockedActiveTheme {
+            let storedTheme = AppTheme.builtIn(id: store.appearanceSettings.themeID)
+            UpgradeLockedStatus(
+              text:
+                "\(storedTheme?.displayName ?? "Selected theme") is saved but inactive in Free.",
+              capability: .premiumThemes,
+              title: premiumThemeLockTitle,
+              message: premiumThemeLockMessage
+            )
           }
 
           if hasLockedCustomColors {
@@ -189,6 +218,9 @@ struct SettingsThemesView: View {
 private struct ThemeGrid: View {
   let themes: [AppTheme]
   let selectedID: String
+  let isLocked: (AppTheme) -> Bool
+  let lockTitle: String
+  let lockMessage: String
   let onSelect: (AppTheme) -> Void
 
   var body: some View {
@@ -196,7 +228,10 @@ private struct ThemeGrid: View {
       ForEach(themes) { theme in
         ThemePreviewCard(
           theme: theme,
-          isSelected: theme.id == selectedID
+          isSelected: theme.id == selectedID,
+          isLocked: isLocked(theme),
+          lockTitle: lockTitle,
+          lockMessage: lockMessage
         ) {
           onSelect(theme)
         }
@@ -209,11 +244,27 @@ private struct ThemeGrid: View {
 private struct ThemePreviewCard: View {
   let theme: AppTheme
   let isSelected: Bool
+  let isLocked: Bool
+  let lockTitle: String
+  let lockMessage: String
   let action: () -> Void
 
   var body: some View {
-    Button(action: action) {
-      VStack(spacing: 6) {
+    if isLocked {
+      previewContent
+        .accessibilityLabel("\(theme.displayName) theme requires Paid")
+    } else {
+      Button(action: action) {
+        previewContent
+      }
+      .buttonStyle(.plain)
+      .accessibilityLabel("Use \(theme.displayName) theme")
+    }
+  }
+
+  private var previewContent: some View {
+    VStack(spacing: 6) {
+      ZStack(alignment: .topTrailing) {
         HStack(spacing: 0) {
           Rectangle()
             .fill(theme.colors.sidebarBackground.color)
@@ -231,14 +282,22 @@ private struct ThemePreviewCard: View {
               lineWidth: isSelected ? 2 : 1
             )
         )
+        .opacity(isLocked ? 0.52 : 1)
 
-        Text(theme.displayName)
-          .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
-          .foregroundStyle(isSelected ? .primary : .secondary)
+        if isLocked {
+          UpgradeLockIndicator(
+            capability: .premiumThemes,
+            title: lockTitle,
+            message: lockMessage
+          )
+          .offset(x: 8, y: -8)
+        }
       }
+
+      Text(theme.displayName)
+        .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
+        .foregroundStyle(isLocked ? .tertiary : isSelected ? .primary : .secondary)
     }
-    .buttonStyle(.plain)
-    .accessibilityLabel("Use \(theme.displayName) theme")
   }
 }
 

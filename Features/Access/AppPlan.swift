@@ -30,6 +30,7 @@ extension AppPlan {
 }
 
 enum AppCapability: String, CaseIterable, Identifiable, Sendable {
+  case premiumThemes
   case additionalTemplates
   case customThemeColors
   case automaticBackupSchedules
@@ -38,6 +39,8 @@ enum AppCapability: String, CaseIterable, Identifiable, Sendable {
 
   var displayName: String {
     switch self {
+    case .premiumThemes:
+      return "Premium themes"
     case .additionalTemplates:
       return "Additional templates"
     case .customThemeColors:
@@ -50,6 +53,7 @@ enum AppCapability: String, CaseIterable, Identifiable, Sendable {
 
 struct AppFeatureAccess: Equatable, Sendable {
   static let freeTemplateLimit = 1
+  static let freeThemeLimitPerMode = 2
 
   let plan: AppPlan
 
@@ -60,7 +64,8 @@ struct AppFeatureAccess: Equatable, Sendable {
       return true
     case .free:
       switch capability {
-      case .additionalTemplates, .customThemeColors, .automaticBackupSchedules:
+      case .premiumThemes, .additionalTemplates, .customThemeColors,
+        .automaticBackupSchedules:
         return false
       }
     }
@@ -68,6 +73,16 @@ struct AppFeatureAccess: Equatable, Sendable {
 
   var templateLimit: Int? {
     plan == .free ? Self.freeTemplateLimit : nil
+  }
+
+  var themeLimitPerMode: Int? {
+    plan == .free ? Self.freeThemeLimitPerMode : nil
+  }
+
+  // Returns whether a theme at the given display index is available to the active plan.
+  func canUseTheme(atModeIndex index: Int) -> Bool {
+    guard let themeLimitPerMode else { return true }
+    return index < themeLimitPerMode
   }
 
   // Returns whether a new user-created template can be added without upgrading.

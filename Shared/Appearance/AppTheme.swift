@@ -89,6 +89,11 @@ struct AppTheme: Identifiable, Codable, Equatable, Sendable {
     allBuiltIn.filter { $0.mode == .light }
   }
 
+  // Returns built-in themes for one appearance mode in display order.
+  static func themes(for mode: ThemeMode) -> [AppTheme] {
+    allBuiltIn.filter { $0.mode == mode }
+  }
+
   // MARK: - Dark themes
 
   // Current app colors — exact RGB values preserved as the default.

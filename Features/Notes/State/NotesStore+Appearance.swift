@@ -85,17 +85,40 @@ extension NotesStore {
 
   // Applies plan gates to runtime appearance without deleting stored paid-only settings.
   var effectiveAppearanceSettings: NoteAppearanceSettings {
-    guard !hasAccess(to: .customThemeColors) else {
-      return appearanceSettings
+    var settings = appearanceSettings
+
+    if isThemeLockedByPlan(settings.themeID) {
+      settings.themeID = fallbackThemeID(forLockedThemeID: settings.themeID)
     }
 
-    var settings = appearanceSettings
-    settings.colorOverrides = nil
+    if !hasAccess(to: .customThemeColors) {
+      settings.colorOverrides = nil
+    }
+
     return settings
+  }
+
+  func isThemeLockedByPlan(_ themeID: String) -> Bool {
+    guard let theme = AppTheme.builtIn(id: themeID) else { return false }
+    return isThemeLockedByPlan(theme)
+  }
+
+  func isThemeLockedByPlan(_ theme: AppTheme) -> Bool {
+    let themes = AppTheme.themes(for: theme.mode)
+    guard let modeIndex = themes.firstIndex(where: { $0.id == theme.id }) else {
+      return false
+    }
+
+    return !featureAccess.canUseTheme(atModeIndex: modeIndex)
   }
 
   // Selects a built-in theme and clears any custom overrides.
   func updateThemeID(_ id: String) {
+    guard !isThemeLockedByPlan(id) else {
+      userMessage = (text: "Paid is required for premium themes.", kind: .info)
+      return
+    }
+
     updateAppearanceSettings { settings in
       settings.themeID = id
       settings.colorOverrides = nil
@@ -121,6 +144,12 @@ extension NotesStore {
     updateAppearanceSettings { settings in
       settings.colorOverrides = nil
     }
+  }
+
+  private func fallbackThemeID(forLockedThemeID themeID: String) -> String {
+    let mode = AppTheme.builtIn(id: themeID)?.mode ?? AppTheme.defaultDark.mode
+    return AppTheme.themes(for: mode).first(where: { !isThemeLockedByPlan($0) })?.id
+      ?? NoteAppearanceSettings.defaultThemeID
   }
 
 }

@@ -446,8 +446,8 @@ private struct QuickAppearancePopover: View {
       Divider()
 
       QuickNewNoteDefaultRow(
-        selection: store.newNoteDefault,
-        templates: store.sortedNoteTemplates,
+        selection: store.effectiveNewNoteDefault,
+        templates: store.accessibleNoteTemplates,
         onSelect: store.updateNewNoteDefault
       )
 

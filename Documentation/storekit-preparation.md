@@ -23,6 +23,7 @@ The product ID is intentionally isolated in `StoreEntitlement.paidUnlock.product
 - `LocalStorePurchaseService` lets tests and developer workflows simulate purchases without StoreKit.
 - `StoreKitPurchaseService` is the real StoreKit adapter for local Xcode testing and later App Store builds.
 - `PlanAccessStore` maps entitlement state into `AppPlan` and `AppFeatureAccess`.
+- The active Free/Paid feature policy is documented in `Documentation/free-paid-features.md`.
 
 Do not import StoreKit in note, template, theme, backup, import, export, markdown, or storage code.
 
@@ -53,8 +54,8 @@ The configuration file is local test data. It does not upload to App Store Conne
 ## Manual QA Once A Purchase UI Exists
 
 - Free launch with no entitlement shows paid-only features as locked.
-- Paid purchase grants custom themes, extra templates, and automatic backup schedules.
+- Paid purchase grants premium themes, custom colors, extra templates, template defaults, and automatic backup schedules.
 - Restore purchases restores paid access after reinstall.
 - User cancellation leaves the app on Free without errors.
 - Pending purchase leaves the app usable and does not grant paid access early.
-- Refund or revocation removes paid-only runtime access without deleting saved settings or notes.
+- Refund or revocation removes paid-only runtime access without deleting saved settings, templates, or notes.

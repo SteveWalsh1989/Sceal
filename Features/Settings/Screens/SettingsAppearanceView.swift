@@ -11,6 +11,14 @@ struct SettingsAppearanceView: View {
   @ObservedObject var store: NotesStore
   @State private var fontPanelController = FontPanelController()
 
+  private var templateDefaultLockTitle: String {
+    "Template defaults require Paid"
+  }
+
+  private var templateDefaultLockMessage: String {
+    "Free can start new notes from the included template. Paid unlocks using every saved template as a new-note default."
+  }
+
   var body: some View {
     Form {
       Section("Font") {
@@ -171,7 +179,7 @@ struct SettingsAppearanceView: View {
         Picker(
           "New note default",
           selection: Binding(
-            get: { store.newNoteDefault },
+            get: { store.effectiveNewNoteDefault },
             set: { store.updateNewNoteDefault($0) }
           )
         ) {
@@ -179,9 +187,9 @@ struct SettingsAppearanceView: View {
             Text(option.displayName).tag(option)
           }
 
-          if !store.sortedNoteTemplates.isEmpty {
+          if !store.accessibleNoteTemplates.isEmpty {
             Section("Templates") {
-              ForEach(store.sortedNoteTemplates) { template in
+              ForEach(store.accessibleNoteTemplates) { template in
                 Text(newNoteDefaultTemplateLabel(for: template))
                   .tag(NewNoteDefault.template(template.id))
               }
@@ -189,6 +197,15 @@ struct SettingsAppearanceView: View {
           }
         }
         .pickerStyle(.menu)
+
+        if hasLockedTemplateDefault {
+          UpgradeLockedStatus(
+            text: "The saved template default is inactive in Free.",
+            capability: .additionalTemplates,
+            title: templateDefaultLockTitle,
+            message: templateDefaultLockMessage
+          )
+        }
       }
     }
     .formStyle(.grouped)
@@ -200,6 +217,11 @@ struct SettingsAppearanceView: View {
   private func newNoteDefaultTemplateLabel(for template: NoteTemplate) -> String {
     let title = template.title.isEmpty ? "Untitled Template" : template.title
     return template.command.isEmpty ? title : "\(title) (\(template.slashCommand))"
+  }
+
+  private var hasLockedTemplateDefault: Bool {
+    guard case .template(let templateID) = store.newNoteDefault else { return false }
+    return store.isNoteTemplateLockedByPlan(templateID)
   }
 }
 

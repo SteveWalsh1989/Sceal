@@ -12,7 +12,7 @@ These are the release-readiness limitations to keep visible before broader distr
 
 - There is no cloud sync.
 - There is no account system.
-- Paid feature gates exist, but production purchase UI and App Store entitlement validation are not complete.
+- Paid feature gates exist for templates, themes, custom colors, template defaults, and backup schedules, but production purchase UI and App Store entitlement validation are not complete.
 - Restore is replace-style, not merge-style.
 
 ## Import And Export
