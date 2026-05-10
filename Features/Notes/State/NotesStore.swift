@@ -293,6 +293,13 @@ final class NotesStore: ObservableObject {
       planAccessStore.updateDeveloperPlan(plan)
       refreshBackupHealth()
     }
+
+    var canResetDeveloperLibrary: Bool {
+      DeveloperLibrarySeeder.canResetLibrary(
+        at: libraryLocation.rootURL,
+        fileManager: fileManager
+      )
+    }
   #endif
 
   deinit {
@@ -357,6 +364,55 @@ final class NotesStore: ObservableObject {
         enableDemoMode(relativeTo: referenceDate)
       } else {
         disableDemoMode()
+      }
+    }
+
+    // Replaces the active DEBUG file-backed library with deterministic throwaway data.
+    func resetDeveloperLibrary(referenceDate: Date = .now) {
+      guard canResetDeveloperLibrary else {
+        userMessage = (
+          text: "Developer library reset is not available for this storage location.",
+          kind: .error
+        )
+        return
+      }
+
+      isPerformingFileOperation = true
+      progressMessage = "Resetting developer library..."
+      defer {
+        isPerformingFileOperation = false
+        progressMessage = nil
+      }
+
+      flushPendingSaves()
+
+      do {
+        if isDemoModeEnabled {
+          disableDemoMode()
+        }
+
+        let snapshot = try DeveloperLibrarySeeder.resetLibrary(
+          at: libraryLocation,
+          fileManager: fileManager,
+          calendar: calendar,
+          referenceDate: referenceDate
+        )
+        notes = snapshot.dailyNotes
+        listNotes = snapshot.listNotes
+        listNoteManifest = snapshot.manifest
+        rebuildNoteIndex()
+        rebuildListNoteIndex()
+        sidebarMode = .daily
+        selectedNoteID = snapshot.dailyNotes.first?.id
+        selectedListNoteID = snapshot.listNotes.first?.id
+        searchText = ""
+        isSearchBarExpanded = false
+        listSearchText = ""
+        isListSearchBarExpanded = false
+        hasLoaded = true
+        userMessage = (text: "Developer library reset.", kind: .info)
+      } catch {
+        report(error, context: "Resetting developer library failed")
       }
     }
 

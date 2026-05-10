@@ -55,6 +55,19 @@
           .foregroundStyle(.secondary)
         }
 
+        Section("File-backed Developer Library") {
+          Button("Reset and seed developer library", role: .destructive) {
+            store.resetDeveloperLibrary()
+          }
+          .disabled(!store.canResetDeveloperLibrary)
+
+          Text(
+            "Replaces the active non-production library with deterministic daily notes, one list note, a group manifest, and a fixture attachment."
+          )
+          .font(.footnote)
+          .foregroundStyle(.secondary)
+        }
+
         Section("Storage") {
           LabeledContent("Active library") {
             Text(store.libraryLocation.rootURL.path)

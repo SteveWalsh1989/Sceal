@@ -35,5 +35,15 @@ final class ScealLibraryLocationTests: XCTestCase {
 
       XCTAssertEqual(location.rootURL.lastPathComponent, ScealLibraryLocation.developerFolderName)
     }
+
+    // Protects the developer reset path from targeting the production app-support library.
+    func testDeveloperSeederCanResetDeveloperButNotProductionLibrary() {
+      XCTAssertTrue(
+        DeveloperLibrarySeeder.canResetLibrary(at: ScealLibraryLocation.developer().rootURL)
+      )
+      XCTAssertFalse(
+        DeveloperLibrarySeeder.canResetLibrary(at: ScealLibraryLocation.production().rootURL)
+      )
+    }
   #endif
 }
