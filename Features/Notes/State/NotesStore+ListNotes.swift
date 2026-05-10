@@ -13,18 +13,12 @@ import SwiftUI
 extension NotesStore {
 
   private static let listNotesLogger = Logger(subsystem: "com.sceal.app", category: "listNotes")
-  private static let manifestFileName = "groups.json"
 
   // MARK: - Directory Management
 
   // Returns the list notes directory, creating it if needed.
   func listNotesDirectoryURL() throws -> URL {
-    try libraryLocation.listNotesDirectoryURL(fileManager: fileManager)
-  }
-
-  // URL for the groups.json manifest file.
-  private func manifestFileURL() throws -> URL {
-    try listNotesDirectoryURL().appendingPathComponent(Self.manifestFileName)
+    try libraryRepository.listNotesDirectoryURL()
   }
 
   // MARK: - Loading
@@ -32,43 +26,11 @@ extension NotesStore {
   // Loads all list notes and the manifest from disk, reconciling any mismatches.
   func loadListNotesIfNeeded() {
     do {
-      let directoryURL = try listNotesDirectoryURL()
-      let fileURLs = try fileManager.contentsOfDirectory(
-        at: directoryURL,
-        includingPropertiesForKeys: nil,
-        options: [.skipsHiddenFiles]
-      )
-
-      let loadedNotes =
-        fileURLs
-        .filter { $0.pathExtension == "md" }
-        .compactMap { url -> DayNote? in
-          do {
-            let contents = try String(contentsOf: url, encoding: .utf8)
-            let noteID = url.deletingPathExtension().lastPathComponent
-            return try MarkdownNoteCodec.decode(
-              contents: contents,
-              sourceURL: url,
-              idOverride: noteID
-            )
-          } catch {
-            Self.listNotesLogger.error(
-              "Skipping corrupt list note \(url.lastPathComponent): \(error.localizedDescription)"
-            )
-            return nil
-          }
-        }
-        .sorted(by: { $0.date > $1.date })
-
-      listNotes = loadedNotes
+      let snapshot = try libraryRepository.loadListNotes()
+      listNotes = snapshot.notes
       rebuildListNoteIndex()
-
-      var manifest = loadManifest()
-      reconcileManifest(&manifest, with: Set(loadedNotes.map(\.id)))
-      listNoteManifest = manifest
-      saveManifest()
-
-      Self.listNotesLogger.info("Loaded \(loadedNotes.count) list notes")
+      listNoteManifest = snapshot.manifest
+      Self.listNotesLogger.info("Loaded \(snapshot.notes.count) list notes")
     } catch {
       Self.listNotesLogger.error("Loading list notes failed: \(error.localizedDescription)")
       listNotes = []
@@ -76,47 +38,12 @@ extension NotesStore {
     }
   }
 
-  // Reads the manifest from disk, returning empty if missing or corrupt.
-  private func loadManifest() -> ListNotesManifest {
-    guard
-      let url = try? manifestFileURL(),
-      let data = try? Data(contentsOf: url),
-      let manifest = try? JSONDecoder().decode(ListNotesManifest.self, from: data)
-    else {
-      return .empty
-    }
-    return manifest
-  }
-
   // Writes the current manifest to disk.
   func saveManifest() {
     do {
-      let url = try manifestFileURL()
-      let encoder = JSONEncoder()
-      encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-      let data = try encoder.encode(listNoteManifest)
-      try data.write(to: url, options: .atomic)
+      try libraryRepository.saveListNotesManifest(listNoteManifest)
     } catch {
       report(error, context: "Saving list notes manifest failed")
-    }
-  }
-
-  // Ensures the manifest matches the notes on disk — removes orphan IDs, adds untracked notes.
-  private func reconcileManifest(
-    _ manifest: inout ListNotesManifest, with noteIDsOnDisk: Set<String>
-  ) {
-    let trackedIDs = manifest.allNoteIDs
-
-    // Remove IDs from manifest that have no matching file.
-    let orphanIDs = trackedIDs.subtracting(noteIDsOnDisk)
-    for orphanID in orphanIDs {
-      manifest.removeNoteID(orphanID)
-    }
-
-    // Add untracked files to ungrouped.
-    let untrackedIDs = noteIDsOnDisk.subtracting(trackedIDs)
-    for untrackedID in untrackedIDs {
-      manifest.ungroupedNoteIDs.insert(untrackedID, at: 0)
     }
   }
 
@@ -191,10 +118,7 @@ extension NotesStore {
     }
 
     do {
-      let noteURL = try listNotesDirectoryURL().appendingPathComponent(note.fileName)
-      if fileManager.fileExists(atPath: noteURL.path) {
-        try fileManager.removeItem(at: noteURL)
-      }
+      try libraryRepository.deleteListNoteFile(for: note)
       try NoteImageAttachmentStore.deleteAttachments(
         for: note.id,
         fileManager: fileManager,
@@ -219,9 +143,7 @@ extension NotesStore {
 
   // Writes a list note to disk.
   func saveListNote(_ note: DayNote) throws {
-    let noteURL = try listNotesDirectoryURL().appendingPathComponent(note.fileName)
-    let fileContents = try MarkdownNoteCodec.encode(note)
-    try fileContents.write(to: noteURL, atomically: true, encoding: .utf8)
+    try libraryRepository.saveListNote(note)
   }
 
   // Returns note IDs in display order: ungrouped first, then each group's notes.

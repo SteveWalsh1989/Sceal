@@ -127,6 +127,7 @@ final class NotesStore: ObservableObject {
   let calendar: Calendar
   let userDefaults: UserDefaults
   let libraryLocation: ScealLibraryLocation
+  let libraryRepository: LibraryRepository
   private var hasLoaded = false
   private var noteIndex: [DayNote.ID: Int] = [:]
   var listNoteIndex: [DayNote.ID: Int] = [:]
@@ -156,11 +157,16 @@ final class NotesStore: ObservableObject {
     self.fileManager = fileManager
     self.calendar = calendar
     self.userDefaults = userDefaults
-    self.libraryLocation =
+    let resolvedLibraryLocation =
       libraryLocation
       ?? ScealLibraryLocation.defaultForCurrentBuild(
         fileManager: fileManager
       )
+    self.libraryLocation = resolvedLibraryLocation
+    self.libraryRepository = LibraryRepository(
+      libraryLocation: resolvedLibraryLocation,
+      fileManager: fileManager
+    )
     let sortedNotes = previewNotes.sorted(by: { $0.date > $1.date })
     let loadedBackupSettings = Self.loadBackupSettings(from: userDefaults)
     let currentYear = calendar.component(.year, from: .now)
@@ -700,27 +706,7 @@ final class NotesStore: ObservableObject {
 
   // Reads all .md files from the notes directory and seeds if empty.
   private func loadNotes() throws {
-    let directoryURL = try notesDirectoryURL()
-    let fileURLs = try fileManager.contentsOfDirectory(
-      at: directoryURL,
-      includingPropertiesForKeys: nil,
-      options: [.skipsHiddenFiles]
-    )
-
-    let loadedNotes =
-      fileURLs
-      .filter { $0.pathExtension == "md" }
-      .compactMap { url -> DayNote? in
-        do {
-          return try loadNote(from: url)
-        } catch {
-          Self.logger.error(
-            "Skipping corrupt note \(url.lastPathComponent): \(error.localizedDescription)")
-          return nil
-        }
-      }
-      .sorted(by: { $0.date > $1.date })
-
+    let loadedNotes = try libraryRepository.loadDailyNotes()
     if loadedNotes.isEmpty {
       try seedStarterNotes()
     } else {
@@ -793,12 +779,6 @@ final class NotesStore: ObservableObject {
     }
 
     return DayNote.empty(for: startOfDay, calendar: calendar)
-  }
-
-  // Decodes a single note from a markdown file URL.
-  private func loadNote(from fileURL: URL) throws -> DayNote {
-    let contents = try String(contentsOf: fileURL, encoding: .utf8)
-    return try MarkdownNoteCodec.decode(contents: contents, sourceURL: fileURL)
   }
 
   // Updates a note's title and schedules a save.
@@ -903,20 +883,12 @@ final class NotesStore: ObservableObject {
 
   // Encodes and writes a note to its markdown file.
   func save(_ note: DayNote) throws {
-    let noteURL = try notesDirectoryURL().appendingPathComponent(note.fileName)
-    let fileContents = try MarkdownNoteCodec.encode(note)
-    try fileContents.write(to: noteURL, atomically: true, encoding: .utf8)
+    try libraryRepository.saveDailyNote(note)
   }
 
   // Removes the markdown file for a note from disk.
   private func deleteFile(for note: DayNote) throws {
-    let noteURL = try notesDirectoryURL().appendingPathComponent(note.fileName)
-
-    guard fileManager.fileExists(atPath: noteURL.path) else {
-      return
-    }
-
-    try fileManager.removeItem(at: noteURL)
+    try libraryRepository.deleteDailyNoteFile(for: note)
   }
 
   // Encodes appearance settings to UserDefaults.
@@ -982,7 +954,7 @@ final class NotesStore: ObservableObject {
 
   // Returns the notes directory, creating it if needed.
   func notesDirectoryURL() throws -> URL {
-    try libraryLocation.notesDirectoryURL(fileManager: fileManager)
+    try libraryRepository.dailyNotesDirectoryURL()
   }
 
   // Formats a date as the YYYY-MM-DD storage key.
