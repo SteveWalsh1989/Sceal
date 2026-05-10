@@ -42,7 +42,6 @@ enum MarkdownEditorFormatter {
   static let imageResizeStep = MarkdownEditorImageMarkdown.resizeStep
 
   // Cached regex patterns to avoid recreation per format pass.
-  static let hcolorRegex = try! NSRegularExpression(pattern: #"^<!-- hcolor:(\w+) -->$"#)
   static let boldRegex = try! NSRegularExpression(pattern: #"\*\*(.+?)\*\*"#)
   static let italicRegex = try! NSRegularExpression(
     pattern: #"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)"#)
@@ -231,7 +230,6 @@ enum MarkdownEditorFormatter {
     var insidePromptBlock = false
     var pendingHeadingColor: NSColor? = nil
     var pendingHeadingColorName: String? = nil
-    let hcolorRegex = Self.hcolorRegex
     let tableBlocks = tableBlocks(in: lines)
     var skippingTableUntilIndex: Int? = nil
     // Per-section color state — applies to content after the most recent divider.
@@ -244,6 +242,16 @@ enum MarkdownEditorFormatter {
     var justEmittedDivider = false
     var pendingImageWidth: CGFloat? = nil
     var skippedPreviousImageWidthMarker = false
+
+    func flushPendingHeadingColorMarker() {
+      guard let colorName = pendingHeadingColorName else { return }
+      result.append(
+        NSAttributedString(
+          string: "\(MarkdownEditorHeadingColorMarkdown.marker(colorName: colorName))\n"
+        ))
+      pendingHeadingColor = nil
+      pendingHeadingColorName = nil
+    }
 
     for (index, line) in lines.enumerated() {
       if let skipEndIndex = skippingTableUntilIndex {
@@ -270,11 +278,7 @@ enum MarkdownEditorFormatter {
         skippedPreviousImageWidthMarker = false
         skippingTableUntilIndex = tableBlock.endIndex
 
-        if let colorName = pendingHeadingColorName {
-          result.append(NSAttributedString(string: "<!-- hcolor:\(colorName) -->\n"))
-          pendingHeadingColor = nil
-          pendingHeadingColorName = nil
-        }
+        flushPendingHeadingColorMarker()
         result.append(styledTableBlock(tableBlock.table, appearance: appearance))
         continue
       }
@@ -287,11 +291,7 @@ enum MarkdownEditorFormatter {
       if !insideCodeBlock,
         MarkdownEditorPromptBlockMarkdown.boundaryKind(for: line) == promptBoundaryStartKind
       {
-        if let colorName = pendingHeadingColorName {
-          result.append(NSAttributedString(string: "<!-- hcolor:\(colorName) -->\n"))
-          pendingHeadingColor = nil
-          pendingHeadingColorName = nil
-        }
+        flushPendingHeadingColorMarker()
         insidePromptBlock = true
         result.append(
           styledPromptBoundaryLine(kind: promptBoundaryStartKind, appearance: appearance))
@@ -314,11 +314,8 @@ enum MarkdownEditorFormatter {
 
       // Check for heading color comment
       if !insideCodeBlock,
-        let match = hcolorRegex.firstMatch(
-          in: line, range: NSRange(location: 0, length: line.utf16.count)),
-        let nameRange = Range(match.range(at: 1), in: line)
+        let colorName = MarkdownEditorHeadingColorMarkdown.parseColorName(line)
       {
-        let colorName = String(line[nameRange])
         if let color = headingColor(named: colorName) {
           pendingHeadingColor = color
           pendingHeadingColorName = colorName
@@ -334,11 +331,7 @@ enum MarkdownEditorFormatter {
 
       if line.hasPrefix("```") {
         // Flush pending color as-is if next line is a code fence
-        if let colorName = pendingHeadingColorName {
-          result.append(NSAttributedString(string: "<!-- hcolor:\(colorName) -->\n"))
-          pendingHeadingColor = nil
-          pendingHeadingColorName = nil
-        }
+        flushPendingHeadingColorMarker()
         insideCodeBlock.toggle()
         result.append(styledCodeFenceLine(line))
         continue
@@ -360,11 +353,7 @@ enum MarkdownEditorFormatter {
 
       // Section divider — Sceal-specific card-gap marker with optional per-section colors
       if let section = MarkdownEditorSectionDirectiveMarkdown.parse(line) {
-        if let colorName = pendingHeadingColorName {
-          result.append(NSAttributedString(string: "<!-- hcolor:\(colorName) -->\n"))
-          pendingHeadingColor = nil
-          pendingHeadingColorName = nil
-        }
+        flushPendingHeadingColorMarker()
 
         // Update section tracking state for subsequent lines.
         currentSectionHeadingColorName = section.headingColorName
@@ -384,11 +373,7 @@ enum MarkdownEditorFormatter {
 
       // Horizontal rule — standard markdown, renders as a visible line
       if line.range(of: #"^-{3,}$"#, options: .regularExpression) != nil {
-        if let colorName = pendingHeadingColorName {
-          result.append(NSAttributedString(string: "<!-- hcolor:\(colorName) -->\n"))
-          pendingHeadingColor = nil
-          pendingHeadingColorName = nil
-        }
+        flushPendingHeadingColorMarker()
         result.append(styledHorizontalRule())
         continue
       }
@@ -419,9 +404,7 @@ enum MarkdownEditorFormatter {
           }
         }
         // Not a heading — flush the color comment back
-        result.append(NSAttributedString(string: "<!-- hcolor:\(colorName) -->\n"))
-        pendingHeadingColor = nil
-        pendingHeadingColorName = nil
+        flushPendingHeadingColorMarker()
       }
 
       // Apply section-level color defaults to headings without an explicit hcolor

@@ -172,7 +172,9 @@ extension MarkdownEditorFormatter {
           length: textRange.length - contentStart
         )
         let inlineMarkdown = reconstructInlineMarkdown(from: attributedString, range: contentRange)
-        return "<!-- hcolor:\(colorName) -->\n" + prefix + inlineMarkdown
+        return
+          "\(MarkdownEditorHeadingColorMarkdown.marker(colorName: colorName))\n" + prefix
+          + inlineMarkdown
       }
     } else if attrs[.markdownBlockquote] as? Bool == true {
       prefix = "> "
