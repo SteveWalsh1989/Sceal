@@ -52,26 +52,6 @@ enum UserMessageKind {
 
 @MainActor
 final class NotesStore: ObservableObject {
-  @Published var notes: [DayNote] {
-    didSet {
-      cachedMonthSections = nil
-      clampCalendarBrowseYear()
-    }
-  }
-  @Published private(set) var appearanceSettings: NoteAppearanceSettings
-  @Published private(set) var continuousSpellCheckingEnabled: Bool
-  @Published private(set) var newNoteDefault: NewNoteDefault
-  @Published var noteTemplates: [NoteTemplate]
-  @Published var selectedNoteID: DayNote.ID? {
-    didSet {
-      guard sidebarMode == .calendar else { return }
-      syncCalendarBrowseYearToSelectedNote()
-    }
-  }
-  @Published var searchText: String = "" {
-    didSet { cachedMonthSections = nil }
-  }
-  @Published var isSearchBarExpanded = false
   @Published var sidebarMode: SidebarMode = .daily {
     didSet {
       #if DEBUG
@@ -96,17 +76,10 @@ final class NotesStore: ObservableObject {
       }
     }
   }
-  @Published var calendarBrowseYear: Int
-  @Published var listNotes: [DayNote] = []
-  @Published var listNoteManifest: ListNotesManifest = .empty
-  @Published var selectedListNoteID: DayNote.ID?
-  @Published var listSearchText: String = ""
-  @Published var isListSearchBarExpanded = false
   @Published private(set) var isLoading = false
   @Published var userMessage: (text: String, kind: UserMessageKind)?
   @Published var isPerformingFileOperation = false
   @Published var progressMessage: String?
-  @Published var backupSettings: BackupSettings
   @Published var backupHealth: BackupHealth
   @Published var isBackupRunning = false
   #if DEBUG
@@ -124,10 +97,18 @@ final class NotesStore: ObservableObject {
 
   let fileManager: FileManager
   let calendar: Calendar
-  let userDefaults: UserDefaults
+  let libraryLocation: ScealLibraryLocation
+  let libraryRepository: LibraryRepository
+  let settingsRepository: SettingsRepository
+  let appearanceSettingsStore: AppearanceSettingsStore
+  let backupSettingsStore: BackupSettingsStore
+  let dailyNotesStore: DailyNotesStore
+  let editorPreferencesStore: EditorPreferencesStore
+  let planAccessStore: PlanAccessStore
+  let listNotesStore: ListNotesStore
+  let noteTemplatesStore: NoteTemplatesStore
+  let archiveService: ArchiveService
   private var hasLoaded = false
-  private var noteIndex: [DayNote.ID: Int] = [:]
-  var listNoteIndex: [DayNote.ID: Int] = [:]
   private var cachedMonthSections: [NoteMonthSection]?
   private var pendingSaveTasks: [DayNote.ID: Task<Void, Never>] = [:]
   var pendingListNoteSaveTasks: [DayNote.ID: Task<Void, Never>] = [:]
@@ -138,37 +119,208 @@ final class NotesStore: ObservableObject {
   #endif
 
   private static let logger = Logger(subsystem: "com.sceal.app", category: "store")
-  private static let appearanceSettingsDefaultsKey = "sceal.noteAppearanceSettings"
-  private static let continuousSpellCheckingEnabledKey = "sceal.continuousSpellCheckingEnabled"
-  private static let newNoteDefaultKey = "sceal.newNoteDefault"
-  nonisolated static let backupSettingsDefaultsKey = "sceal.backupSettings"
 
   init(
     fileManager: FileManager = .default,
     calendar: Calendar = .current,
     userDefaults: UserDefaults = .standard,
+    libraryLocation: ScealLibraryLocation? = nil,
     previewNotes: [DayNote] = []
   ) {
     self.fileManager = fileManager
     self.calendar = calendar
-    self.userDefaults = userDefaults
-    let sortedNotes = previewNotes.sorted(by: { $0.date > $1.date })
-    let loadedBackupSettings = Self.loadBackupSettings(from: userDefaults)
-    let currentYear = calendar.component(.year, from: .now)
-    self.notes = sortedNotes
-    self.noteIndex = Dictionary(uniqueKeysWithValues: sortedNotes.enumerated().map { ($1.id, $0) })
-    self.appearanceSettings = Self.loadAppearanceSettings(from: userDefaults)
-    self.continuousSpellCheckingEnabled = Self.loadContinuousSpellCheckingEnabled(
-      from: userDefaults
+    let resolvedSettingsRepository = SettingsRepository(userDefaults: userDefaults)
+    self.settingsRepository = resolvedSettingsRepository
+    self.appearanceSettingsStore = AppearanceSettingsStore(
+      settingsRepository: resolvedSettingsRepository
     )
-    self.newNoteDefault = Self.loadNewNoteDefault(from: userDefaults)
-    self.noteTemplates = Self.loadNoteTemplates(from: userDefaults)
-    self.backupSettings = loadedBackupSettings
+    let resolvedBackupSettingsStore = BackupSettingsStore(
+      settingsRepository: resolvedSettingsRepository
+    )
+    self.backupSettingsStore = resolvedBackupSettingsStore
+    self.editorPreferencesStore = EditorPreferencesStore(
+      settingsRepository: resolvedSettingsRepository
+    )
+    self.planAccessStore = PlanAccessStore(settingsRepository: resolvedSettingsRepository)
+    self.listNotesStore = ListNotesStore()
+    self.noteTemplatesStore = NoteTemplatesStore(settingsRepository: resolvedSettingsRepository)
+    self.archiveService = ArchiveService(fileManager: fileManager)
+    let resolvedLibraryLocation =
+      libraryLocation
+      ?? ScealLibraryLocation.defaultForCurrentBuild(
+        fileManager: fileManager
+      )
+    self.libraryLocation = resolvedLibraryLocation
+    self.libraryRepository = LibraryRepository(
+      libraryLocation: resolvedLibraryLocation,
+      fileManager: fileManager
+    )
+    let sortedNotes = previewNotes.sorted(by: { $0.date > $1.date })
+    let loadedBackupSettings = resolvedBackupSettingsStore.settings
+    let currentYear = calendar.component(.year, from: .now)
+    self.dailyNotesStore = DailyNotesStore(
+      notes: sortedNotes,
+      selectedNoteID: sortedNotes.first?.id,
+      calendarBrowseYear: currentYear
+    )
     self.backupHealth = loadedBackupSettings.isConfigured ? .healthy : .notConfigured
-    self.calendarBrowseYear = currentYear
-    self.selectedNoteID = sortedNotes.first?.id
     self.hasLoaded = !previewNotes.isEmpty
   }
+
+  var featureAccess: AppFeatureAccess {
+    planAccessStore.featureAccess
+  }
+
+  var activePlan: AppPlan {
+    planAccessStore.activePlan
+  }
+
+  var appearanceSettings: NoteAppearanceSettings {
+    appearanceSettingsStore.settings
+  }
+
+  var noteTemplates: [NoteTemplate] {
+    noteTemplatesStore.templates
+  }
+
+  var backupSettings: BackupSettings {
+    backupSettingsStore.settings
+  }
+
+  var continuousSpellCheckingEnabled: Bool {
+    editorPreferencesStore.continuousSpellCheckingEnabled
+  }
+
+  var newNoteDefault: NewNoteDefault {
+    editorPreferencesStore.newNoteDefault
+  }
+
+  var effectiveNewNoteDefault: NewNoteDefault {
+    guard case .template(let templateID) = newNoteDefault,
+      isNoteTemplateLockedByPlan(templateID)
+    else {
+      return newNoteDefault
+    }
+
+    return .blank
+  }
+
+  var notes: [DayNote] {
+    get { dailyNotesStore.notes }
+    set {
+      objectWillChange.send()
+      dailyNotesStore.replaceNotes(newValue)
+      cachedMonthSections = nil
+      clampCalendarBrowseYear()
+    }
+  }
+
+  var selectedNoteID: DayNote.ID? {
+    get { dailyNotesStore.selectedNoteID }
+    set {
+      objectWillChange.send()
+      dailyNotesStore.selectNote(newValue)
+      guard sidebarMode == .calendar else { return }
+      syncCalendarBrowseYearToSelectedNote()
+    }
+  }
+
+  var searchText: String {
+    get { dailyNotesStore.searchText }
+    set {
+      objectWillChange.send()
+      dailyNotesStore.updateSearchText(newValue)
+      cachedMonthSections = nil
+    }
+  }
+
+  var isSearchBarExpanded: Bool {
+    get { dailyNotesStore.isSearchBarExpanded }
+    set {
+      objectWillChange.send()
+      dailyNotesStore.updateSearchBarExpanded(newValue)
+    }
+  }
+
+  var calendarBrowseYear: Int {
+    get { dailyNotesStore.calendarBrowseYear }
+    set {
+      objectWillChange.send()
+      dailyNotesStore.updateCalendarBrowseYear(newValue)
+    }
+  }
+
+  var listNotes: [DayNote] {
+    get { listNotesStore.notes }
+    set {
+      objectWillChange.send()
+      listNotesStore.replaceNotes(newValue)
+    }
+  }
+
+  var listNoteManifest: ListNotesManifest {
+    get { listNotesStore.manifest }
+    set {
+      objectWillChange.send()
+      listNotesStore.replaceManifest(newValue)
+    }
+  }
+
+  var selectedListNoteID: DayNote.ID? {
+    get { listNotesStore.selectedNoteID }
+    set {
+      objectWillChange.send()
+      listNotesStore.selectNote(newValue)
+    }
+  }
+
+  var listSearchText: String {
+    get { listNotesStore.searchText }
+    set {
+      objectWillChange.send()
+      listNotesStore.updateSearchText(newValue)
+    }
+  }
+
+  var isListSearchBarExpanded: Bool {
+    get { listNotesStore.isSearchBarExpanded }
+    set {
+      objectWillChange.send()
+      listNotesStore.updateSearchBarExpanded(newValue)
+    }
+  }
+
+  // Returns whether the active plan can use the requested capability.
+  func hasAccess(to capability: AppCapability) -> Bool {
+    planAccessStore.hasAccess(to: capability)
+  }
+
+  #if DEBUG
+    // Persists a local plan override for testing free and paid feature gates.
+    func updateDeveloperPlan(_ plan: AppPlan) {
+      guard activePlan != plan else {
+        planAccessStore.updateDeveloperPlan(plan)
+        return
+      }
+      objectWillChange.send()
+      planAccessStore.updateDeveloperPlan(plan)
+      refreshBackupHealth()
+    }
+
+    var canResetDeveloperLibrary: Bool {
+      DeveloperLibrarySeeder.canResetLibrary(
+        at: libraryLocation.rootURL,
+        fileManager: fileManager
+      )
+    }
+
+    var canCopyProductionLibraryToDeveloper: Bool {
+      DeveloperLibrarySeeder.canCopyProductionLibraryToDeveloper(
+        at: libraryLocation,
+        fileManager: fileManager
+      )
+    }
+  #endif
 
   deinit {
     periodicFlushTask?.cancel()
@@ -233,6 +385,101 @@ final class NotesStore: ObservableObject {
       } else {
         disableDemoMode()
       }
+    }
+
+    // Replaces the active DEBUG file-backed library with deterministic throwaway data.
+    func resetDeveloperLibrary(referenceDate: Date = .now) {
+      guard canResetDeveloperLibrary else {
+        userMessage = (
+          text: "Developer library reset is not available for this storage location.",
+          kind: .error
+        )
+        return
+      }
+
+      isPerformingFileOperation = true
+      progressMessage = "Resetting developer library..."
+      defer {
+        isPerformingFileOperation = false
+        progressMessage = nil
+      }
+
+      flushPendingSaves()
+
+      do {
+        if isDemoModeEnabled {
+          disableDemoMode()
+        }
+
+        let snapshot = try DeveloperLibrarySeeder.resetLibrary(
+          at: libraryLocation,
+          fileManager: fileManager,
+          calendar: calendar,
+          referenceDate: referenceDate
+        )
+        applyDeveloperLibrarySnapshot(snapshot)
+        userMessage = (text: "Developer library reset.", kind: .info)
+      } catch {
+        report(error, context: "Resetting developer library failed")
+      }
+    }
+
+    // Copies the production library into DEBUG storage so local testing can use real data safely.
+    func copyProductionLibraryToDeveloperLibrary() {
+      guard canCopyProductionLibraryToDeveloper else {
+        userMessage = (
+          text: "Production library copy is not available for this storage location.",
+          kind: .error
+        )
+        return
+      }
+
+      isPerformingFileOperation = true
+      progressMessage = "Copying production library..."
+      defer {
+        isPerformingFileOperation = false
+        progressMessage = nil
+      }
+
+      flushPendingSaves()
+
+      do {
+        if isDemoModeEnabled {
+          disableDemoMode()
+        }
+
+        let snapshot = try DeveloperLibrarySeeder.copyProductionLibraryToDeveloper(
+          at: libraryLocation,
+          fileManager: fileManager
+        )
+        applyDeveloperLibrarySnapshot(snapshot)
+
+        let backupText =
+          snapshot.developerBackupURL == nil ? "" : " Previous developer library was backed up."
+        userMessage = (
+          text:
+            "Copied \(snapshot.dailyNotes.count) daily notes and \(snapshot.listNotes.count) list notes into the developer library.\(backupText)",
+          kind: .info
+        )
+      } catch {
+        report(error, context: "Copying production library failed")
+      }
+    }
+
+    private func applyDeveloperLibrarySnapshot(_ snapshot: DeveloperLibrarySeedSnapshot) {
+      notes = snapshot.dailyNotes
+      listNotes = snapshot.listNotes
+      listNoteManifest = snapshot.manifest
+      rebuildNoteIndex()
+      rebuildListNoteIndex()
+      sidebarMode = .daily
+      selectedNoteID = snapshot.dailyNotes.first?.id
+      selectedListNoteID = snapshot.listNotes.first?.id
+      searchText = ""
+      isSearchBarExpanded = false
+      listSearchText = ""
+      isListSearchBarExpanded = false
+      hasLoaded = true
     }
 
     private func enableDemoMode(relativeTo referenceDate: Date) {
@@ -484,10 +731,7 @@ final class NotesStore: ObservableObject {
       }
     #endif
 
-    if let index = noteIndex[noteID], notes.indices.contains(index), notes[index].id == noteID {
-      return notes[index]
-    }
-    return notes.first(where: { $0.id == noteID })
+    return dailyNotesStore.note(withID: noteID)
   }
 
   // Sets the selected note ID.
@@ -515,14 +759,19 @@ final class NotesStore: ObservableObject {
 
   // Persists the new-note default preference to UserDefaults.
   func updateNewNoteDefault(_ value: NewNoteDefault) {
-    newNoteDefault = value
-    userDefaults.set(value.rawValue, forKey: Self.newNoteDefaultKey)
+    if case .template(let templateID) = value, isNoteTemplateLockedByPlan(templateID) {
+      userMessage = (text: "Paid is required to use that template as a default.", kind: .info)
+      return
+    }
+
+    objectWillChange.send()
+    editorPreferencesStore.updateNewNoteDefault(value)
   }
 
   // Persists the body editor's continuous spell-check setting.
   func updateContinuousSpellCheckingEnabled(_ value: Bool) {
-    continuousSpellCheckingEnabled = value
-    userDefaults.set(value, forKey: Self.continuousSpellCheckingEnabledKey)
+    objectWillChange.send()
+    editorPreferencesStore.updateContinuousSpellCheckingEnabled(value)
   }
 
   // Moves a note to a new date by re-creating it with the target date's ID and file.
@@ -560,10 +809,9 @@ final class NotesStore: ObservableObject {
 
     do {
       try save(movedNote)
-      try NoteImageAttachmentStore.moveAttachments(
+      try libraryRepository.moveAttachments(
         from: sourceNote.id,
-        to: movedNote.id,
-        fileManager: fileManager
+        to: movedNote.id
       )
       try deleteFile(for: sourceNote)
     } catch {
@@ -596,7 +844,7 @@ final class NotesStore: ObservableObject {
 
     do {
       try deleteFile(for: note)
-      try NoteImageAttachmentStore.deleteAttachments(for: note.id, fileManager: fileManager)
+      try libraryRepository.deleteAttachments(for: note.id)
     } catch {
       report(error, context: "Deleting note failed")
       return
@@ -660,27 +908,7 @@ final class NotesStore: ObservableObject {
 
   // Reads all .md files from the notes directory and seeds if empty.
   private func loadNotes() throws {
-    let directoryURL = try notesDirectoryURL()
-    let fileURLs = try fileManager.contentsOfDirectory(
-      at: directoryURL,
-      includingPropertiesForKeys: nil,
-      options: [.skipsHiddenFiles]
-    )
-
-    let loadedNotes =
-      fileURLs
-      .filter { $0.pathExtension == "md" }
-      .compactMap { url -> DayNote? in
-        do {
-          return try loadNote(from: url)
-        } catch {
-          Self.logger.error(
-            "Skipping corrupt note \(url.lastPathComponent): \(error.localizedDescription)")
-          return nil
-        }
-      }
-      .sorted(by: { $0.date > $1.date })
-
+    let loadedNotes = try libraryRepository.loadDailyNotes()
     if loadedNotes.isEmpty {
       try seedStarterNotes()
     } else {
@@ -732,7 +960,7 @@ final class NotesStore: ObservableObject {
       return DayNote.empty(for: startOfDay, calendar: calendar)
     }
 
-    if case .copyPrevious = newNoteDefault, let mostRecent = notes.first {
+    if case .copyPrevious = effectiveNewNoteDefault, let mostRecent = notes.first {
       return DayNote(
         date: startOfDay,
         title: mostRecent.title,
@@ -741,7 +969,7 @@ final class NotesStore: ObservableObject {
       )
     }
 
-    if case .template(let templateID) = newNoteDefault,
+    if case .template(let templateID) = effectiveNewNoteDefault,
       let template = noteTemplate(withID: templateID)
     {
       return DayNote(
@@ -753,12 +981,6 @@ final class NotesStore: ObservableObject {
     }
 
     return DayNote.empty(for: startOfDay, calendar: calendar)
-  }
-
-  // Decodes a single note from a markdown file URL.
-  private func loadNote(from fileURL: URL) throws -> DayNote {
-    let contents = try String(contentsOf: fileURL, encoding: .utf8)
-    return try MarkdownNoteCodec.decode(contents: contents, sourceURL: fileURL)
   }
 
   // Updates a note's title and schedules a save.
@@ -784,10 +1006,13 @@ final class NotesStore: ObservableObject {
 
   // Applies a mutation to appearance settings, clamps, and persists.
   func updateAppearanceSettings(_ mutate: (inout NoteAppearanceSettings) -> Void) {
-    var updatedSettings = appearanceSettings
-    mutate(&updatedSettings)
-    appearanceSettings = updatedSettings.clamped
-    persistAppearanceSettings()
+    objectWillChange.send()
+
+    do {
+      try appearanceSettingsStore.updateSettings(mutate)
+    } catch {
+      report(error, context: "Saving appearance settings failed")
+    }
   }
 
   // Applies a mutation to a note, rebuilds the index, and schedules a save.
@@ -863,87 +1088,17 @@ final class NotesStore: ObservableObject {
 
   // Encodes and writes a note to its markdown file.
   func save(_ note: DayNote) throws {
-    let noteURL = try notesDirectoryURL().appendingPathComponent(note.fileName)
-    let fileContents = try MarkdownNoteCodec.encode(note)
-    try fileContents.write(to: noteURL, atomically: true, encoding: .utf8)
+    try libraryRepository.saveDailyNote(note)
   }
 
   // Removes the markdown file for a note from disk.
   private func deleteFile(for note: DayNote) throws {
-    let noteURL = try notesDirectoryURL().appendingPathComponent(note.fileName)
-
-    guard fileManager.fileExists(atPath: noteURL.path) else {
-      return
-    }
-
-    try fileManager.removeItem(at: noteURL)
-  }
-
-  // Encodes appearance settings to UserDefaults.
-  func persistAppearanceSettings() {
-    do {
-      let data = try JSONEncoder().encode(appearanceSettings)
-      userDefaults.set(data, forKey: Self.appearanceSettingsDefaultsKey)
-    } catch {
-      report(error, context: "Saving appearance settings failed")
-    }
-  }
-
-  // Decodes appearance settings from UserDefaults with defaults.
-  private static func loadAppearanceSettings(from userDefaults: UserDefaults)
-    -> NoteAppearanceSettings
-  {
-    guard
-      let data = userDefaults.data(forKey: appearanceSettingsDefaultsKey),
-      let settings = try? JSONDecoder().decode(NoteAppearanceSettings.self, from: data)
-    else {
-      return .default
-    }
-
-    return settings.clamped
-  }
-
-  // Reads the body editor spell-check preference, defaulting to enabled for new installs.
-  private static func loadContinuousSpellCheckingEnabled(from userDefaults: UserDefaults) -> Bool {
-    guard userDefaults.object(forKey: continuousSpellCheckingEnabledKey) != nil else {
-      return true
-    }
-
-    return userDefaults.bool(forKey: continuousSpellCheckingEnabledKey)
-  }
-
-  // Reads the new-note default preference from UserDefaults.
-  private static func loadNewNoteDefault(from userDefaults: UserDefaults) -> NewNoteDefault {
-    guard
-      let rawValue = userDefaults.string(forKey: newNoteDefaultKey),
-      let value = NewNoteDefault(rawValue: rawValue)
-    else {
-      return .blank
-    }
-
-    return value
+    try libraryRepository.deleteDailyNoteFile(for: note)
   }
 
   // Returns the notes directory, creating it if needed.
   func notesDirectoryURL() throws -> URL {
-    let appSupportURL = try fileManager.url(
-      for: .applicationSupportDirectory,
-      in: .userDomainMask,
-      appropriateFor: nil,
-      create: true
-    )
-
-    let notesDirectoryURL =
-      appSupportURL
-      .appendingPathComponent("Sceal", isDirectory: true)
-      .appendingPathComponent("Notes", isDirectory: true)
-
-    try fileManager.createDirectory(
-      at: notesDirectoryURL,
-      withIntermediateDirectories: true
-    )
-
-    return notesDirectoryURL
+    try libraryRepository.dailyNotesDirectoryURL()
   }
 
   // Formats a date as the YYYY-MM-DD storage key.
@@ -975,7 +1130,7 @@ final class NotesStore: ObservableObject {
 
   // Rebuilds the ID-to-array-index lookup dictionary.
   func rebuildNoteIndex() {
-    noteIndex = Dictionary(uniqueKeysWithValues: notes.enumerated().map { ($1.id, $0) })
+    dailyNotesStore.rebuildNoteIndex()
   }
 
   // Keeps the visible calendar year inside the available note range after note changes.

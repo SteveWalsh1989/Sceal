@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 import OSLog
 
@@ -7,17 +8,41 @@ extension NotesStore {
   private static let backupLogger = Logger(subsystem: "com.sceal.app", category: "backup")
   private static let backupCheckIntervalNanoseconds: UInt64 = 300_000_000_000
 
+  var availableBackupSchedules: [BackupSchedule] {
+    BackupSchedule.allCases.filter(featureAccess.canUseBackupSchedule)
+  }
+
+  var effectiveBackupSchedule: BackupSchedule {
+    featureAccess.effectiveBackupSchedule(backupSettings.schedule)
+  }
+
+  var isBackupOnInactiveAvailable: Bool {
+    hasAccess(to: .automaticBackupSchedules)
+  }
+
   // Persists the selected automatic backup schedule.
   func updateBackupSchedule(_ schedule: BackupSchedule) {
-    backupSettings.schedule = schedule
-    backupSettings.lastBackupErrorDescription = nil
+    guard featureAccess.canUseBackupSchedule(schedule) else {
+      userMessage = (text: "Paid is required for automatic backup schedules.", kind: .info)
+      refreshBackupHealth()
+      return
+    }
+
+    objectWillChange.send()
+    backupSettingsStore.updateSchedule(schedule)
     persistBackupSettings()
     refreshBackupHealth()
   }
 
   // Persists whether backups should run when the app becomes inactive.
   func updateBackupOnInactive(_ value: Bool) {
-    backupSettings.backupOnInactive = value
+    guard isBackupOnInactiveAvailable || !value else {
+      userMessage = (text: "Paid is required for inactive-window backups.", kind: .info)
+      return
+    }
+
+    objectWillChange.send()
+    backupSettingsStore.updateBackupOnInactive(value)
     persistBackupSettings()
   }
 
@@ -44,13 +69,11 @@ extension NotesStore {
       let bookmarkData = try bookmarkData(for: selectedFolderURL)
       try validateBackupFolder(at: selectedFolderURL, bookmarkData: bookmarkData)
 
-      backupSettings.folderBookmarkData = bookmarkData
-      backupSettings.folderDisplayPath = selectedFolderURL.path
-      backupSettings.lastSuccessfulBackupAt = nil
-      backupSettings.lastAttemptedBackupAt = nil
-      backupSettings.lastBackupErrorDescription = nil
-      backupSettings.lastBackupArchiveName = nil
-      backupSettings.lastBackupBytes = nil
+      objectWillChange.send()
+      backupSettingsStore.configureFolder(
+        bookmarkData: bookmarkData,
+        displayPath: selectedFolderURL.path
+      )
       persistBackupSettings()
       refreshBackupHealth()
       performBackup(trigger: .locationConfigured, respectSchedule: false)
@@ -69,13 +92,8 @@ extension NotesStore {
       return
     }
 
-    backupSettings.folderBookmarkData = nil
-    backupSettings.folderDisplayPath = nil
-    backupSettings.lastSuccessfulBackupAt = nil
-    backupSettings.lastAttemptedBackupAt = nil
-    backupSettings.lastBackupErrorDescription = nil
-    backupSettings.lastBackupArchiveName = nil
-    backupSettings.lastBackupBytes = nil
+    objectWillChange.send()
+    backupSettingsStore.removeFolder()
     persistBackupSettings()
     refreshBackupHealth()
   }
@@ -124,7 +142,7 @@ extension NotesStore {
       return
     }
 
-    if backupSettings.schedule != .manualOnly, isBackupDue(at: now) {
+    if effectiveBackupSchedule != .manualOnly, isBackupDue(at: now) {
       backupHealth = .overdue
       return
     }
@@ -134,7 +152,7 @@ extension NotesStore {
 
   // Returns the next automatic backup date when a schedule is configured.
   func nextBackupDueDate(from referenceDate: Date = .now) -> Date? {
-    guard backupSettings.isConfigured, let interval = backupSettings.schedule.automaticInterval
+    guard backupSettings.isConfigured, let interval = effectiveBackupSchedule.automaticInterval
     else {
       return nil
     }
@@ -174,6 +192,11 @@ extension NotesStore {
       return
     }
 
+    guard trigger.archiveKind == .manual || hasAccess(to: .automaticBackupSchedules) else {
+      refreshBackupHealth()
+      return
+    }
+
     guard !isBackupRunning else {
       if trigger == .manual {
         userMessage = (text: "A backup is already running.", kind: .info)
@@ -199,18 +222,20 @@ extension NotesStore {
     let templatesSnapshot = noteTemplates
     let backupSettingsSnapshot = backupSettings
     let backupDate = Date.now
+    let attachmentsRootURL = libraryRepository.attachmentsRootURL
+    let service = archiveService
 
     isBackupRunning = true
     backupHealth = .running
-    backupSettings.lastAttemptedBackupAt = backupDate
-    backupSettings.lastBackupErrorDescription = nil
+    objectWillChange.send()
+    backupSettingsStore.markBackupAttempted(at: backupDate)
     persistBackupSettings()
 
     let fm = fileManager
     Task.detached { [weak self] in
       do {
-        let bookmarkData = try Self.requireBookmarkData(from: backupSettingsSnapshot)
-        let archiveURL = try Self.writeBackupArchive(
+        let bookmarkData = try service.requireBookmarkData(from: backupSettingsSnapshot)
+        let archiveURL = try service.writeManagedBackupArchive(
           dailyNotes: dailyNotesSnapshot,
           listNotes: listNotesSnapshot,
           manifest: manifestSnapshot,
@@ -219,7 +244,7 @@ extension NotesStore {
           kind: trigger.archiveKind,
           schedule: backupSettingsSnapshot.schedule,
           createdAt: backupDate,
-          fileManager: fm
+          attachmentsRootURL: attachmentsRootURL
         )
 
         let archiveAttributes = try fm.attributesOfItem(atPath: archiveURL.path)
@@ -227,10 +252,12 @@ extension NotesStore {
 
         await MainActor.run { [weak self] in
           guard let self else { return }
-          self.backupSettings.lastSuccessfulBackupAt = backupDate
-          self.backupSettings.lastBackupErrorDescription = nil
-          self.backupSettings.lastBackupArchiveName = archiveURL.lastPathComponent
-          self.backupSettings.lastBackupBytes = archiveSize
+          self.objectWillChange.send()
+          self.backupSettingsStore.markBackupSucceeded(
+            at: backupDate,
+            archiveName: archiveURL.lastPathComponent,
+            bytes: archiveSize
+          )
           self.persistBackupSettings()
           self.isBackupRunning = false
           self.isPerformingFileOperation = false
@@ -246,7 +273,8 @@ extension NotesStore {
         await MainActor.run { [weak self] in
           guard let self else { return }
           Self.backupLogger.error("Backup failed: \(error.localizedDescription)")
-          self.backupSettings.lastBackupErrorDescription = error.localizedDescription
+          self.objectWillChange.send()
+          self.backupSettingsStore.markBackupFailed(error.localizedDescription)
           self.persistBackupSettings()
           self.isBackupRunning = false
           self.isPerformingFileOperation = false
@@ -267,9 +295,8 @@ extension NotesStore {
   }
 
   private func validateBackupFolder(at folderURL: URL, bookmarkData: Data) throws {
-    let backupFolderURL = try Self.accessBookmark(bookmarkData) { scopedFolderURL in
-      let managedFolderURL = ScealBackupArchiveExporter.managedBackupDirectoryURL(
-        in: scopedFolderURL)
+    let backupFolderURL = try archiveService.accessBookmark(bookmarkData) { scopedFolderURL in
+      let managedFolderURL = archiveService.managedBackupDirectoryURL(in: scopedFolderURL)
       try fileManager.createDirectory(at: managedFolderURL, withIntermediateDirectories: true)
       let probeURL = managedFolderURL.appendingPathComponent("backup-access-check.tmp")
       let probeContents = Data("ok".utf8)
@@ -284,38 +311,10 @@ extension NotesStore {
   }
 
   private func resolveManagedBackupFolderURL() throws -> URL {
-    let bookmarkData = try Self.requireBookmarkData(from: backupSettings)
-    return try Self.accessBookmark(bookmarkData) { selectedFolderURL in
-      ScealBackupArchiveExporter.managedBackupDirectoryURL(in: selectedFolderURL)
+    let bookmarkData = try archiveService.requireBookmarkData(from: backupSettings)
+    return try archiveService.accessBookmark(bookmarkData) { selectedFolderURL in
+      archiveService.managedBackupDirectoryURL(in: selectedFolderURL)
     }
-  }
-
-  nonisolated private static func accessBookmark<T>(
-    _ bookmarkData: Data,
-    accessBlock: (URL) throws -> T
-  ) throws -> T {
-    var isStale = false
-    let selectedFolderURL = try URL(
-      resolvingBookmarkData: bookmarkData,
-      options: [.withSecurityScope, .withoutUI],
-      relativeTo: nil,
-      bookmarkDataIsStale: &isStale
-    )
-
-    if isStale {
-      throw BackupFolderError.permissionRequired
-    }
-
-    let didStartAccessing = selectedFolderURL.startAccessingSecurityScopedResource()
-    guard didStartAccessing else {
-      throw BackupFolderError.permissionRequired
-    }
-
-    defer {
-      selectedFolderURL.stopAccessingSecurityScopedResource()
-    }
-
-    return try accessBlock(selectedFolderURL)
   }
 
   private func backupDestinationHealth(for error: Error) -> BackupHealth {
@@ -335,31 +334,10 @@ extension NotesStore {
 
   func persistBackupSettings() {
     do {
-      let data = try JSONEncoder().encode(backupSettings)
-      userDefaults.set(data, forKey: Self.backupSettingsDefaultsKey)
+      try backupSettingsStore.persistSettings()
     } catch {
       report(error, context: "Saving backup settings failed")
     }
-  }
-
-  nonisolated static func loadBackupSettings(from userDefaults: UserDefaults) -> BackupSettings {
-    guard
-      let data = userDefaults.data(forKey: backupSettingsDefaultsKey),
-      let settings = try? JSONDecoder().decode(BackupSettings.self, from: data)
-    else {
-      return .default
-    }
-
-    return settings
-  }
-
-  nonisolated private static func requireBookmarkData(from settings: BackupSettings) throws -> Data
-  {
-    guard let bookmarkData = settings.folderBookmarkData else {
-      throw BackupFolderError.folderNotConfigured
-    }
-
-    return bookmarkData
   }
 
   nonisolated static func writeBackupArchive(
@@ -371,42 +349,20 @@ extension NotesStore {
     kind: BackupArchiveKind,
     schedule: BackupSchedule,
     createdAt: Date,
+    attachmentsRootURL: URL? = nil,
     fileManager: FileManager
   ) throws -> URL {
-    try accessBookmark(bookmarkData) { selectedFolderURL in
-      let managedFolderURL = ScealBackupArchiveExporter.managedBackupDirectoryURL(
-        in: selectedFolderURL)
-      try fileManager.createDirectory(at: managedFolderURL, withIntermediateDirectories: true)
-
-      let temporaryArchiveURL = try ScealBackupArchiveExporter.exportBackup(
-        dailyNotes: dailyNotes,
-        listNotes: listNotes,
-        manifest: manifest,
-        templates: templates,
-        kind: kind,
-        createdAt: createdAt
-      )
-      let destinationArchiveURL = managedFolderURL.appendingPathComponent(
-        temporaryArchiveURL.lastPathComponent
-      )
-
-      if fileManager.fileExists(atPath: destinationArchiveURL.path) {
-        try fileManager.removeItem(at: destinationArchiveURL)
-      }
-
-      try fileManager.moveItem(at: temporaryArchiveURL, to: destinationArchiveURL)
-      ZipArchiveWriter.cleanUp(zipURL: temporaryArchiveURL)
-
-      if kind == .automatic {
-        try pruneAutomaticBackups(
-          in: managedFolderURL,
-          schedule: schedule,
-          fileManager: fileManager
-        )
-      }
-
-      return destinationArchiveURL
-    }
+    try ArchiveService(fileManager: fileManager).writeManagedBackupArchive(
+      dailyNotes: dailyNotes,
+      listNotes: listNotes,
+      manifest: manifest,
+      templates: templates,
+      bookmarkData: bookmarkData,
+      kind: kind,
+      schedule: schedule,
+      createdAt: createdAt,
+      attachmentsRootURL: attachmentsRootURL
+    )
   }
 
   nonisolated static func pruneAutomaticBackups(
@@ -414,25 +370,10 @@ extension NotesStore {
     schedule: BackupSchedule,
     fileManager: FileManager = .default
   ) throws {
-    guard let retainedAutomaticBackupCount = schedule.retainedAutomaticBackupCount else {
-      return
-    }
-
-    let automaticArchiveURLs = try fileManager.contentsOfDirectory(
-      at: managedFolderURL,
-      includingPropertiesForKeys: nil,
-      options: [.skipsHiddenFiles]
+    try ArchiveService(fileManager: fileManager).pruneAutomaticBackups(
+      in: managedFolderURL,
+      schedule: schedule
     )
-    .filter { $0.lastPathComponent.hasPrefix("sceal-backup-auto-") && $0.pathExtension == "zip" }
-    .sorted(by: { $0.lastPathComponent > $1.lastPathComponent })
-
-    guard automaticArchiveURLs.count > retainedAutomaticBackupCount else {
-      return
-    }
-
-    for archiveURL in automaticArchiveURLs.dropFirst(retainedAutomaticBackupCount) {
-      try fileManager.removeItem(at: archiveURL)
-    }
   }
 }
 

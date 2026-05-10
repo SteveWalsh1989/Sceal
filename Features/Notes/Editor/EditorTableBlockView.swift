@@ -8,10 +8,10 @@ import AppKit
 
 @MainActor
 protocol EditorTableBlockViewDelegate: AnyObject {
-  func tableBlockView(_ tableBlockView: EditorTableBlockView, didChange table: MarkdownEditorTable)
+  func tableBlockView(_: EditorTableBlockView, didChange table: MarkdownEditorTable)
   func tableBlockView(
-    _ tableBlockView: EditorTableBlockView, didFocus cell: MarkdownEditorTableCell?)
-  func tableBlockView(_ tableBlockView: EditorTableBlockView, didChangeHovering isHovering: Bool)
+    _: EditorTableBlockView, didFocus _: MarkdownEditorTableCell?)
+  func tableBlockView(_: EditorTableBlockView, didChangeHovering isHovering: Bool)
 }
 
 @MainActor

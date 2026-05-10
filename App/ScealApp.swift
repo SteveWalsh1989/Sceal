@@ -12,10 +12,16 @@ struct ScealApp: App {
   @Environment(\.scenePhase) private var scenePhase
   @StateObject private var noteStore = NotesStore()
 
+  #if DEBUG
+    private let enablesDemoModeOnLaunch = true
+  #else
+    private let enablesDemoModeOnLaunch = false
+  #endif
+
   var body: some Scene {
     WindowGroup {
-      AppRootView(store: noteStore)
-        .preferredColorScheme(noteStore.appearanceSettings.preferredColorScheme)
+      AppRootView(store: noteStore, enablesDemoModeOnLaunch: enablesDemoModeOnLaunch)
+        .preferredColorScheme(noteStore.effectiveAppearanceSettings.preferredColorScheme)
     }
     .windowStyle(.hiddenTitleBar)
     .commands {
@@ -24,7 +30,7 @@ struct ScealApp: App {
     .onChange(of: scenePhase) { _, newScenePhase in
       if newScenePhase != .active {
         noteStore.flushPendingSaves()
-        if noteStore.backupSettings.backupOnInactive {
+        if noteStore.isBackupOnInactiveAvailable && noteStore.backupSettings.backupOnInactive {
           noteStore.checkAndRunBackupIfDue(trigger: .inactive)
         }
       }
@@ -32,7 +38,7 @@ struct ScealApp: App {
 
     Window("Sceal Settings", id: "settings") {
       SettingsRootView(store: noteStore)
-        .preferredColorScheme(noteStore.appearanceSettings.preferredColorScheme)
+        .preferredColorScheme(noteStore.effectiveAppearanceSettings.preferredColorScheme)
     }
     .defaultSize(width: 1080, height: 780)
   }

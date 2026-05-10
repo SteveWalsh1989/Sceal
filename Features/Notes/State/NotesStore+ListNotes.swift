@@ -13,79 +13,17 @@ import SwiftUI
 extension NotesStore {
 
   private static let listNotesLogger = Logger(subsystem: "com.sceal.app", category: "listNotes")
-  private static let manifestFileName = "groups.json"
-
-  // MARK: - Directory Management
-
-  // Returns the list notes directory, creating it if needed.
-  func listNotesDirectoryURL() throws -> URL {
-    let appSupportURL = try fileManager.url(
-      for: .applicationSupportDirectory,
-      in: .userDomainMask,
-      appropriateFor: nil,
-      create: true
-    )
-
-    let directoryURL =
-      appSupportURL
-      .appendingPathComponent("Sceal", isDirectory: true)
-      .appendingPathComponent("ListNotes", isDirectory: true)
-
-    try fileManager.createDirectory(
-      at: directoryURL,
-      withIntermediateDirectories: true
-    )
-
-    return directoryURL
-  }
-
-  // URL for the groups.json manifest file.
-  private func manifestFileURL() throws -> URL {
-    try listNotesDirectoryURL().appendingPathComponent(Self.manifestFileName)
-  }
 
   // MARK: - Loading
 
   // Loads all list notes and the manifest from disk, reconciling any mismatches.
   func loadListNotesIfNeeded() {
     do {
-      let directoryURL = try listNotesDirectoryURL()
-      let fileURLs = try fileManager.contentsOfDirectory(
-        at: directoryURL,
-        includingPropertiesForKeys: nil,
-        options: [.skipsHiddenFiles]
-      )
-
-      let loadedNotes =
-        fileURLs
-        .filter { $0.pathExtension == "md" }
-        .compactMap { url -> DayNote? in
-          do {
-            let contents = try String(contentsOf: url, encoding: .utf8)
-            let noteID = url.deletingPathExtension().lastPathComponent
-            return try MarkdownNoteCodec.decode(
-              contents: contents,
-              sourceURL: url,
-              idOverride: noteID
-            )
-          } catch {
-            Self.listNotesLogger.error(
-              "Skipping corrupt list note \(url.lastPathComponent): \(error.localizedDescription)"
-            )
-            return nil
-          }
-        }
-        .sorted(by: { $0.date > $1.date })
-
-      listNotes = loadedNotes
+      let snapshot = try libraryRepository.loadListNotes()
+      listNotes = snapshot.notes
       rebuildListNoteIndex()
-
-      var manifest = loadManifest()
-      reconcileManifest(&manifest, with: Set(loadedNotes.map(\.id)))
-      listNoteManifest = manifest
-      saveManifest()
-
-      Self.listNotesLogger.info("Loaded \(loadedNotes.count) list notes")
+      listNoteManifest = snapshot.manifest
+      Self.listNotesLogger.info("Loaded \(snapshot.notes.count) list notes")
     } catch {
       Self.listNotesLogger.error("Loading list notes failed: \(error.localizedDescription)")
       listNotes = []
@@ -93,47 +31,12 @@ extension NotesStore {
     }
   }
 
-  // Reads the manifest from disk, returning empty if missing or corrupt.
-  private func loadManifest() -> ListNotesManifest {
-    guard
-      let url = try? manifestFileURL(),
-      let data = try? Data(contentsOf: url),
-      let manifest = try? JSONDecoder().decode(ListNotesManifest.self, from: data)
-    else {
-      return .empty
-    }
-    return manifest
-  }
-
   // Writes the current manifest to disk.
   func saveManifest() {
     do {
-      let url = try manifestFileURL()
-      let encoder = JSONEncoder()
-      encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-      let data = try encoder.encode(listNoteManifest)
-      try data.write(to: url, options: .atomic)
+      try libraryRepository.saveListNotesManifest(listNoteManifest)
     } catch {
       report(error, context: "Saving list notes manifest failed")
-    }
-  }
-
-  // Ensures the manifest matches the notes on disk — removes orphan IDs, adds untracked notes.
-  private func reconcileManifest(
-    _ manifest: inout ListNotesManifest, with noteIDsOnDisk: Set<String>
-  ) {
-    let trackedIDs = manifest.allNoteIDs
-
-    // Remove IDs from manifest that have no matching file.
-    let orphanIDs = trackedIDs.subtracting(noteIDsOnDisk)
-    for orphanID in orphanIDs {
-      manifest.removeNoteID(orphanID)
-    }
-
-    // Add untracked files to ungrouped.
-    let untrackedIDs = noteIDsOnDisk.subtracting(trackedIDs)
-    for untrackedID in untrackedIDs {
-      manifest.ungroupedNoteIDs.insert(untrackedID, at: 0)
     }
   }
 
@@ -141,17 +44,12 @@ extension NotesStore {
 
   // Rebuilds the list note ID-to-index lookup for fast access.
   func rebuildListNoteIndex() {
-    listNoteIndex = Dictionary(uniqueKeysWithValues: listNotes.enumerated().map { ($1.id, $0) })
+    listNotesStore.rebuildNoteIndex()
   }
 
   // Looks up a list note by ID using the fast index.
   func listNote(withID noteID: DayNote.ID) -> DayNote? {
-    if let index = listNoteIndex[noteID], listNotes.indices.contains(index),
-      listNotes[index].id == noteID
-    {
-      return listNotes[index]
-    }
-    return listNotes.first(where: { $0.id == noteID })
+    listNotesStore.note(withID: noteID)
   }
 
   // MARK: - CRUD
@@ -208,11 +106,8 @@ extension NotesStore {
     }
 
     do {
-      let noteURL = try listNotesDirectoryURL().appendingPathComponent(note.fileName)
-      if fileManager.fileExists(atPath: noteURL.path) {
-        try fileManager.removeItem(at: noteURL)
-      }
-      try NoteImageAttachmentStore.deleteAttachments(for: note.id, fileManager: fileManager)
+      try libraryRepository.deleteListNoteFile(for: note)
+      try libraryRepository.deleteAttachments(for: note.id)
     } catch {
       report(error, context: "Deleting list note failed")
       return
@@ -229,9 +124,7 @@ extension NotesStore {
 
   // Writes a list note to disk.
   func saveListNote(_ note: DayNote) throws {
-    let noteURL = try listNotesDirectoryURL().appendingPathComponent(note.fileName)
-    let fileContents = try MarkdownNoteCodec.encode(note)
-    try fileContents.write(to: noteURL, atomically: true, encoding: .utf8)
+    try libraryRepository.saveListNote(note)
   }
 
   // Returns note IDs in display order: ungrouped first, then each group's notes.
@@ -456,48 +349,33 @@ extension NotesStore {
 
   // MARK: - Active Mode Helpers
 
+  private var activeNoteRoute: ActiveNoteRoute {
+    ActiveNoteRouting.route(for: sidebarMode, isDemoModeEnabled: isDemoModeEnabled)
+  }
+
   // The selected note ID for the current sidebar mode.
   var activeSelectedNoteID: DayNote.ID? {
-    #if DEBUG
-      if isDemoModeEnabled {
-        return selectedNoteID
-      }
-    #endif
-
-    switch sidebarMode {
-    case .calendar, .daily: return selectedNoteID
-    case .list: return selectedListNoteID
-    }
+    ActiveNoteRouting.selectedNoteID(
+      route: activeNoteRoute,
+      dailyNoteID: selectedNoteID,
+      listNoteID: selectedListNoteID
+    )
   }
 
   // The currently active note for the editor.
   var activeNote: DayNote? {
     guard let noteID = activeSelectedNoteID else { return nil }
-    #if DEBUG
-      if isDemoModeEnabled {
-        return note(withID: noteID)
-      }
-    #endif
 
-    switch sidebarMode {
-    case .calendar, .daily: return note(withID: noteID)
+    switch activeNoteRoute {
+    case .daily: return note(withID: noteID)
     case .list: return listNote(withID: noteID)
     }
   }
 
   // Two-way binding for the active mode's search text.
   var activeSearchTextBinding: Binding<String> {
-    #if DEBUG
-      if isDemoModeEnabled {
-        return Binding(
-          get: { self.searchText },
-          set: { self.searchText = $0 }
-        )
-      }
-    #endif
-
-    switch sidebarMode {
-    case .calendar, .daily:
+    switch activeNoteRoute {
+    case .daily:
       return Binding(
         get: { self.searchText },
         set: { self.searchText = $0 }
@@ -512,17 +390,8 @@ extension NotesStore {
 
   // Two-way binding for the active search bar expanded state.
   var activeSearchBarExpandedBinding: Binding<Bool> {
-    #if DEBUG
-      if isDemoModeEnabled {
-        return Binding(
-          get: { self.isSearchBarExpanded },
-          set: { self.isSearchBarExpanded = $0 }
-        )
-      }
-    #endif
-
-    switch sidebarMode {
-    case .calendar, .daily:
+    switch activeNoteRoute {
+    case .daily:
       return Binding(
         get: { self.isSearchBarExpanded },
         set: { self.isSearchBarExpanded = $0 }
@@ -537,42 +406,24 @@ extension NotesStore {
 
   // Title binding that routes to daily or list note by ID.
   func activeTitleBinding(for noteID: DayNote.ID) -> Binding<String> {
-    #if DEBUG
-      if isDemoModeEnabled {
-        return titleBinding(for: noteID)
-      }
-    #endif
-
-    switch sidebarMode {
-    case .calendar, .daily: return titleBinding(for: noteID)
+    switch activeNoteRoute {
+    case .daily: return titleBinding(for: noteID)
     case .list: return listNoteTitleBinding(for: noteID)
     }
   }
 
   // Tags binding that routes to daily or list note by ID.
   func activeTagsBinding(for noteID: DayNote.ID) -> Binding<String> {
-    #if DEBUG
-      if isDemoModeEnabled {
-        return tagsBinding(for: noteID)
-      }
-    #endif
-
-    switch sidebarMode {
-    case .calendar, .daily: return tagsBinding(for: noteID)
+    switch activeNoteRoute {
+    case .daily: return tagsBinding(for: noteID)
     case .list: return listNoteTagsBinding(for: noteID)
     }
   }
 
   // Body binding that routes to daily or list note by ID.
   func activeBodyBinding(for noteID: DayNote.ID) -> Binding<String> {
-    #if DEBUG
-      if isDemoModeEnabled {
-        return bodyBinding(for: noteID)
-      }
-    #endif
-
-    switch sidebarMode {
-    case .calendar, .daily: return bodyBinding(for: noteID)
+    switch activeNoteRoute {
+    case .daily: return bodyBinding(for: noteID)
     case .list: return listNoteBodyBinding(for: noteID)
     }
   }

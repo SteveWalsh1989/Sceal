@@ -12,6 +12,33 @@
 
     var body: some View {
       Form {
+        Section("Plan") {
+          Picker(
+            "Active plan",
+            selection: Binding(
+              get: { store.activePlan },
+              set: { scheduleDeveloperPlanUpdate($0) }
+            )
+          ) {
+            ForEach(AppPlan.allCases) { plan in
+              Text(plan.displayName).tag(plan)
+            }
+          }
+          .pickerStyle(.segmented)
+
+          ForEach(AppCapability.allCases) { capability in
+            LabeledContent(capability.displayName) {
+              if store.hasAccess(to: capability) {
+                Text("Included")
+                  .foregroundStyle(.secondary)
+              } else {
+                Text("Locked")
+                  .foregroundStyle(.orange)
+              }
+            }
+          }
+        }
+
         Section("Demo Library") {
           Toggle(
             "Use demo notes",
@@ -27,8 +54,41 @@
           .font(.footnote)
           .foregroundStyle(.secondary)
         }
+
+        Section("File-backed Developer Library") {
+          Button("Copy production library to developer library") {
+            store.copyProductionLibraryToDeveloperLibrary()
+          }
+          .disabled(!store.canCopyProductionLibraryToDeveloper)
+
+          Button("Reset and seed developer library", role: .destructive) {
+            store.resetDeveloperLibrary()
+          }
+          .disabled(!store.canResetDeveloperLibrary)
+
+          Text(
+            "Use the production copy when you need real notes in DEBUG without writing to the production library. Reset replaces the active non-production library with deterministic test data."
+          )
+          .font(.footnote)
+          .foregroundStyle(.secondary)
+        }
+
+        Section("Storage") {
+          LabeledContent("Active library") {
+            Text(store.libraryLocation.rootURL.path)
+              .font(.caption)
+              .foregroundStyle(.secondary)
+              .textSelection(.enabled)
+          }
+        }
       }
       .formStyle(.grouped)
+    }
+
+    private func scheduleDeveloperPlanUpdate(_ plan: AppPlan) {
+      Task { @MainActor in
+        store.updateDeveloperPlan(plan)
+      }
     }
   }
 #endif

@@ -199,7 +199,7 @@ struct ListNotesSidebarContent: View {
     } label: {
       ListNoteCardView(
         note: note,
-        appearanceSettings: store.appearanceSettings,
+        appearanceSettings: store.effectiveAppearanceSettings,
         isSelected: store.selectedListNoteID == note.id,
         accentColor: sidebarAccentColor,
         selectedCardColor: themeColors.selectedCard.color,
@@ -236,7 +236,7 @@ struct ListNotesSidebarContent: View {
   }
 
   private var themeColors: ThemeColorSet {
-    store.appearanceSettings.resolvedColors
+    store.effectiveAppearanceSettings.resolvedColors
   }
 
   private var sidebarAccentColor: Color {

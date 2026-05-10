@@ -129,10 +129,12 @@ struct NotesEditorView: View {
           MarkdownEditorView(
             noteID: noteID,
             text: store.activeBodyBinding(for: noteID),
-            appearanceSettings: store.appearanceSettings,
+            appearanceSettings: store.effectiveAppearanceSettings,
             continuousSpellCheckingEnabled: store.continuousSpellCheckingEnabled,
             searchText: isListMode ? store.listSearchText : store.searchText,
             customSlashTemplates: store.enabledSlashCommandTemplates(),
+            libraryRootURL: store.libraryLocation.rootURL,
+            imageAttachmentRootURL: store.libraryRepository.attachmentsRootURL,
             onPromptCopied: {
               showToast("Copied", .info)
             }
@@ -172,7 +174,7 @@ struct NotesEditorView: View {
 
   // Resolved color set from the active theme.
   private var themeColors: ThemeColorSet {
-    store.appearanceSettings.resolvedColors
+    store.effectiveAppearanceSettings.resolvedColors
   }
 
   // Background color for the note body container.
@@ -336,7 +338,7 @@ private struct QuickAppearancePopover: View {
   let allowsDelete: Bool
 
   private var controlBackgroundColor: Color {
-    store.appearanceSettings.resolvedColors
+    store.effectiveAppearanceSettings.resolvedColors
       .controlBackground.color
   }
 
@@ -444,8 +446,8 @@ private struct QuickAppearancePopover: View {
       Divider()
 
       QuickNewNoteDefaultRow(
-        selection: store.newNoteDefault,
-        templates: store.sortedNoteTemplates,
+        selection: store.effectiveNewNoteDefault,
+        templates: store.accessibleNoteTemplates,
         onSelect: store.updateNewNoteDefault
       )
 

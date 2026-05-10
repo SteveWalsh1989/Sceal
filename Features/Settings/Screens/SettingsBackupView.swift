@@ -3,6 +3,14 @@ import SwiftUI
 struct SettingsBackupView: View {
   @ObservedObject var store: NotesStore
 
+  private var automaticBackupLockTitle: String {
+    "Automatic backups require Paid"
+  }
+
+  private var automaticBackupLockMessage: String {
+    "Free keeps manual backups available. Paid unlocks scheduled backups, inactive-window backups, additional templates, and custom theme colors."
+  }
+
   var body: some View {
     Form {
       Section {
@@ -50,26 +58,65 @@ struct SettingsBackupView: View {
       }
 
       Section("Schedule") {
-        Picker(
-          "Backup frequency",
-          selection: Binding(
-            get: { store.backupSettings.schedule },
-            set: { store.updateBackupSchedule($0) }
-          )
-        ) {
-          ForEach(BackupSchedule.allCases, id: \.self) { schedule in
-            Text(schedule.displayName).tag(schedule)
+        HStack {
+          Picker(
+            "Backup frequency",
+            selection: Binding(
+              get: { store.effectiveBackupSchedule },
+              set: { store.updateBackupSchedule($0) }
+            )
+          ) {
+            ForEach(store.availableBackupSchedules, id: \.self) { schedule in
+              Text(schedule.displayName).tag(schedule)
+            }
+          }
+          .pickerStyle(.menu)
+
+          if !store.hasAccess(to: .automaticBackupSchedules) {
+            UpgradeLockIndicator(
+              capability: .automaticBackupSchedules,
+              title: automaticBackupLockTitle,
+              message: automaticBackupLockMessage
+            )
           }
         }
-        .pickerStyle(.menu)
 
-        Toggle(
-          "Back up when Scéal becomes inactive",
-          isOn: Binding(
-            get: { store.backupSettings.backupOnInactive },
-            set: { store.updateBackupOnInactive($0) }
+        if hasLockedAutomaticSchedule {
+          UpgradeLockedStatus(
+            text: "\(store.backupSettings.schedule.displayName) is saved but paused in Free.",
+            capability: .automaticBackupSchedules,
+            title: automaticBackupLockTitle,
+            message: automaticBackupLockMessage
           )
-        )
+        }
+
+        HStack {
+          Toggle(
+            "Back up when Scéal becomes inactive",
+            isOn: Binding(
+              get: { store.isBackupOnInactiveAvailable && store.backupSettings.backupOnInactive },
+              set: { store.updateBackupOnInactive($0) }
+            )
+          )
+          .disabled(!store.isBackupOnInactiveAvailable)
+
+          if !store.isBackupOnInactiveAvailable {
+            UpgradeLockIndicator(
+              capability: .automaticBackupSchedules,
+              title: automaticBackupLockTitle,
+              message: automaticBackupLockMessage
+            )
+          }
+        }
+
+        if hasLockedInactiveBackup {
+          UpgradeLockedStatus(
+            text: "Inactive-window backups are saved but paused in Free.",
+            capability: .automaticBackupSchedules,
+            title: automaticBackupLockTitle,
+            message: automaticBackupLockMessage
+          )
+        }
 
         Text(
           "Automatic backups run while Scéal is open and catch up next time it launches if one is overdue."
@@ -135,11 +182,21 @@ struct SettingsBackupView: View {
   }
 
   private var retentionSummary: String {
-    guard let count = store.backupSettings.schedule.retainedAutomaticBackupCount else {
+    guard let count = store.effectiveBackupSchedule.retainedAutomaticBackupCount else {
       return "Manual backups are never pruned automatically."
     }
 
     return "Keeps the latest \(count) automatic backups."
+  }
+
+  private var hasLockedAutomaticSchedule: Bool {
+    store.backupSettings.schedule != .manualOnly
+      && !store.hasAccess(to: .automaticBackupSchedules)
+  }
+
+  private var hasLockedInactiveBackup: Bool {
+    store.backupSettings.backupOnInactive
+      && !store.hasAccess(to: .automaticBackupSchedules)
   }
 
   private func formattedDate(_ date: Date?) -> String {

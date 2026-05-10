@@ -16,21 +16,14 @@ extension MarkdownEditorFormatter {
   static func buildDisplayLine(
     _ rawLine: String,
     appearance: NoteAppearanceSettings,
-    imageWidth: CGFloat? = nil
+    imageWidth: CGFloat? = nil,
+    libraryRootURL: URL? = nil
   )
     -> NSAttributedString
   {
-    // Detect and strip leading whitespace for list indentation (2 spaces or 1 tab = 1 indent level)
-    let leadingWhitespace = rawLine.prefix(while: { $0 == " " || $0 == "\t" })
-    let indentLevel: Int = {
-      var level = 0
-      for ch in leadingWhitespace {
-        level += ch == "\t" ? 1 : 0
-      }
-      let spaceCount = leadingWhitespace.filter { $0 == " " }.count
-      return min(level + spaceCount / 2, 3)
-    }()
-    let trimmedLine = String(rawLine.dropFirst(leadingWhitespace.count))
+    let parsedListLine = MarkdownEditorListMarkdown.parse(rawLine)
+    let trimmedLine =
+      parsedListLine?.displayText ?? MarkdownEditorListMarkdown.lineWithoutIndent(rawLine)
 
     let baseAttrs: [NSAttributedString.Key: Any] = [
       .font: appearance.bodyFont,
@@ -43,42 +36,45 @@ extension MarkdownEditorFormatter {
         title: image.title,
         path: image.path,
         width: imageWidth,
-        appearance: appearance
+        appearance: appearance,
+        libraryRootURL: libraryRootURL
       )
     }
 
     // Section divider — Sceal card-gap marker
-    if trimmedLine == "<!-- section -->" {
-      return styledSectionDivider(appearance: appearance)
+    if let section = MarkdownEditorSectionDirectiveMarkdown.parse(trimmedLine) {
+      return styledSectionDivider(
+        appearance: appearance,
+        headingColorName: section.headingColorName,
+        bulletColorName: section.bulletColorName,
+        useSectionColor: section.useSectionColorAttributeValue
+      )
     }
 
     // Horizontal rule — standard markdown visible line
-    if trimmedLine.range(of: #"^-{3,}$"#, options: .regularExpression) != nil {
+    if MarkdownEditorBlockMarkdown.isHorizontalRule(trimmedLine) {
       return styledHorizontalRule()
     }
 
     // Heading
-    if let match = trimmedLine.range(of: #"^(#{1,3})\s+"#, options: .regularExpression) {
-      let level = trimmedLine[match].filter { $0 == "#" }.count
-      let content = String(trimmedLine[match.upperBound...])
-      let fontSize = headingFontSize(for: level)
+    if let headingLine = MarkdownEditorBlockMarkdown.parseHeading(trimmedLine) {
+      let fontSize = headingFontSize(for: headingLine.level)
       let result = NSMutableAttributedString(
-        string: content,
+        string: headingLine.content,
         attributes: [
           .font: appearance.boldBodyFont(ofSize: fontSize),
           .foregroundColor: NSColor.labelColor,
-          .markdownHeadingLevel: level,
+          .markdownHeadingLevel: headingLine.level,
           .paragraphStyle: bodyParagraphStyle(for: appearance),
         ])
       applyInlineFormatting(in: result, defaultFont: appearance.boldBodyFont(ofSize: fontSize))
       return result
     }
 
-    // Checkbox checked
-    if trimmedLine.hasPrefix("- [x] ") {
-      let content = String(trimmedLine.dropFirst(6))
+    if let listLine = parsedListLine, listLine.type == .checkboxChecked {
       let checkAttr = checkboxAttributedString(checked: true, appearance: appearance)
-      let contentAttr = NSMutableAttributedString(string: " \(content)", attributes: baseAttrs)
+      let contentAttr = NSMutableAttributedString(
+        string: " \(listLine.content)", attributes: baseAttrs)
       applyInlineFormatting(in: contentAttr, defaultFont: appearance.bodyFont)
       let result = NSMutableAttributedString()
       result.append(checkAttr)
@@ -88,19 +84,18 @@ extension MarkdownEditorFormatter {
         [
           .markdownListType: MarkdownListType.checkboxChecked.rawValue,
           .strikethroughStyle: NSUnderlineStyle.single.rawValue,
-          .paragraphStyle: listParagraphStyle(for: appearance, indentLevel: indentLevel),
-          .markdownIndentLevel: indentLevel,
+          .paragraphStyle: listParagraphStyle(for: appearance, indentLevel: listLine.indentLevel),
+          .markdownIndentLevel: listLine.indentLevel,
         ], range: fullRange)
       // Remove strikethrough from the checkbox character itself
       result.removeAttribute(.strikethroughStyle, range: NSRange(location: 0, length: 1))
       return result
     }
 
-    // Checkbox unchecked
-    if trimmedLine.hasPrefix("- [ ] ") {
-      let content = String(trimmedLine.dropFirst(6))
+    if let listLine = parsedListLine, listLine.type == .checkboxUnchecked {
       let checkAttr = checkboxAttributedString(checked: false, appearance: appearance)
-      let contentAttr = NSMutableAttributedString(string: " \(content)", attributes: baseAttrs)
+      let contentAttr = NSMutableAttributedString(
+        string: " \(listLine.content)", attributes: baseAttrs)
       applyInlineFormatting(in: contentAttr, defaultFont: appearance.bodyFont)
       let result = NSMutableAttributedString()
       result.append(checkAttr)
@@ -109,23 +104,21 @@ extension MarkdownEditorFormatter {
       result.addAttributes(
         [
           .markdownListType: MarkdownListType.checkboxUnchecked.rawValue,
-          .paragraphStyle: listParagraphStyle(for: appearance, indentLevel: indentLevel),
-          .markdownIndentLevel: indentLevel,
+          .paragraphStyle: listParagraphStyle(for: appearance, indentLevel: listLine.indentLevel),
+          .markdownIndentLevel: listLine.indentLevel,
         ], range: fullRange)
       return result
     }
 
-    // Bullet list
-    if let prefixMatch = trimmedLine.range(of: #"^(?:-|\*|\+|•)\s+"#, options: .regularExpression) {
-      let content = String(trimmedLine[prefixMatch.upperBound...])
-      let displayText = "\(bulletMarker) \(content)"
+    if let listLine = parsedListLine, listLine.type == .bullet {
+      let displayText = "\(bulletMarker) \(listLine.content)"
       let result = NSMutableAttributedString(string: displayText, attributes: baseAttrs)
       let fullRange = NSRange(location: 0, length: result.length)
       result.addAttributes(
         [
           .markdownListType: MarkdownListType.bullet.rawValue,
-          .paragraphStyle: listParagraphStyle(for: appearance, indentLevel: indentLevel),
-          .markdownIndentLevel: indentLevel,
+          .paragraphStyle: listParagraphStyle(for: appearance, indentLevel: listLine.indentLevel),
+          .markdownIndentLevel: listLine.indentLevel,
         ], range: fullRange)
       result.addAttributes(
         [
@@ -136,18 +129,16 @@ extension MarkdownEditorFormatter {
       return result
     }
 
-    // Numbered list
-    if trimmedLine.range(of: #"^\d+\.\s+"#, options: .regularExpression) != nil {
+    if let listLine = parsedListLine, listLine.type == .numbered {
       let result = NSMutableAttributedString(string: trimmedLine, attributes: baseAttrs)
       let fullRange = NSRange(location: 0, length: result.length)
       result.addAttributes(
         [
           .markdownListType: MarkdownListType.numbered.rawValue,
-          .paragraphStyle: listParagraphStyle(for: appearance, indentLevel: indentLevel),
-          .markdownIndentLevel: indentLevel,
+          .paragraphStyle: listParagraphStyle(for: appearance, indentLevel: listLine.indentLevel),
+          .markdownIndentLevel: listLine.indentLevel,
         ], range: fullRange)
-      if let numMatch = trimmedLine.range(of: #"^\d+\."#, options: .regularExpression) {
-        let numLength = trimmedLine.distance(from: numMatch.lowerBound, to: numMatch.upperBound)
+      if let numLength = listLine.orderedMarkerLength {
         result.addAttribute(
           .foregroundColor, value: NSColor.secondaryLabelColor,
           range: NSRange(location: 0, length: numLength))
@@ -157,11 +148,10 @@ extension MarkdownEditorFormatter {
     }
 
     // Blockquote (single-level only)
-    if trimmedLine.hasPrefix("> ") {
-      let content = String(trimmedLine.dropFirst(2))
+    if let blockquoteLine = MarkdownEditorBlockMarkdown.parseBlockquote(trimmedLine) {
       let quoteStyle = blockquoteParagraphStyle(for: appearance)
       let result = NSMutableAttributedString(
-        string: content,
+        string: blockquoteLine.content,
         attributes: [
           .font: appearance.bodyFont,
           .foregroundColor: NSColor.secondaryLabelColor,
@@ -196,7 +186,7 @@ extension MarkdownEditorFormatter {
       let searchRange = NSRange(location: range.location, length: currentEnd - range.location)
       let text = (attrStr.string as NSString).substring(with: searchRange)
       guard
-        let match = boldRegex.firstMatch(
+        let match = MarkdownEditorInlineMarkdown.boldRegex.firstMatch(
           in: text, range: NSRange(location: 0, length: text.utf16.count))
       else { break }
 
@@ -222,7 +212,7 @@ extension MarkdownEditorFormatter {
       let searchRange = NSRange(location: range.location, length: currentEnd - range.location)
       let text = (attrStr.string as NSString).substring(with: searchRange)
       guard
-        let match = italicRegex.firstMatch(
+        let match = MarkdownEditorInlineMarkdown.italicRegex.firstMatch(
           in: text, range: NSRange(location: 0, length: text.utf16.count))
       else { break }
 
@@ -248,7 +238,7 @@ extension MarkdownEditorFormatter {
       let searchRange = NSRange(location: range.location, length: currentEnd - range.location)
       let text = (attrStr.string as NSString).substring(with: searchRange)
       guard
-        let match = strikethroughRegex.firstMatch(
+        let match = MarkdownEditorInlineMarkdown.strikethroughRegex.firstMatch(
           in: text, range: NSRange(location: 0, length: text.utf16.count))
       else { break }
 
@@ -273,7 +263,7 @@ extension MarkdownEditorFormatter {
       let searchRange = NSRange(location: range.location, length: currentEnd - range.location)
       let text = (attrStr.string as NSString).substring(with: searchRange)
       guard
-        let match = inlineCodeRegex.firstMatch(
+        let match = MarkdownEditorInlineMarkdown.inlineCodeRegex.firstMatch(
           in: text, range: NSRange(location: 0, length: text.utf16.count))
       else { break }
 
@@ -299,7 +289,7 @@ extension MarkdownEditorFormatter {
       let searchRange = NSRange(location: range.location, length: currentEnd - range.location)
       let text = (attrStr.string as NSString).substring(with: searchRange)
       guard
-        let match = linkRegex.firstMatch(
+        let match = MarkdownEditorInlineMarkdown.linkRegex.firstMatch(
           in: text, range: NSRange(location: 0, length: text.utf16.count))
       else { break }
 
@@ -337,7 +327,7 @@ extension MarkdownEditorFormatter {
     in attrStr: NSMutableAttributedString,
     range: NSRange
   ) {
-    guard let urlDetector = Self.urlDetector else { return }
+    guard let urlDetector = MarkdownEditorInlineMarkdown.urlDetector else { return }
 
     let matches = urlDetector.matches(in: attrStr.string, range: range)
     for match in matches {
@@ -442,10 +432,16 @@ extension MarkdownEditorFormatter {
     title: String,
     path: String,
     width: CGFloat?,
-    appearance: NoteAppearanceSettings
+    appearance: NoteAppearanceSettings,
+    libraryRootURL: URL? = nil
   ) -> NSAttributedString {
     let resolvedWidth = clampedImageWidth(width ?? imageDefaultWidth)
-    let renderedImage = renderedImageAttachment(title: title, path: path, width: resolvedWidth)
+    let renderedImage = renderedImageAttachment(
+      title: title,
+      path: path,
+      width: resolvedWidth,
+      libraryRootURL: libraryRootURL
+    )
     let attachment = NSTextAttachment()
     attachment.image = renderedImage
     attachment.bounds = NSRect(origin: .zero, size: renderedImage.size)
@@ -488,44 +484,23 @@ extension MarkdownEditorFormatter {
   }
 
   static func clampedImageWidth(_ width: CGFloat) -> CGFloat {
-    min(max(width, imageMinimumWidth), imageMaximumWidth)
+    MarkdownEditorImageMarkdown.clampedWidth(width)
   }
 
   static func parseImageWidthMarker(_ line: String) -> CGFloat? {
-    guard
-      let match = imageWidthRegex.firstMatch(
-        in: line,
-        range: NSRange(location: 0, length: line.utf16.count)
-      ),
-      let widthRange = Range(match.range(at: 1), in: line),
-      let width = Double(line[widthRange])
-    else { return nil }
-
-    return clampedImageWidth(CGFloat(width))
+    MarkdownEditorImageMarkdown.parseWidthMarker(line)
   }
 
   static func parseMarkdownImage(_ line: String) -> (title: String, path: String)? {
-    guard
-      let match = imageRegex.firstMatch(
-        in: line,
-        range: NSRange(location: 0, length: line.utf16.count)
-      ),
-      let titleRange = Range(match.range(at: 1), in: line),
-      let pathRange = Range(match.range(at: 2), in: line)
-    else { return nil }
-
-    return (
-      title: unescapedImageText(String(line[titleRange])),
-      path: String(line[pathRange])
-    )
+    MarkdownEditorImageMarkdown.parseImage(line)
   }
 
   static func imageWidthMarker(for width: CGFloat) -> String {
-    "<!-- sceal-image-width:\(Int(clampedImageWidth(width).rounded())) -->"
+    MarkdownEditorImageMarkdown.widthMarker(for: width)
   }
 
   static func imageMarkdownLine(title: String, path: String) -> String {
-    "![\(escapedImageText(title))](\(path))"
+    MarkdownEditorImageMarkdown.imageLine(title: title, path: path)
   }
 
   private static func imageParagraphStyle(for appearance: NoteAppearanceSettings)
@@ -589,10 +564,14 @@ extension MarkdownEditorFormatter {
   private static func renderedImageAttachment(
     title: String,
     path: String,
-    width: CGFloat
+    width: CGFloat,
+    libraryRootURL: URL?
   ) -> NSImage {
-    let sourceImage = NoteImageAttachmentStore.resolvedImageURL(for: path)
-      .flatMap { NSImage(contentsOf: $0) }
+    let sourceImage = NoteImageAttachmentStore.resolvedImageURL(
+      for: path,
+      libraryRootURL: libraryRootURL
+    )
+    .flatMap { NSImage(contentsOf: $0) }
     let imageSize = sourceImage?.size ?? NSSize(width: width, height: width * 0.58)
     let safeImageWidth = max(imageSize.width, 1)
     let imageHeight = max(width * (imageSize.height / safeImageWidth), 80)
@@ -653,18 +632,6 @@ extension MarkdownEditorFormatter {
       ),
       withAttributes: attrs
     )
-  }
-
-  private static func escapedImageText(_ text: String) -> String {
-    text
-      .replacingOccurrences(of: "\\", with: "\\\\")
-      .replacingOccurrences(of: "]", with: "\\]")
-  }
-
-  private static func unescapedImageText(_ text: String) -> String {
-    text
-      .replacingOccurrences(of: "\\]", with: "]")
-      .replacingOccurrences(of: "\\\\", with: "\\")
   }
 
   // Creates an invisible marker that MarkdownEditorTextView renders as a card gap.
@@ -757,15 +724,19 @@ extension MarkdownEditorFormatter {
       return mutable
     }
 
-    // Bullets and checkboxes inherit section color when useSectionColor is on.
-    guard useSectionColor,
+    // Bullets and checkboxes use the heading color in same-color mode, otherwise their own color.
+    guard
       let rawType = attrs[.markdownListType] as? String,
       let listType = MarkdownListType(rawValue: rawType)
     else { return nil }
 
     let sectionColor: NSColor? = {
-      if let name = bulletColorName { return headingColor(named: name) }
-      if let name = headingColorName { return headingColor(named: name) }
+      if useSectionColor, let name = headingColorName {
+        return headingColor(named: name)
+      }
+      if let name = bulletColorName {
+        return headingColor(named: name)
+      }
       return nil
     }()
     guard let color = sectionColor else { return nil }
@@ -813,17 +784,6 @@ extension MarkdownEditorFormatter {
   }
 
   // MARK: - Helpers
-
-  // Extracts an optional capture group from a regex match, returning nil when unmatched.
-  static func extractGroup(
-    _ match: NSTextCheckingResult, index: Int, in line: String
-  ) -> String? {
-    let range = match.range(at: index)
-    guard range.location != NSNotFound, let swiftRange = Range(range, in: line) else {
-      return nil
-    }
-    return String(line[swiftRange])
-  }
 
   // Returns the display font size for heading levels 1-3.
   static func headingFontSize(for level: Int) -> CGFloat {

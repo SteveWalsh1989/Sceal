@@ -105,5 +105,35 @@
     func testDeveloperSettingsSectionIsAvailableInDebug() {
       XCTAssertTrue(SettingsSection.allCases.contains(.developer))
     }
+
+    // Resetting the file-backed developer library uses the active test root, not live notes.
+    func testResetDeveloperLibrarySeedsInjectedRootAndUpdatesStore() throws {
+      let libraryLocation = makeLibraryLocation()
+      let store = makeStore(libraryLocation: libraryLocation)
+
+      store.resetDeveloperLibrary(referenceDate: makeDate(year: 2026, month: 5, day: 10))
+
+      XCTAssertEqual(
+        store.notes.map(\.id),
+        [
+          "2026-05-10", "2026-05-09", "2026-05-08", "2026-05-07",
+        ])
+      XCTAssertEqual(store.listNotes.map(\.id), ["developer-library-checklist"])
+      XCTAssertEqual(store.listNoteManifest.allNoteIDs, ["developer-library-checklist"])
+      XCTAssertEqual(store.activeSelectedNoteID, "2026-05-10")
+      XCTAssertEqual(store.userMessage?.text, "Developer library reset.")
+      XCTAssertTrue(
+        FileManager.default.fileExists(
+          atPath: libraryLocation.rootURL.appendingPathComponent("Notes/2026-05-10.md").path
+        )
+      )
+      XCTAssertTrue(
+        FileManager.default.fileExists(
+          atPath: libraryLocation.rootURL.appendingPathComponent(
+            "Attachments/developer-library-checklist/developer-attachment.png"
+          ).path
+        )
+      )
+    }
   }
 #endif

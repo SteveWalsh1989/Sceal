@@ -8,6 +8,10 @@ import AppKit
 
 @MainActor final class EditorSectionColorPopoverViewController: NSViewController {
 
+  static func contentSize(useSectionColor: Bool) -> NSSize {
+    NSSize(width: 264, height: useSectionColor ? 118 : 208)
+  }
+
   private let onChange: (String?, String?, Bool) -> Void
 
   private var selectedHeadingColor: String?
@@ -31,9 +35,13 @@ import AppKit
   required init?(coder: NSCoder) { fatalError() }
 
   override func loadView() {
-    let container = NSView(frame: NSRect(x: 0, y: 0, width: 264, height: 208))
+    let contentSize = Self.contentSize(useSectionColor: useSectionColorToggle)
+    preferredContentSize = contentSize
+    let container = NSView(
+      frame: NSRect(origin: .zero, size: contentSize)
+    )
 
-    var y: CGFloat = 188
+    var y = contentSize.height - 20
 
     // Title
     let title = makeLabel("Section Colors", bold: true)
@@ -41,11 +49,12 @@ import AppKit
     container.addSubview(title)
     y -= 34
 
-    // Heading Color
-    let headingLabel = makeLabel("Heading Color")
-    headingLabel.frame.origin = NSPoint(x: 16, y: y - 14)
-    container.addSubview(headingLabel)
-    y -= 28
+    if !useSectionColorToggle {
+      let headingLabel = makeLabel("Heading Color")
+      headingLabel.frame.origin = NSPoint(x: 16, y: y - 14)
+      container.addSubview(headingLabel)
+      y -= 28
+    }
 
     let headingSwatches = makeSwatchRow(
       selected: selectedHeadingColor,
@@ -55,23 +64,23 @@ import AppKit
     for swatch in headingSwatches { container.addSubview(swatch) }
     y -= 36
 
-    // Bullet Color
-    let bulletLabel = makeLabel("Bullet Color")
-    bulletLabel.frame.origin = NSPoint(x: 16, y: y - 14)
-    container.addSubview(bulletLabel)
-    y -= 28
+    if !useSectionColorToggle {
+      let bulletLabel = makeLabel("Bullet Color")
+      bulletLabel.frame.origin = NSPoint(x: 16, y: y - 14)
+      container.addSubview(bulletLabel)
+      y -= 28
 
-    let bulletSwatches = makeSwatchRow(
-      selected: selectedBulletColor,
-      action: #selector(bulletSwatchClicked(_:)),
-      yOrigin: y - 22
-    )
-    for swatch in bulletSwatches { container.addSubview(swatch) }
-    y -= 36
+      let bulletSwatches = makeSwatchRow(
+        selected: selectedBulletColor,
+        action: #selector(bulletSwatchClicked(_:)),
+        yOrigin: y - 22
+      )
+      for swatch in bulletSwatches { container.addSubview(swatch) }
+      y -= 36
+    }
 
-    // Use section color toggle
     let toggle = NSButton(
-      checkboxWithTitle: "Use section color for bullets & checkboxes",
+      checkboxWithTitle: "Use same color for bullets & checkboxes",
       target: self,
       action: #selector(toggleChanged(_:))
     )
@@ -143,25 +152,32 @@ import AppKit
   @objc private func headingSwatchClicked(_ sender: NSButton) {
     selectedHeadingColor = sender.tag == -1 ? nil : ThemePalette.colors[sender.tag].name
     rebuildSwatches()
-    onChange(selectedHeadingColor, selectedBulletColor, useSectionColorToggle)
+    notifyChange()
   }
 
   @objc private func bulletSwatchClicked(_ sender: NSButton) {
     selectedBulletColor = sender.tag == -1 ? nil : ThemePalette.colors[sender.tag].name
     rebuildSwatches()
-    onChange(selectedHeadingColor, selectedBulletColor, useSectionColorToggle)
+    notifyChange()
   }
 
   @objc private func toggleChanged(_ sender: NSButton) {
     useSectionColorToggle = sender.state == .on
-    onChange(selectedHeadingColor, selectedBulletColor, useSectionColorToggle)
+    notifyChange()
+    rebuildSwatches()
+  }
+
+  private func notifyChange() {
+    let bulletColor = useSectionColorToggle ? nil : selectedBulletColor
+    onChange(selectedHeadingColor, bulletColor, useSectionColorToggle)
   }
 
   private func rebuildSwatches() {
     // Rebuild view to update selection rings — simple and sufficient for a small popover.
     guard isViewLoaded else { return }
-    let frame = view.frame
+    let origin = view.frame.origin
     loadView()
-    view.frame = frame
+    view.frame.origin = origin
+    view.window?.setContentSize(Self.contentSize(useSectionColor: useSectionColorToggle))
   }
 }

@@ -42,4 +42,17 @@ final class MarkdownInlinePreservationTests: MarkdownPreservationTestCase {
       "**bold** and *italic*"
     )
   }
+
+  // Prevents emphasized links from losing either the link or emphasis attributes.
+  func testBoldLink() {
+    XCTAssertEqual(
+      preservedMarkdown("**[docs](https://example.com)**"),
+      "**[docs](https://example.com)**"
+    )
+  }
+
+  // Prevents strikethrough wrapping from being lost around inline code.
+  func testStrikethroughInlineCode() {
+    XCTAssertEqual(preservedMarkdown("~~`code`~~"), "~~`code`~~")
+  }
 }

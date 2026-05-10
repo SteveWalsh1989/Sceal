@@ -45,12 +45,12 @@ extension MarkdownEditorFormatter {
       if attrs[.markdownPromptBoundary] as? Bool == true,
         let kind = attrs[.markdownPromptBoundaryKind] as? String
       {
-        if kind == promptBoundaryStartKind {
+        if MarkdownEditorPromptBlockMarkdown.isStartBoundaryKind(kind) {
           insidePromptBlock = true
-          markdownLine = promptBlockStartMarker
+          markdownLine = MarkdownEditorPromptBlockMarkdown.marker(forBoundaryKind: kind)
         } else {
           insidePromptBlock = false
-          markdownLine = promptBlockEndMarker
+          markdownLine = MarkdownEditorPromptBlockMarkdown.marker(forBoundaryKind: kind)
         }
       } else if insidePromptBlock {
         markdownLine = lineText
@@ -108,7 +108,7 @@ extension MarkdownEditorFormatter {
     if attrs[.markdownPromptBoundary] as? Bool == true,
       let kind = attrs[.markdownPromptBoundaryKind] as? String
     {
-      return kind == promptBoundaryStartKind ? promptBlockStartMarker : promptBlockEndMarker
+      return MarkdownEditorPromptBlockMarkdown.marker(forBoundaryKind: kind)
     }
 
     // Prompt block — pass through without inline markdown reconstruction.
@@ -145,22 +145,16 @@ extension MarkdownEditorFormatter {
 
     // Section divider — Sceal-specific card-gap marker with optional per-section colors
     if attrs[.markdownSectionDivider] as? Bool == true {
-      var parts = ["section"]
-      if let name = attrs[.markdownSectionHeadingColor] as? String {
-        parts.append("heading:\(name)")
-      }
-      if let name = attrs[.markdownSectionBulletColor] as? String {
-        parts.append("bullet:\(name)")
-      }
-      if let flag = attrs[.markdownSectionUseSectionColor] as? Bool, flag {
-        parts.append("usesectioncolor:true")
-      }
-      return "<!-- \(parts.joined(separator: " ")) -->"
+      return MarkdownEditorSectionDirectiveMarkdown.marker(
+        headingColorName: attrs[.markdownSectionHeadingColor] as? String,
+        bulletColorName: attrs[.markdownSectionBulletColor] as? String,
+        usesSectionColor: (attrs[.markdownSectionUseSectionColor] as? Bool) == true
+      )
     }
 
     // Horizontal rule — standard markdown
     if attrs[.markdownHorizontalRule] as? Bool == true {
-      return "---"
+      return MarkdownEditorBlockMarkdown.horizontalRuleMarker
     }
 
     // Determine line prefix from attributes
@@ -168,7 +162,7 @@ extension MarkdownEditorFormatter {
     var contentStart = 0
 
     if let level = attrs[.markdownHeadingLevel] as? Int {
-      prefix = String(repeating: "#", count: level) + " "
+      prefix = MarkdownEditorBlockMarkdown.headingPrefix(for: level)
       contentStart = 0
 
       // Heading color comment
@@ -178,33 +172,38 @@ extension MarkdownEditorFormatter {
           length: textRange.length - contentStart
         )
         let inlineMarkdown = reconstructInlineMarkdown(from: attributedString, range: contentRange)
-        return "<!-- hcolor:\(colorName) -->\n" + prefix + inlineMarkdown
+        return
+          "\(MarkdownEditorHeadingColorMarkdown.marker(colorName: colorName))\n" + prefix
+          + inlineMarkdown
       }
     } else if attrs[.markdownBlockquote] as? Bool == true {
-      prefix = "> "
+      prefix = MarkdownEditorBlockMarkdown.blockquotePrefix
       contentStart = 0
     } else if let rawType = attrs[.markdownListType] as? String,
       let listType = MarkdownListType(rawValue: rawType)
     {
       let indentLevel = attrs[.markdownIndentLevel] as? Int ?? 0
-      let indentPrefix = indentLevel > 0 ? String(repeating: " ", count: indentLevel * 2) : ""
       switch listType {
-      case .bullet:
-        prefix = indentPrefix + "- "
-        contentStart = lineText.hasPrefix("\(bulletMarker) ") ? 2 : 0
-      case .checkboxUnchecked:
-        prefix = indentPrefix + "- [ ] "
-        contentStart = lineText.hasPrefix("\(uncheckedMarker) ") ? 2 : 0
-      case .checkboxChecked:
-        prefix = indentPrefix + "- [x] "
-        contentStart = lineText.hasPrefix("\(checkedMarker) ") ? 2 : 0
+      case .bullet, .checkboxUnchecked, .checkboxChecked:
+        prefix =
+          MarkdownEditorListMarkdown.persistedPrefix(
+            for: listType,
+            indentLevel: indentLevel
+          ) ?? ""
+        contentStart = MarkdownEditorListMarkdown.displayContentStart(
+          in: lineText,
+          listType: listType,
+          bulletMarker: bulletMarker,
+          uncheckedMarker: uncheckedMarker,
+          checkedMarker: checkedMarker
+        )
       case .numbered:
         // Number text is already in the display, pass through
         let inlineMarkdown = reconstructInlineMarkdown(
           from: attributedString,
           range: textRange
         )
-        return indentPrefix + inlineMarkdown
+        return MarkdownEditorListMarkdown.indentPrefix(for: indentLevel) + inlineMarkdown
       }
     }
 
@@ -253,34 +252,14 @@ extension MarkdownEditorFormatter {
         return
       }
 
-      // Build the inner content with bold/italic/link wrapping
-      var inner: String
-      if isCode {
-        inner = "`\(text)`"
-      } else if isBold && isItalic, let url = linkURL {
-        inner = "***[\(text)](\(url))***"
-      } else if isBold && isItalic {
-        inner = "***\(text)***"
-      } else if isBold, let url = linkURL {
-        inner = "**[\(text)](\(url))**"
-      } else if isBold {
-        inner = "**\(text)**"
-      } else if isItalic, let url = linkURL {
-        inner = "*[\(text)](\(url))*"
-      } else if isItalic {
-        inner = "*\(text)*"
-      } else if let url = linkURL {
-        inner = "[\(text)](\(url))"
-      } else {
-        inner = text
-      }
-
-      // Wrap with strikethrough delimiters if needed
-      if isStrike {
-        result += "~~\(inner)~~"
-      } else {
-        result += inner
-      }
+      result += MarkdownEditorInlineMarkdown.serializedSpan(
+        text: text,
+        isBold: isBold,
+        isItalic: isItalic,
+        isStrikethrough: isStrike,
+        isCode: isCode,
+        linkURL: linkURL
+      )
     }
 
     return result
@@ -314,12 +293,6 @@ extension MarkdownEditorFormatter {
   }
 
   private static func imageWidthValue(from value: Any?) -> CGFloat? {
-    if let width = value as? CGFloat {
-      return width
-    }
-    if let number = value as? NSNumber {
-      return CGFloat(truncating: number)
-    }
-    return nil
+    MarkdownEditorImageMarkdown.widthValue(from: value)
   }
 }

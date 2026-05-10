@@ -5,14 +5,14 @@ These are the release-readiness limitations to keep visible before broader distr
 ## Distribution
 
 - Direct-download signing and notarization infrastructure exists, but a public build still requires local Apple Developer setup: Developer ID Application certificate, notary profile, accepted notarization, stapling, and Gatekeeper verification.
-- Mac App Store setup, App Store Connect metadata, sandbox review, and potential StoreKit paid features are not implemented in this pass.
+- Mac App Store setup, App Store Connect metadata, sandbox review, and production StoreKit paid features are not implemented in this pass. Local StoreKit architecture and product-id preparation exist.
 - Auto-update support, such as Sparkle for direct downloads, is not implemented in this pass.
 
 ## Product
 
 - There is no cloud sync.
 - There is no account system.
-- There are no paid features yet.
+- Paid feature gates exist for templates, themes, custom colors, template defaults, and backup schedules, but production purchase UI and App Store entitlement validation are not complete.
 - Restore is replace-style, not merge-style.
 
 ## Import And Export

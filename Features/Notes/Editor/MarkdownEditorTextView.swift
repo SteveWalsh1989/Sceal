@@ -43,6 +43,7 @@ final class MarkdownEditorTextView: NSTextView {
 
   var appearanceSettings = NoteAppearanceSettings.default
   var noteID: DayNote.ID?
+  var libraryRootURL: URL?
   var imageAttachmentRootURL: URL?
   var imageAttachmentFileManager: FileManager = .default
   var allowsImageAttachments = true
@@ -415,7 +416,7 @@ final class MarkdownEditorTextView: NSTextView {
       result = (
         headingColorName: attrs[.markdownSectionHeadingColor] as? String,
         bulletColorName: attrs[.markdownSectionBulletColor] as? String,
-        useSectionColor: attrs[.markdownSectionUseSectionColor] as? Bool ?? false
+        useSectionColor: attrs[.markdownSectionUseSectionColor] as? Bool ?? true
       )
       stop.pointee = true
     }
@@ -835,9 +836,9 @@ final class MarkdownEditorTextView: NSTextView {
       value, range, _ in
       guard let kind = value as? String else { return }
       let lineRange = nsString.lineRange(for: range)
-      if kind == MarkdownEditorFormatter.promptBoundaryStartKind {
+      if MarkdownEditorPromptBlockMarkdown.isStartBoundaryKind(kind) {
         openingLineRange = lineRange
-      } else if kind == MarkdownEditorFormatter.promptBoundaryEndKind,
+      } else if MarkdownEditorPromptBlockMarkdown.isEndBoundaryKind(kind),
         let startLineRange = openingLineRange
       {
         result.append(
@@ -1555,7 +1556,8 @@ final class MarkdownEditorTextView: NSTextView {
     let markdown = blockMarkdownForInsertion(imageMarkdown, replacing: replacementRange)
     let attributed = MarkdownEditorFormatter.formatForDisplay(
       markdown,
-      appearance: appearanceSettings
+      appearance: appearanceSettings,
+      libraryRootURL: libraryRootURL
     )
 
     return performEditorEdit(
@@ -1580,7 +1582,8 @@ final class MarkdownEditorTextView: NSTextView {
     let markdown = blockMarkdownForInsertion(tableMarkdown, replacing: replacementRange)
     let attributed = MarkdownEditorFormatter.formatForDisplay(
       markdown,
-      appearance: appearanceSettings
+      appearance: appearanceSettings,
+      libraryRootURL: libraryRootURL
     )
 
     let inserted = performEditorEdit(
@@ -1709,7 +1712,7 @@ final class MarkdownEditorTextView: NSTextView {
 
     if let markdown = NSPasteboard.general.string(forType: Self.markdownPasteboardType) {
       let attributed = MarkdownEditorFormatter.formatForDisplay(
-        markdown, appearance: appearanceSettings)
+        markdown, appearance: appearanceSettings, libraryRootURL: libraryRootURL)
       performEditorEdit(
         affectedRange: pasteRange,
         replacementString: attributed.string,
@@ -1732,7 +1735,7 @@ final class MarkdownEditorTextView: NSTextView {
 
     guard let plainText = NSPasteboard.general.string(forType: .string) else { return }
     let attributed = MarkdownEditorFormatter.formatForDisplay(
-      plainText, appearance: appearanceSettings)
+      plainText, appearance: appearanceSettings, libraryRootURL: libraryRootURL)
     performEditorEdit(
       affectedRange: pasteRange,
       replacementString: attributed.string,
@@ -2101,7 +2104,8 @@ final class MarkdownEditorTextView: NSTextView {
 
     let popover = NSPopover()
     popover.behavior = .transient
-    popover.contentSize = NSSize(width: 264, height: 208)
+    popover.contentSize = EditorSectionColorPopoverViewController.contentSize(
+      useSectionColor: currentUseSC)
 
     let controller = EditorSectionColorPopoverViewController(
       headingColorName: currentHeading,
@@ -2147,13 +2151,15 @@ final class MarkdownEditorTextView: NSTextView {
       } else {
         textStorage.removeAttribute(.markdownSectionHeadingColor, range: trimmed)
       }
-      if let name = bulletColorName {
+      if !useSectionColor, let name = bulletColorName {
         textStorage.addAttribute(.markdownSectionBulletColor, value: name, range: trimmed)
       } else {
         textStorage.removeAttribute(.markdownSectionBulletColor, range: trimmed)
       }
       if useSectionColor {
         textStorage.addAttribute(.markdownSectionUseSectionColor, value: true, range: trimmed)
+      } else if headingColorName != nil || bulletColorName != nil {
+        textStorage.addAttribute(.markdownSectionUseSectionColor, value: false, range: trimmed)
       } else {
         textStorage.removeAttribute(.markdownSectionUseSectionColor, range: trimmed)
       }
@@ -2172,12 +2178,12 @@ final class MarkdownEditorTextView: NSTextView {
 
     let headingColorName = dividerAttrs[.markdownSectionHeadingColor] as? String
     let bulletColorName = dividerAttrs[.markdownSectionBulletColor] as? String
-    let useSC = dividerAttrs[.markdownSectionUseSectionColor] as? Bool ?? false
+    let useSC = dividerAttrs[.markdownSectionUseSectionColor] as? Bool ?? true
 
     let headingColor = headingColorName.flatMap { MarkdownEditorFormatter.headingColor(named: $0) }
     let bulletColor: NSColor? = {
+      if useSC, let n = headingColorName { return MarkdownEditorFormatter.headingColor(named: n) }
       if let n = bulletColorName { return MarkdownEditorFormatter.headingColor(named: n) }
-      if let n = headingColorName { return MarkdownEditorFormatter.headingColor(named: n) }
       return nil
     }()
 
@@ -2295,8 +2301,7 @@ final class MarkdownEditorTextView: NSTextView {
 }
 
 extension MarkdownEditorTextView: EditorTableBlockViewDelegate {
-  func tableBlockView(_ tableBlockView: EditorTableBlockView, didChange table: MarkdownEditorTable)
-  {
+  func tableBlockView(_ _: EditorTableBlockView, didChange table: MarkdownEditorTable) {
     guard let textStorage,
       let tableRange = tableRange(for: table.runtimeID, in: textStorage)
     else { return }
@@ -2318,7 +2323,7 @@ extension MarkdownEditorTextView: EditorTableBlockViewDelegate {
 
   func tableBlockView(
     _ tableBlockView: EditorTableBlockView,
-    didFocus cell: MarkdownEditorTableCell?
+    didFocus _: MarkdownEditorTableCell?
   ) {
     activeTableBlockID = tableBlockView.table.runtimeID
     updateTrackingAreas()

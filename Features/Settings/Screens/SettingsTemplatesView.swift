@@ -23,6 +23,14 @@ struct SettingsTemplatesView: View {
     selectedTemplateID.flatMap { store.noteTemplate(withID: $0) }
   }
 
+  private var additionalTemplatesLockTitle: String {
+    "More templates require Paid"
+  }
+
+  private var additionalTemplatesLockMessage: String {
+    "Free includes one custom template. Paid unlocks additional templates, custom theme colors, and automatic backup schedules."
+  }
+
   var body: some View {
     GeometryReader { proxy in
       HStack(spacing: 0) {
@@ -68,8 +76,11 @@ struct SettingsTemplatesView: View {
 
       List(selection: $selectedTemplateID) {
         ForEach(store.sortedNoteTemplates) { template in
-          TemplateListRow(template: template)
-            .tag(template.id)
+          TemplateListRow(
+            template: template,
+            isLocked: store.isNoteTemplateLockedByPlan(template.id)
+          )
+          .tag(template.id)
         }
       }
       .listStyle(.sidebar)
@@ -77,12 +88,7 @@ struct SettingsTemplatesView: View {
       Divider()
 
       HStack {
-        Button {
-          selectedTemplateID = store.createNoteTemplate()
-        } label: {
-          Image(systemName: "plus")
-        }
-        .help("Add template")
+        addTemplateControl
 
         Button {
           deleteSelectedTemplate()
@@ -108,13 +114,7 @@ struct SettingsTemplatesView: View {
       }
       .help("Show template list")
 
-      Button {
-        selectedTemplateID = store.createNoteTemplate()
-        isTemplateListCollapsed = false
-      } label: {
-        Image(systemName: "plus")
-      }
-      .help("Add template")
+      collapsedAddTemplateControl
 
       Spacer()
     }
@@ -125,11 +125,63 @@ struct SettingsTemplatesView: View {
   @ViewBuilder
   private var templateDetail: some View {
     if let template = selectedTemplate {
-      TemplateDetailView(store: store, template: template)
-        .id(template.id)
+      let isLocked = store.isNoteTemplateLockedByPlan(template.id)
+      VStack(spacing: 0) {
+        if isLocked {
+          UpgradeLockedBanner(
+            capability: .additionalTemplates,
+            title: "Template locked on Free",
+            message: additionalTemplatesLockMessage
+          )
+          .padding(.horizontal, 14)
+          .padding(.top, 12)
+        }
+
+        TemplateDetailView(store: store, template: template)
+          .id(template.id)
+          .disabled(isLocked)
+          .opacity(isLocked ? 0.58 : 1)
+      }
     } else {
       ContentUnavailableView("No Template Selected", systemImage: "text.badge.plus")
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+  }
+
+  @ViewBuilder
+  private var addTemplateControl: some View {
+    if store.canCreateNoteTemplate {
+      Button {
+        createTemplate()
+      } label: {
+        Image(systemName: "plus")
+      }
+      .help("Add template")
+    } else {
+      UpgradeLockIndicator(
+        capability: .additionalTemplates,
+        title: additionalTemplatesLockTitle,
+        message: additionalTemplatesLockMessage
+      )
+    }
+  }
+
+  @ViewBuilder
+  private var collapsedAddTemplateControl: some View {
+    if store.canCreateNoteTemplate {
+      Button {
+        createTemplate()
+        isTemplateListCollapsed = false
+      } label: {
+        Image(systemName: "plus")
+      }
+      .help("Add template")
+    } else {
+      UpgradeLockIndicator(
+        capability: .additionalTemplates,
+        title: additionalTemplatesLockTitle,
+        message: additionalTemplatesLockMessage
+      )
     }
   }
 
@@ -144,6 +196,11 @@ struct SettingsTemplatesView: View {
     guard let selectedTemplateID else { return }
     store.deleteNoteTemplate(id: selectedTemplateID)
     self.selectedTemplateID = store.sortedNoteTemplates.first?.id
+  }
+
+  private func createTemplate() {
+    guard let templateID = store.createNoteTemplateIfAllowed() else { return }
+    selectedTemplateID = templateID
   }
 
   private func resolvedTemplateListWidth(totalWidth: CGFloat) -> CGFloat {
@@ -186,18 +243,30 @@ struct SettingsTemplatesView: View {
 
 private struct TemplateListRow: View {
   let template: NoteTemplate
+  let isLocked: Bool
 
   var body: some View {
     VStack(alignment: .leading, spacing: 3) {
-      Text(template.title.isEmpty ? "Untitled Template" : template.title)
-        .lineLimit(1)
+      HStack(spacing: 6) {
+        Text(template.title.isEmpty ? "Untitled Template" : template.title)
+          .lineLimit(1)
+
+        if isLocked {
+          UpgradeLockIndicator(
+            capability: .additionalTemplates,
+            title: "Template locked on Free",
+            message:
+              "This saved template is outside the Free plan limit. Paid unlocks all saved templates, custom theme colors, and automatic backup schedules."
+          )
+        }
+      }
 
       Text(template.slashCommand)
         .font(.caption)
         .foregroundStyle(template.isEnabled ? .secondary : .tertiary)
         .lineLimit(1)
     }
-    .opacity(template.isEnabled ? 1 : 0.55)
+    .opacity(template.isEnabled && !isLocked ? 1 : 0.55)
   }
 }
 
@@ -289,7 +358,7 @@ private struct TemplateDetailView: View {
               MarkdownEditorView(
                 noteID: "template-\(template.id)",
                 text: bodyBinding,
-                appearanceSettings: store.appearanceSettings,
+                appearanceSettings: store.effectiveAppearanceSettings,
                 continuousSpellCheckingEnabled: store.continuousSpellCheckingEnabled,
                 customSlashTemplates: store.enabledSlashCommandTemplates(excluding: template.id),
                 allowsImageAttachments: false,

@@ -131,11 +131,14 @@ extension NotesStore {
     let fm = fileManager
     let noteCount = filtered.count
     let templatesSnapshot = noteTemplates
+    let attachmentsRootURL = libraryRepository.attachmentsRootURL
+    let service = archiveService
     Task.detached { [weak self] in
       do {
-        let zipURL = try ScealArchiveExporter.exportNotes(
+        let zipURL = try service.exportNotes(
           filtered,
-          templates: templatesSnapshot
+          templates: templatesSnapshot,
+          attachmentsRootURL: attachmentsRootURL
         )
 
         if fm.fileExists(atPath: saveURL.path) {
@@ -143,7 +146,7 @@ extension NotesStore {
         }
         try fm.moveItem(at: zipURL, to: saveURL)
 
-        ScealArchiveExporter.cleanUp(zipURL: zipURL)
+        service.cleanUp(zipURL: zipURL)
 
         await MainActor.run { [weak self] in
           self?.userMessage = (text: "Exported \(noteCount) notes.", kind: .info)
@@ -196,8 +199,7 @@ extension NotesStore {
 
     let attachmentsRootURL: URL?
     do {
-      attachmentsRootURL = try NoteImageAttachmentStore.attachmentRootDirectoryURL(
-        fileManager: fileManager,
+      attachmentsRootURL = try libraryRepository.attachmentsRootDirectoryURL(
         createIfNeeded: false
       )
     } catch {
@@ -209,9 +211,10 @@ extension NotesStore {
     progressMessage = "Exporting library..."
 
     let fm = fileManager
+    let service = archiveService
     Task.detached { [weak self] in
       do {
-        let zipURL = try ScealBackupArchiveExporter.exportBackup(
+        let zipURL = try service.exportBackup(
           dailyNotes: dailyNotesSnapshot,
           listNotes: listNotesSnapshot,
           manifest: manifestSnapshot,
@@ -225,7 +228,7 @@ extension NotesStore {
         }
         try fm.moveItem(at: zipURL, to: saveURL)
 
-        ZipArchiveWriter.cleanUp(zipURL: zipURL)
+        service.cleanUp(zipURL: zipURL)
 
         await MainActor.run { [weak self] in
           self?.userMessage = (
@@ -322,7 +325,7 @@ extension NotesStore {
     let currentListNotes = listNotes
     let currentManifest = listNoteManifest
     let currentTemplates = noteTemplates
-    let fm = fileManager
+    let service = archiveService
     let didStartAccessing = archiveURL.startAccessingSecurityScopedResource()
 
     isPerformingFileOperation = true
@@ -336,15 +339,14 @@ extension NotesStore {
       }
 
       do {
-        let result = try ScealBackupArchiveImporter.restoreLibrary(
+        let result = try service.restoreLibrary(
           from: archiveURL,
           currentDailyNotes: currentDailyNotes,
           currentListNotes: currentListNotes,
           currentManifest: currentManifest,
           currentTemplates: currentTemplates,
           destinationURLs: storageURLs,
-          safetyArchiveDirectoryURL: safetyArchiveDirectoryURL,
-          fileManager: fm
+          safetyArchiveDirectoryURL: safetyArchiveDirectoryURL
         )
 
         await MainActor.run { [weak self] in
@@ -462,9 +464,7 @@ extension NotesStore {
     let attachmentsDir: URL
     do {
       notesDir = try notesDirectoryURL()
-      attachmentsDir = try NoteImageAttachmentStore.attachmentRootDirectoryURL(
-        fileManager: fileManager
-      )
+      attachmentsDir = try libraryRepository.attachmentsRootDirectoryURL()
     } catch {
       report(error, context: context)
       return
@@ -591,33 +591,11 @@ extension NotesStore {
   }
 
   private func libraryStorageURLs() throws -> ScealLibraryStorageURLs {
-    let notesURL = try notesDirectoryURL()
-    let listNotesURL = try listNotesDirectoryURL()
-    let attachmentsURL = try NoteImageAttachmentStore.attachmentRootDirectoryURL(
-      fileManager: fileManager
-    )
-
-    return ScealLibraryStorageURLs(
-      notesDirectoryURL: notesURL,
-      listNotesDirectoryURL: listNotesURL,
-      attachmentsRootURL: attachmentsURL
-    )
+    try libraryRepository.storageURLs()
   }
 
   private func restoreSafetyArchiveDirectoryURL() throws -> URL {
-    let appSupportURL = try fileManager.url(
-      for: .applicationSupportDirectory,
-      in: .userDomainMask,
-      appropriateFor: nil,
-      create: true
-    )
-    let directoryURL =
-      appSupportURL
-      .appendingPathComponent("Sceal", isDirectory: true)
-      .appendingPathComponent("Restore Safety Backups", isDirectory: true)
-
-    try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-    return directoryURL
+    try libraryRepository.restoreSafetyArchiveDirectoryURL()
   }
 
   // Shows the user-facing import result message with consistent formatting across importers.
