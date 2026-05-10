@@ -189,15 +189,22 @@ extension NotesStore {
 
   private func performBackup(trigger: BackupTrigger, respectSchedule: Bool) {
     guard backupSettings.isConfigured else {
+      Self.backupLogger.debug("Skipping backup because no folder is configured.")
       return
     }
 
     guard trigger.archiveKind == .manual || hasAccess(to: .automaticBackupSchedules) else {
+      Self.backupLogger.info(
+        "Skipping \(trigger.logName, privacy: .public) backup because automatic backups are locked."
+      )
       refreshBackupHealth()
       return
     }
 
     guard !isBackupRunning else {
+      Self.backupLogger.debug(
+        "Skipping \(trigger.logName, privacy: .public) backup because another backup is running."
+      )
       if trigger == .manual {
         userMessage = (text: "A backup is already running.", kind: .info)
       }
@@ -205,6 +212,9 @@ extension NotesStore {
     }
 
     if respectSchedule && !isBackupDue() {
+      Self.backupLogger.debug(
+        "Skipping \(trigger.logName, privacy: .public) backup because schedule is not due."
+      )
       refreshBackupHealth()
       return
     }
@@ -230,6 +240,9 @@ extension NotesStore {
     objectWillChange.send()
     backupSettingsStore.markBackupAttempted(at: backupDate)
     persistBackupSettings()
+    Self.backupLogger.info(
+      "Starting \(trigger.logName, privacy: .public) backup with \(dailyNotesSnapshot.count) daily notes and \(listNotesSnapshot.count) list notes."
+    )
 
     let fm = fileManager
     Task.detached { [weak self] in
@@ -252,6 +265,9 @@ extension NotesStore {
 
         await MainActor.run { [weak self] in
           guard let self else { return }
+          Self.backupLogger.info(
+            "Finished \(trigger.logName, privacy: .public) backup archive=\(archiveURL.lastPathComponent, privacy: .public) bytes=\(archiveSize ?? 0)."
+          )
           self.objectWillChange.send()
           self.backupSettingsStore.markBackupSucceeded(
             at: backupDate,
@@ -272,7 +288,9 @@ extension NotesStore {
       } catch {
         await MainActor.run { [weak self] in
           guard let self else { return }
-          Self.backupLogger.error("Backup failed: \(error.localizedDescription)")
+          Self.backupLogger.error(
+            "\(trigger.logName, privacy: .public) backup failed: \(error.localizedDescription)"
+          )
           self.objectWillChange.send()
           self.backupSettingsStore.markBackupFailed(error.localizedDescription)
           self.persistBackupSettings()
@@ -374,6 +392,25 @@ extension NotesStore {
       in: managedFolderURL,
       schedule: schedule
     )
+  }
+}
+
+extension BackupTrigger {
+  fileprivate var logName: String {
+    switch self {
+    case .manual:
+      "manual"
+    case .locationConfigured:
+      "location-configured"
+    case .launchCatchUp:
+      "launch-catch-up"
+    case .inactive:
+      "inactive"
+    case .periodicTimer:
+      "periodic-timer"
+    case .postImport:
+      "post-import"
+    }
   }
 }
 
