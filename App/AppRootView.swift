@@ -9,11 +9,13 @@ import SwiftUI
 
 struct AppRootView: View {
   @ObservedObject var store: NotesStore
+  let enablesDemoModeOnLaunch: Bool
   @State private var notePendingDeletionID: DayNote.ID?
   @State private var notePendingDateChangeID: DayNote.ID?
   @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
   @State private var transientToast: AppToastMessage?
   @State private var transientToastDismissTask: Task<Void, Never>?
+  @State private var hasAppliedLaunchDemoMode = false
 
   // Prevents app-hosted unit tests from loading real user data into the test runner.
   private let isRunningUnitTests =
@@ -58,10 +60,13 @@ struct AppRootView: View {
     }
     .navigationSplitViewStyle(.balanced)
     .task {
-      guard !isRunningUnitTests else {
-        return
+      if !isRunningUnitTests {
+        store.loadIfNeeded()
       }
-      store.loadIfNeeded()
+
+      #if DEBUG
+        applyLaunchDemoModeIfNeeded()
+      #endif
     }
     .alert("Delete this note?", isPresented: isShowingDeleteConfirmation) {
       Button("Delete", role: .destructive) {
@@ -174,6 +179,15 @@ struct AppRootView: View {
   private var editorBackgroundColor: Color {
     store.appearanceSettings.resolvedColors.editorBackground.color
   }
+
+  #if DEBUG
+    // Applies the DEBUG launch default once, after real notes have been loaded.
+    private func applyLaunchDemoModeIfNeeded() {
+      guard enablesDemoModeOnLaunch, !hasAppliedLaunchDemoMode else { return }
+      hasAppliedLaunchDemoMode = true
+      store.setDemoModeEnabled(true)
+    }
+  #endif
 
   // Shows short-lived local feedback for AppKit-hosted controls inside the editor.
   private func showToast(_ message: String, kind: UserMessageKind) {

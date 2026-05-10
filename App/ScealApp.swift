@@ -12,9 +12,15 @@ struct ScealApp: App {
   @Environment(\.scenePhase) private var scenePhase
   @StateObject private var noteStore = NotesStore()
 
+  #if DEBUG
+    private let enablesDemoModeOnLaunch = true
+  #else
+    private let enablesDemoModeOnLaunch = false
+  #endif
+
   var body: some Scene {
     WindowGroup {
-      AppRootView(store: noteStore)
+      AppRootView(store: noteStore, enablesDemoModeOnLaunch: enablesDemoModeOnLaunch)
         .preferredColorScheme(noteStore.appearanceSettings.preferredColorScheme)
     }
     .windowStyle(.hiddenTitleBar)
