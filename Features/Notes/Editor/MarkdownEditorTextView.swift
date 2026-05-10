@@ -88,6 +88,7 @@ final class MarkdownEditorTextView: NSTextView {
   private var hoveredTableCloseID: String? = nil
   private var tableBlockTrackingAreas: [NSTrackingArea] = []
   private var tableCloseTrackingAreas: [NSTrackingArea] = []
+  var isApplyingTableBlockEdit = false
 
   // Section icon rendering and hit testing constants.
   private let sectionIconSize: CGFloat = 18
@@ -2366,6 +2367,8 @@ extension MarkdownEditorTextView: EditorTableBlockViewDelegate {
     ensureEditorLayoutForEntireDocument()
     syncTableBlockViews()
     setNeedsDisplay(bounds)
+    isApplyingTableBlockEdit = true
+    defer { isApplyingTableBlockEdit = false }
     didChangeText()
   }
 

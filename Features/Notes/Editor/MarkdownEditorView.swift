@@ -57,7 +57,9 @@ struct MarkdownEditorView: NSViewRepresentable {
       Self.applyBottomOverscroll(to: textView, in: scrollView, viewportHeight: viewportHeight)
     }
 
-    applyDisplayString(formatDisplayString(for: text), to: textView)
+    context.coordinator.performProgrammaticUpdate {
+      applyDisplayString(formatDisplayString(for: text), to: textView)
+    }
     Self.applyContinuousSpellChecking(
       to: textView,
       enabled: continuousSpellCheckingEnabled,
@@ -88,12 +90,16 @@ struct MarkdownEditorView: NSViewRepresentable {
     guard !context.coordinator.isUpdating else { return }
     guard let textView = scrollView.documentView as? NSTextView else { return }
 
-    // Flush any pending debounced markdown push before switching notes so the
-    // old note's final content is committed while the parent binding is still correct.
-    if noteID != context.coordinator.lastNoteID,
-      let textStorage = textView.textStorage
+    let noteChanged = noteID != context.coordinator.lastNoteID
+    var currentMarkdown = text
+
+    // Flush any pending debounced markdown push before replacing editor content.
+    // On note switches this commits the old note while its binding is still active.
+    if let textStorage = textView.textStorage,
+      let flushedMarkdown = context.coordinator.flushPendingMarkdownPushIfNeeded(from: textStorage),
+      !noteChanged
     {
-      context.coordinator.flushPendingMarkdownPushIfNeeded(from: textStorage)
+      currentMarkdown = flushedMarkdown
     }
 
     context.coordinator.parent = self
@@ -108,8 +114,7 @@ struct MarkdownEditorView: NSViewRepresentable {
     }
     Self.applyBottomOverscroll(to: textView, in: scrollView)
 
-    let noteChanged = noteID != context.coordinator.lastNoteID
-    let textChanged = text != context.coordinator.lastPushedMarkdown
+    let textChanged = currentMarkdown != context.coordinator.lastPushedMarkdown
     let appearanceChanged = appearanceSettings != context.coordinator.lastAppliedAppearance
     let spellCheckingChanged =
       continuousSpellCheckingEnabled != context.coordinator.lastContinuousSpellCheckingEnabled
@@ -123,46 +128,46 @@ struct MarkdownEditorView: NSViewRepresentable {
     guard contentChanged || searchChanged || spellCheckingChanged else { return }
 
     if contentChanged {
-      context.coordinator.isUpdating = true
       let visibleOrigin = scrollView.contentView.bounds.origin
       let wasFirstResponder = textView.window?.firstResponder === textView
 
-      let displayString = formatDisplayString(for: text)
-      let selectedRange =
-        noteChanged
-        ? NSRange(location: 0, length: 0)
-        : clampedRange(textView.selectedRange(), maxLength: text.utf16.count)
-      applyDisplayString(displayString, to: textView)
-      context.coordinator.lastPushedMarkdown = text
-      context.coordinator.lastAppliedAppearance = appearanceSettings
-      context.coordinator.lastNoteID = noteID
-      context.coordinator.lastAppliesTemplateSectionColorOverride =
-        appliesTemplateSectionColorOverride
-      context.coordinator.lastTemplateSectionColorName = templateSectionColorName
-      if let interactiveTV = textView as? MarkdownEditorTextView {
-        context.coordinator.lastDividerCount = interactiveTV.sectionDividerCount
-      }
-      textView.setSelectedRange(
-        clampedRange(selectedRange, maxLength: textView.string.utf16.count)
-      )
-      context.coordinator.syncTypingAttributesToCurrentSelection(in: textView)
-      if let interactiveTextView = textView as? MarkdownEditorTextView {
-        interactiveTextView.updateActiveSectionIcon(
-          forSelection: interactiveTextView.selectedRange())
-      }
-
-      if noteChanged {
-        scrollView.contentView.scroll(to: .zero)
-        textView.window?.makeFirstResponder(nil)
-      } else {
-        scrollView.contentView.scroll(to: visibleOrigin)
-        if wasFirstResponder, textView.window?.firstResponder !== textView {
-          textView.window?.makeFirstResponder(textView)
+      context.coordinator.performProgrammaticUpdate {
+        let displayString = formatDisplayString(for: currentMarkdown)
+        let selectedRange =
+          noteChanged
+          ? NSRange(location: 0, length: 0)
+          : clampedRange(textView.selectedRange(), maxLength: currentMarkdown.utf16.count)
+        applyDisplayString(displayString, to: textView)
+        context.coordinator.lastPushedMarkdown = currentMarkdown
+        context.coordinator.lastAppliedAppearance = appearanceSettings
+        context.coordinator.lastNoteID = noteID
+        context.coordinator.lastAppliesTemplateSectionColorOverride =
+          appliesTemplateSectionColorOverride
+        context.coordinator.lastTemplateSectionColorName = templateSectionColorName
+        if let interactiveTV = textView as? MarkdownEditorTextView {
+          context.coordinator.lastDividerCount = interactiveTV.sectionDividerCount
         }
-      }
+        textView.setSelectedRange(
+          clampedRange(selectedRange, maxLength: textView.string.utf16.count)
+        )
+        context.coordinator.syncTypingAttributesToCurrentSelection(in: textView)
+        if let interactiveTextView = textView as? MarkdownEditorTextView {
+          interactiveTextView.updateActiveSectionIcon(
+            forSelection: interactiveTextView.selectedRange())
+        }
 
-      scrollView.reflectScrolledClipView(scrollView.contentView)
-      context.coordinator.isUpdating = false
+        if noteChanged {
+          scrollView.contentView.scroll(to: .zero)
+          textView.window?.makeFirstResponder(nil)
+        } else {
+          scrollView.contentView.scroll(to: visibleOrigin)
+          if wasFirstResponder, textView.window?.firstResponder !== textView {
+            textView.window?.makeFirstResponder(textView)
+          }
+        }
+
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+      }
       context.coordinator.refreshToolbarPresentation(in: textView)
     }
 
@@ -578,12 +583,32 @@ extension MarkdownEditorView {
       toolbar.appearanceSettings = parent.appearanceSettings
     }
 
+    deinit {
+      pendingMarkdownTask?.cancel()
+    }
+
+    // Runs editor rendering changes without allowing delegate callbacks to rewrite markdown.
+    func performProgrammaticUpdate(_ update: () -> Void) {
+      isUpdating = true
+      pendingEditContext = nil
+      defer {
+        pendingEditContext = nil
+        isUpdating = false
+      }
+      update()
+    }
+
     // Captures the pending edit context before AppKit applies the change.
     func textView(
       _ textView: NSTextView,
       shouldChangeTextIn affectedCharRange: NSRange,
       replacementString: String?
     ) -> Bool {
+      guard !isUpdating else {
+        pendingEditContext = nil
+        return true
+      }
+
       if let pendingSlashHeadingLineLocation,
         let pendingSlashHeadingTypingAttributes
       {
@@ -653,14 +678,24 @@ extension MarkdownEditorView {
 
     // Formats the edited line immediately, then schedules the O(n) markdown conversion.
     func textDidChange(_ notification: Notification) {
-      guard !isUpdating else { return }
+      guard !isUpdating else {
+        pendingEditContext = nil
+        return
+      }
       guard let textView = notification.object as? NSTextView,
         let textStorage = textView.textStorage
       else { return }
 
+      let isApplyingTableBlockEdit =
+        (textView as? MarkdownEditorTextView)?.isApplyingTableBlockEdit == true
+      let shouldPushMarkdown =
+        pendingEditContext != nil || isApplyingSlashCommand || isApplyingTableBlockEdit
+
       isUpdating = true
-      if !isApplyingSlashCommand {
+      if pendingEditContext != nil, !isApplyingSlashCommand {
         autoformatEditedLinesIfNeeded(in: textView, textStorage: textStorage)
+      } else {
+        pendingEditContext = nil
       }
       isUpdating = false
 
@@ -668,7 +703,7 @@ extension MarkdownEditorView {
       // the command handler returns. Regular typing is debounced for performance.
       if isApplyingSlashCommand {
         executePushMarkdown(from: textStorage)
-      } else {
+      } else if shouldPushMarkdown {
         scheduleMarkdownPush(from: textStorage)
       }
 
@@ -735,7 +770,8 @@ extension MarkdownEditorView {
     }
 
     // Runs the conversion and pushes the result to the SwiftUI binding.
-    private func executePushMarkdown(from textStorage: NSTextStorage) {
+    @discardableResult
+    private func executePushMarkdown(from textStorage: NSTextStorage) -> String {
       pendingMarkdownTask = nil
       let convertedMarkdown = MarkdownEditorFormatter.convertToMarkdown(from: textStorage)
       let markdown =
@@ -744,14 +780,16 @@ extension MarkdownEditorView {
         : convertedMarkdown
       lastPushedMarkdown = markdown
       parent.text = markdown
+      return markdown
     }
 
     // Flushes any pending debounced push immediately. Must be called before the coordinator's
     // parent is updated so the conversion still targets the old note's binding.
-    func flushPendingMarkdownPushIfNeeded(from textStorage: NSTextStorage) {
-      guard pendingMarkdownTask != nil else { return }
+    @discardableResult
+    func flushPendingMarkdownPushIfNeeded(from textStorage: NSTextStorage) -> String? {
+      guard pendingMarkdownTask != nil else { return nil }
       pendingMarkdownTask?.cancel()
-      executePushMarkdown(from: textStorage)
+      return executePushMarkdown(from: textStorage)
     }
 
     // Re-applies insertion typing attributes to the active caret.
