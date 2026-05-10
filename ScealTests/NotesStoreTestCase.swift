@@ -65,14 +65,28 @@ class NotesStoreTestCase: XCTestCase {
     )
   }
 
+  // Gives store tests a disposable file-backed root instead of the real app-support library.
+  func makeLibraryLocation() -> ScealLibraryLocation {
+    let rootURL = FileManager.default.temporaryDirectory
+      .appendingPathComponent("ScealTests-\(UUID().uuidString)", isDirectory: true)
+
+    addTeardownBlock {
+      try? FileManager.default.removeItem(at: rootURL)
+    }
+
+    return .test(rootURL: rootURL)
+  }
+
   // Builds a store with injected notes and defaults while avoiding disk-backed loading.
   func makeStore(
     previewNotes: [DayNote] = [],
-    userDefaults: UserDefaults? = nil
+    userDefaults: UserDefaults? = nil,
+    libraryLocation: ScealLibraryLocation? = nil
   ) -> NotesStore {
     NotesStore(
       calendar: Calendar(identifier: .gregorian),
       userDefaults: userDefaults ?? .standard,
+      libraryLocation: libraryLocation ?? makeLibraryLocation(),
       previewNotes: previewNotes
     )
   }

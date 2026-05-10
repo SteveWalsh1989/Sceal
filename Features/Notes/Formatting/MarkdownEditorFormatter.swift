@@ -229,7 +229,8 @@ enum MarkdownEditorFormatter {
     appearance: NoteAppearanceSettings,
     initialSectionHeadingColorName: String? = nil,
     initialSectionBulletColorName: String? = nil,
-    initialSectionUseSectionColor: Bool = false
+    initialSectionUseSectionColor: Bool = false,
+    libraryRootURL: URL? = nil
   )
     -> NSAttributedString
   {
@@ -416,7 +417,8 @@ enum MarkdownEditorFormatter {
       let displayLine = buildDisplayLine(
         line,
         appearance: appearance,
-        imageWidth: pendingImageWidth
+        imageWidth: pendingImageWidth,
+        libraryRootURL: libraryRootURL
       )
       if parseMarkdownImage(line) != nil {
         pendingImageWidth = nil

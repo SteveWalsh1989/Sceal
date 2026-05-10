@@ -43,6 +43,7 @@ final class MarkdownEditorTextView: NSTextView {
 
   var appearanceSettings = NoteAppearanceSettings.default
   var noteID: DayNote.ID?
+  var libraryRootURL: URL?
   var imageAttachmentRootURL: URL?
   var imageAttachmentFileManager: FileManager = .default
   var allowsImageAttachments = true
@@ -1555,7 +1556,8 @@ final class MarkdownEditorTextView: NSTextView {
     let markdown = blockMarkdownForInsertion(imageMarkdown, replacing: replacementRange)
     let attributed = MarkdownEditorFormatter.formatForDisplay(
       markdown,
-      appearance: appearanceSettings
+      appearance: appearanceSettings,
+      libraryRootURL: libraryRootURL
     )
 
     return performEditorEdit(
@@ -1580,7 +1582,8 @@ final class MarkdownEditorTextView: NSTextView {
     let markdown = blockMarkdownForInsertion(tableMarkdown, replacing: replacementRange)
     let attributed = MarkdownEditorFormatter.formatForDisplay(
       markdown,
-      appearance: appearanceSettings
+      appearance: appearanceSettings,
+      libraryRootURL: libraryRootURL
     )
 
     let inserted = performEditorEdit(
@@ -1709,7 +1712,7 @@ final class MarkdownEditorTextView: NSTextView {
 
     if let markdown = NSPasteboard.general.string(forType: Self.markdownPasteboardType) {
       let attributed = MarkdownEditorFormatter.formatForDisplay(
-        markdown, appearance: appearanceSettings)
+        markdown, appearance: appearanceSettings, libraryRootURL: libraryRootURL)
       performEditorEdit(
         affectedRange: pasteRange,
         replacementString: attributed.string,
@@ -1732,7 +1735,7 @@ final class MarkdownEditorTextView: NSTextView {
 
     guard let plainText = NSPasteboard.general.string(forType: .string) else { return }
     let attributed = MarkdownEditorFormatter.formatForDisplay(
-      plainText, appearance: appearanceSettings)
+      plainText, appearance: appearanceSettings, libraryRootURL: libraryRootURL)
     performEditorEdit(
       affectedRange: pasteRange,
       replacementString: attributed.string,

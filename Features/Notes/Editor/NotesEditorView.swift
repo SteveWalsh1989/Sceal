@@ -133,6 +133,11 @@ struct NotesEditorView: View {
             continuousSpellCheckingEnabled: store.continuousSpellCheckingEnabled,
             searchText: isListMode ? store.listSearchText : store.searchText,
             customSlashTemplates: store.enabledSlashCommandTemplates(),
+            libraryRootURL: store.libraryLocation.rootURL,
+            imageAttachmentRootURL: store.libraryLocation.rootURL.appendingPathComponent(
+              NoteImageAttachmentStore.attachmentsFolderName,
+              isDirectory: true
+            ),
             onPromptCopied: {
               showToast("Copied", .info)
             }

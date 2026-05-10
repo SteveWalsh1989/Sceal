@@ -10,7 +10,7 @@ final class MigrationStorageFixtureTests: MarkdownPreservationTestCase {
     let fixture = try loadFixtureText("Notes/2026-05-10-composite.md")
     let note = try MarkdownNoteCodec.decode(
       contents: fixture,
-      sourceURL: fixtureURL("Notes/2026-05-10-composite.md")
+      sourceURL: try fixtureURL("Notes/2026-05-10-composite.md")
     )
 
     XCTAssertEqual(note.id, "2026-05-10")
@@ -51,8 +51,8 @@ final class MigrationStorageFixtureTests: MarkdownPreservationTestCase {
   func testListNoteFixtureDecodesWithCustomIDOverride() throws {
     let fixturePath = "ListNotes/project-alpha.md"
     let note = try MarkdownNoteCodec.decode(
-      contents: loadFixtureText(fixturePath),
-      sourceURL: fixtureURL(fixturePath),
+      contents: try loadFixtureText(fixturePath),
+      sourceURL: try fixtureURL(fixturePath),
       idOverride: "project-alpha"
     )
 
@@ -65,7 +65,7 @@ final class MigrationStorageFixtureTests: MarkdownPreservationTestCase {
 
   // Keeps list-note group metadata compatible with the current manifest decoder.
   func testListNotesManifestFixtureDecodes() throws {
-    let data = try Data(contentsOf: fixtureURL("ListNotes/groups.json"))
+    let data = try Data(contentsOf: try fixtureURL("ListNotes/groups.json"))
     let manifest = try JSONDecoder().decode(ListNotesManifest.self, from: data)
 
     XCTAssertEqual(manifest.ungroupedNoteIDs, ["project-alpha"])
@@ -81,8 +81,8 @@ final class MigrationStorageFixtureTests: MarkdownPreservationTestCase {
 
     XCTAssertThrowsError(
       try MarkdownNoteCodec.decode(
-        contents: loadFixtureText(fixturePath),
-        sourceURL: fixtureURL(fixturePath)
+        contents: try loadFixtureText(fixturePath),
+        sourceURL: try fixtureURL(fixturePath)
       )
     ) { error in
       guard case MarkdownNoteCodecError.missingFrontMatter = error else {
@@ -93,25 +93,46 @@ final class MigrationStorageFixtureTests: MarkdownPreservationTestCase {
 
   private func decodeFixtureNote(_ relativePath: String) throws -> DayNote {
     try MarkdownNoteCodec.decode(
-      contents: loadFixtureText(relativePath),
-      sourceURL: fixtureURL(relativePath)
+      contents: try loadFixtureText(relativePath),
+      sourceURL: try fixtureURL(relativePath)
     )
   }
 
   private func loadFixtureText(_ relativePath: String) throws -> String {
-    try String(contentsOf: fixtureURL(relativePath), encoding: .utf8)
+    try String(contentsOf: try fixtureURL(relativePath), encoding: .utf8)
   }
 
-  private func fixtureURL(_ relativePath: String) -> URL {
-    URL(fileURLWithPath: #filePath)
-      .deletingLastPathComponent()
-      .appendingPathComponent("Fixtures/Migration")
-      .appendingPathComponent(relativePath)
+  private func fixtureURL(_ relativePath: String) throws -> URL {
+    let fileURL = URL(fileURLWithPath: relativePath)
+    let fileName = fileURL.deletingPathExtension().lastPathComponent
+    let fileExtension = fileURL.pathExtension
+
+    guard
+      let resourceURL = Bundle(for: Self.self).url(
+        forResource: fileName,
+        withExtension: fileExtension.isEmpty ? nil : fileExtension
+      )
+    else {
+      throw MigrationStorageFixtureError.missingResource(relativePath)
+    }
+
+    return resourceURL
   }
 }
 
 extension String {
   fileprivate func trimmingSingleTrailingNewline() -> String {
     hasSuffix("\n") ? String(dropLast()) : self
+  }
+}
+
+enum MigrationStorageFixtureError: LocalizedError {
+  case missingResource(String)
+
+  var errorDescription: String? {
+    switch self {
+    case .missingResource(let relativePath):
+      return "Missing migration fixture resource: \(relativePath)"
+    }
   }
 }

@@ -16,7 +16,8 @@ extension MarkdownEditorFormatter {
   static func buildDisplayLine(
     _ rawLine: String,
     appearance: NoteAppearanceSettings,
-    imageWidth: CGFloat? = nil
+    imageWidth: CGFloat? = nil,
+    libraryRootURL: URL? = nil
   )
     -> NSAttributedString
   {
@@ -43,7 +44,8 @@ extension MarkdownEditorFormatter {
         title: image.title,
         path: image.path,
         width: imageWidth,
-        appearance: appearance
+        appearance: appearance,
+        libraryRootURL: libraryRootURL
       )
     }
 
@@ -442,10 +444,16 @@ extension MarkdownEditorFormatter {
     title: String,
     path: String,
     width: CGFloat?,
-    appearance: NoteAppearanceSettings
+    appearance: NoteAppearanceSettings,
+    libraryRootURL: URL? = nil
   ) -> NSAttributedString {
     let resolvedWidth = clampedImageWidth(width ?? imageDefaultWidth)
-    let renderedImage = renderedImageAttachment(title: title, path: path, width: resolvedWidth)
+    let renderedImage = renderedImageAttachment(
+      title: title,
+      path: path,
+      width: resolvedWidth,
+      libraryRootURL: libraryRootURL
+    )
     let attachment = NSTextAttachment()
     attachment.image = renderedImage
     attachment.bounds = NSRect(origin: .zero, size: renderedImage.size)
@@ -589,10 +597,14 @@ extension MarkdownEditorFormatter {
   private static func renderedImageAttachment(
     title: String,
     path: String,
-    width: CGFloat
+    width: CGFloat,
+    libraryRootURL: URL?
   ) -> NSImage {
-    let sourceImage = NoteImageAttachmentStore.resolvedImageURL(for: path)
-      .flatMap { NSImage(contentsOf: $0) }
+    let sourceImage = NoteImageAttachmentStore.resolvedImageURL(
+      for: path,
+      libraryRootURL: libraryRootURL
+    )
+    .flatMap { NSImage(contentsOf: $0) }
     let imageSize = sourceImage?.size ?? NSSize(width: width, height: width * 0.58)
     let safeImageWidth = max(imageSize.width, 1)
     let imageHeight = max(width * (imageSize.height / safeImageWidth), 80)

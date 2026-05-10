@@ -125,6 +125,7 @@ final class NotesStore: ObservableObject {
   let fileManager: FileManager
   let calendar: Calendar
   let userDefaults: UserDefaults
+  let libraryLocation: ScealLibraryLocation
   private var hasLoaded = false
   private var noteIndex: [DayNote.ID: Int] = [:]
   var listNoteIndex: [DayNote.ID: Int] = [:]
@@ -147,11 +148,17 @@ final class NotesStore: ObservableObject {
     fileManager: FileManager = .default,
     calendar: Calendar = .current,
     userDefaults: UserDefaults = .standard,
+    libraryLocation: ScealLibraryLocation? = nil,
     previewNotes: [DayNote] = []
   ) {
     self.fileManager = fileManager
     self.calendar = calendar
     self.userDefaults = userDefaults
+    self.libraryLocation =
+      libraryLocation
+      ?? ScealLibraryLocation.defaultForCurrentBuild(
+        fileManager: fileManager
+      )
     let sortedNotes = previewNotes.sorted(by: { $0.date > $1.date })
     let loadedBackupSettings = Self.loadBackupSettings(from: userDefaults)
     let currentYear = calendar.component(.year, from: .now)
@@ -563,7 +570,11 @@ final class NotesStore: ObservableObject {
       try NoteImageAttachmentStore.moveAttachments(
         from: sourceNote.id,
         to: movedNote.id,
-        fileManager: fileManager
+        fileManager: fileManager,
+        rootURL: libraryLocation.rootURL.appendingPathComponent(
+          NoteImageAttachmentStore.attachmentsFolderName,
+          isDirectory: true
+        )
       )
       try deleteFile(for: sourceNote)
     } catch {
@@ -596,7 +607,14 @@ final class NotesStore: ObservableObject {
 
     do {
       try deleteFile(for: note)
-      try NoteImageAttachmentStore.deleteAttachments(for: note.id, fileManager: fileManager)
+      try NoteImageAttachmentStore.deleteAttachments(
+        for: note.id,
+        fileManager: fileManager,
+        rootURL: libraryLocation.rootURL.appendingPathComponent(
+          NoteImageAttachmentStore.attachmentsFolderName,
+          isDirectory: true
+        )
+      )
     } catch {
       report(error, context: "Deleting note failed")
       return
@@ -926,24 +944,7 @@ final class NotesStore: ObservableObject {
 
   // Returns the notes directory, creating it if needed.
   func notesDirectoryURL() throws -> URL {
-    let appSupportURL = try fileManager.url(
-      for: .applicationSupportDirectory,
-      in: .userDomainMask,
-      appropriateFor: nil,
-      create: true
-    )
-
-    let notesDirectoryURL =
-      appSupportURL
-      .appendingPathComponent("Sceal", isDirectory: true)
-      .appendingPathComponent("Notes", isDirectory: true)
-
-    try fileManager.createDirectory(
-      at: notesDirectoryURL,
-      withIntermediateDirectories: true
-    )
-
-    return notesDirectoryURL
+    try libraryLocation.notesDirectoryURL(fileManager: fileManager)
   }
 
   // Formats a date as the YYYY-MM-DD storage key.

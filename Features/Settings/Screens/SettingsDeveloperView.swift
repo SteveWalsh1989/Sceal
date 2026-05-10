@@ -27,6 +27,15 @@
           .font(.footnote)
           .foregroundStyle(.secondary)
         }
+
+        Section("Storage") {
+          LabeledContent("Active library") {
+            Text(store.libraryLocation.rootURL.path)
+              .font(.caption)
+              .foregroundStyle(.secondary)
+              .textSelection(.enabled)
+          }
+        }
       }
       .formStyle(.grouped)
     }

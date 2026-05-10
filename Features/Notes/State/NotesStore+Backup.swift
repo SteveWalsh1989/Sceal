@@ -199,6 +199,10 @@ extension NotesStore {
     let templatesSnapshot = noteTemplates
     let backupSettingsSnapshot = backupSettings
     let backupDate = Date.now
+    let attachmentsRootURL = libraryLocation.rootURL.appendingPathComponent(
+      NoteImageAttachmentStore.attachmentsFolderName,
+      isDirectory: true
+    )
 
     isBackupRunning = true
     backupHealth = .running
@@ -219,6 +223,7 @@ extension NotesStore {
           kind: trigger.archiveKind,
           schedule: backupSettingsSnapshot.schedule,
           createdAt: backupDate,
+          attachmentsRootURL: attachmentsRootURL,
           fileManager: fm
         )
 
@@ -371,6 +376,7 @@ extension NotesStore {
     kind: BackupArchiveKind,
     schedule: BackupSchedule,
     createdAt: Date,
+    attachmentsRootURL: URL? = nil,
     fileManager: FileManager
   ) throws -> URL {
     try accessBookmark(bookmarkData) { selectedFolderURL in
@@ -384,7 +390,8 @@ extension NotesStore {
         manifest: manifest,
         templates: templates,
         kind: kind,
-        createdAt: createdAt
+        createdAt: createdAt,
+        attachmentsRootURL: attachmentsRootURL
       )
       let destinationArchiveURL = managedFolderURL.appendingPathComponent(
         temporaryArchiveURL.lastPathComponent

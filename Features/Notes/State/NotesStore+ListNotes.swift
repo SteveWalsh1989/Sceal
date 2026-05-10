@@ -19,24 +19,7 @@ extension NotesStore {
 
   // Returns the list notes directory, creating it if needed.
   func listNotesDirectoryURL() throws -> URL {
-    let appSupportURL = try fileManager.url(
-      for: .applicationSupportDirectory,
-      in: .userDomainMask,
-      appropriateFor: nil,
-      create: true
-    )
-
-    let directoryURL =
-      appSupportURL
-      .appendingPathComponent("Sceal", isDirectory: true)
-      .appendingPathComponent("ListNotes", isDirectory: true)
-
-    try fileManager.createDirectory(
-      at: directoryURL,
-      withIntermediateDirectories: true
-    )
-
-    return directoryURL
+    try libraryLocation.listNotesDirectoryURL(fileManager: fileManager)
   }
 
   // URL for the groups.json manifest file.
@@ -212,7 +195,14 @@ extension NotesStore {
       if fileManager.fileExists(atPath: noteURL.path) {
         try fileManager.removeItem(at: noteURL)
       }
-      try NoteImageAttachmentStore.deleteAttachments(for: note.id, fileManager: fileManager)
+      try NoteImageAttachmentStore.deleteAttachments(
+        for: note.id,
+        fileManager: fileManager,
+        rootURL: libraryLocation.rootURL.appendingPathComponent(
+          NoteImageAttachmentStore.attachmentsFolderName,
+          isDirectory: true
+        )
+      )
     } catch {
       report(error, context: "Deleting list note failed")
       return

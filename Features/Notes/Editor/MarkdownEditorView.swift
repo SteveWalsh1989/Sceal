@@ -28,6 +28,8 @@ struct MarkdownEditorView: NSViewRepresentable {
   var continuousSpellCheckingEnabled: Bool = true
   var searchText: String = ""
   var customSlashTemplates: [NoteTemplate] = []
+  var libraryRootURL: URL? = nil
+  var imageAttachmentRootURL: URL? = nil
   var allowsImageAttachments: Bool = true
   var allowsSectionColorEditing: Bool = true
   var appliesTemplateSectionColorOverride: Bool = false
@@ -183,6 +185,8 @@ struct MarkdownEditorView: NSViewRepresentable {
       noteID: noteID,
       appearanceSettings: appearanceSettings,
       continuousSpellCheckingEnabled: continuousSpellCheckingEnabled,
+      libraryRootURL: libraryRootURL,
+      imageAttachmentRootURL: imageAttachmentRootURL,
       allowsImageAttachments: allowsImageAttachments,
       allowsSectionColorEditing: allowsSectionColorEditing,
       delegate: coordinator
@@ -211,7 +215,8 @@ struct MarkdownEditorView: NSViewRepresentable {
       appearance: appearanceSettings,
       initialSectionHeadingColorName: sectionColorName,
       initialSectionBulletColorName: sectionColorName,
-      initialSectionUseSectionColor: sectionColorName != nil
+      initialSectionUseSectionColor: sectionColorName != nil,
+      libraryRootURL: libraryRootURL
     )
   }
 
@@ -220,6 +225,8 @@ struct MarkdownEditorView: NSViewRepresentable {
     noteID: DayNote.ID? = nil,
     appearanceSettings: NoteAppearanceSettings,
     continuousSpellCheckingEnabled: Bool,
+    libraryRootURL: URL? = nil,
+    imageAttachmentRootURL: URL? = nil,
     allowsImageAttachments: Bool = true,
     allowsSectionColorEditing: Bool = true,
     delegate: NSTextViewDelegate?
@@ -227,6 +234,8 @@ struct MarkdownEditorView: NSViewRepresentable {
     if let interactiveTextView = textView as? MarkdownEditorTextView {
       interactiveTextView.appearanceSettings = appearanceSettings
       interactiveTextView.noteID = noteID
+      interactiveTextView.libraryRootURL = libraryRootURL
+      interactiveTextView.imageAttachmentRootURL = imageAttachmentRootURL
       interactiveTextView.allowsImageAttachments = allowsImageAttachments
       interactiveTextView.allowsSectionColorEditing = allowsSectionColorEditing
       interactiveTextView.registerForDraggedTypes([.fileURL, .tiff, .png])

@@ -225,10 +225,19 @@ enum NoteImageAttachmentStore {
 
   nonisolated static func resolvedImageURL(
     for markdownPath: String,
+    libraryRootURL: URL? = nil,
     fileManager: FileManager = .default
   ) -> URL? {
     if markdownPath.hasPrefix("/") {
       return URL(fileURLWithPath: markdownPath)
+    }
+
+    if let libraryRootURL {
+      let normalizedPath =
+        markdownPath.hasPrefix("../")
+        ? String(markdownPath.dropFirst(3))
+        : markdownPath
+      return libraryRootURL.appendingPathComponent(normalizedPath)
     }
 
     guard
