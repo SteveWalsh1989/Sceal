@@ -60,7 +60,6 @@ final class NotesStore: ObservableObject {
   }
   @Published private(set) var continuousSpellCheckingEnabled: Bool
   @Published private(set) var newNoteDefault: NewNoteDefault
-  @Published var noteTemplates: [NoteTemplate]
   @Published private(set) var activePlan: AppPlan
   @Published var selectedNoteID: DayNote.ID? {
     didSet {
@@ -128,6 +127,7 @@ final class NotesStore: ObservableObject {
   let libraryRepository: LibraryRepository
   let settingsRepository: SettingsRepository
   let appearanceSettingsStore: AppearanceSettingsStore
+  let noteTemplatesStore: NoteTemplatesStore
   let archiveService: ArchiveService
   private var hasLoaded = false
   private var noteIndex: [DayNote.ID: Int] = [:]
@@ -157,6 +157,7 @@ final class NotesStore: ObservableObject {
     self.appearanceSettingsStore = AppearanceSettingsStore(
       settingsRepository: resolvedSettingsRepository
     )
+    self.noteTemplatesStore = NoteTemplatesStore(settingsRepository: resolvedSettingsRepository)
     self.archiveService = ArchiveService(fileManager: fileManager)
     let resolvedLibraryLocation =
       libraryLocation
@@ -175,7 +176,6 @@ final class NotesStore: ObservableObject {
     self.noteIndex = Dictionary(uniqueKeysWithValues: sortedNotes.enumerated().map { ($1.id, $0) })
     self.continuousSpellCheckingEnabled = settingsRepository.loadContinuousSpellCheckingEnabled()
     self.newNoteDefault = settingsRepository.loadNewNoteDefault()
-    self.noteTemplates = settingsRepository.loadNoteTemplates()
     self.activePlan = settingsRepository.loadInitialPlan()
     self.backupSettings = loadedBackupSettings
     self.backupHealth = loadedBackupSettings.isConfigured ? .healthy : .notConfigured
@@ -190,6 +190,10 @@ final class NotesStore: ObservableObject {
 
   var appearanceSettings: NoteAppearanceSettings {
     appearanceSettingsStore.settings
+  }
+
+  var noteTemplates: [NoteTemplate] {
+    noteTemplatesStore.templates
   }
 
   // Returns whether the active plan can use the requested capability.

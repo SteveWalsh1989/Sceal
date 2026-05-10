@@ -4,22 +4,17 @@
 
 // NotesStore extension for custom slash-command template management.
 
+import Combine
 import Foundation
 import SwiftUI
 
 extension NotesStore {
   var sortedNoteTemplates: [NoteTemplate] {
-    noteTemplates.sorted {
-      $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
-    }
+    noteTemplatesStore.sortedTemplates
   }
 
   var accessibleNoteTemplates: [NoteTemplate] {
-    guard let templateLimit = featureAccess.templateLimit else {
-      return sortedNoteTemplates
-    }
-
-    return Array(sortedNoteTemplates.prefix(templateLimit))
+    noteTemplatesStore.accessibleTemplates(limit: featureAccess.templateLimit)
   }
 
   var canCreateNoteTemplate: Bool {
@@ -29,13 +24,10 @@ extension NotesStore {
   // Creates a new editable template and selects a unique generated command.
   @discardableResult
   func createNoteTemplate() -> NoteTemplate.ID {
-    let title = "New Template"
-    let command = uniqueGeneratedTemplateCommand(for: title)
-    let template = NoteTemplate(title: title, command: command)
-    noteTemplates.append(template)
-    sortTemplates()
+    objectWillChange.send()
+    let templateID = noteTemplatesStore.createTemplate()
     persistNoteTemplates()
-    return template.id
+    return templateID
   }
 
   // Creates a template from UI actions only when the active plan allows it.
@@ -60,7 +52,8 @@ extension NotesStore {
 
   // Deletes the template and persists the updated template list.
   func deleteNoteTemplate(id: NoteTemplate.ID) {
-    noteTemplates.removeAll { $0.id == id }
+    objectWillChange.send()
+    noteTemplatesStore.deleteTemplate(id: id)
     persistNoteTemplates()
     resetNewNoteDefaultIfTemplateMissing()
   }
@@ -69,32 +62,16 @@ extension NotesStore {
   func mergeImportedNoteTemplates(_ importedTemplates: [NoteTemplate]) {
     guard !importedTemplates.isEmpty else { return }
 
-    var merged = noteTemplates
-    for importedTemplate in importedTemplates {
-      let normalizedCommand = NoteTemplateCommandRules.normalizedManualInput(
-        importedTemplate.command
-      )
-      guard !normalizedCommand.isEmpty else { continue }
-      var template = importedTemplate.normalizedForCurrentVersion()
-      template.command = normalizedCommand
-
-      if let existingIndex = merged.firstIndex(where: { $0.command == normalizedCommand }) {
-        merged[existingIndex] = template
-      } else {
-        merged.append(template)
-      }
-    }
-
-    noteTemplates = merged
-    sortTemplates()
+    objectWillChange.send()
+    noteTemplatesStore.mergeImportedTemplates(importedTemplates)
     persistNoteTemplates()
     resetNewNoteDefaultIfTemplateMissing()
   }
 
   // Replaces all templates after a full-library restore.
   func replaceNoteTemplates(_ templates: [NoteTemplate]) {
-    noteTemplates = templates.map { $0.normalizedForCurrentVersion() }
-    sortTemplates()
+    objectWillChange.send()
+    noteTemplatesStore.replaceTemplates(templates)
     persistNoteTemplates()
     resetNewNoteDefaultIfTemplateMissing()
   }
@@ -103,11 +80,10 @@ extension NotesStore {
   func enabledSlashCommandTemplates(excluding excludedID: NoteTemplate.ID? = nil)
     -> [NoteTemplate]
   {
-    accessibleNoteTemplates.filter { template in
-      template.id != excludedID
-        && template.isEnabled
-        && templateCommandValidationMessage(for: template.id) == nil
-    }
+    noteTemplatesStore.enabledSlashCommandTemplates(
+      limit: featureAccess.templateLimit,
+      excluding: excludedID
+    )
   }
 
   func templateTitleBinding(for templateID: NoteTemplate.ID) -> Binding<String> {
@@ -203,38 +179,18 @@ extension NotesStore {
   }
 
   func noteTemplate(withID templateID: NoteTemplate.ID) -> NoteTemplate? {
-    noteTemplates.first { $0.id == templateID }
+    noteTemplatesStore.template(withID: templateID)
   }
 
   // Returns the first validation message for the current command field.
   func templateCommandValidationMessage(for templateID: NoteTemplate.ID) -> String? {
-    guard let template = noteTemplate(withID: templateID) else { return nil }
-    let command = template.command.trimmingCharacters(in: .whitespacesAndNewlines)
-
-    if command.isEmpty {
-      return "Enter a command."
-    }
-
-    if !NoteTemplateCommandRules.isValidFormat(command) {
-      return "Use lowercase letters, numbers, and hyphens only."
-    }
-
-    if EditorSlashCommandHandler.reservedCommandNames.contains(command) {
-      return "This command is reserved by Scéal."
-    }
-
-    let duplicateCount = noteTemplates.filter { $0.command == command }.count
-    if duplicateCount > 1 {
-      return "This command is already used by another template."
-    }
-
-    return nil
+    noteTemplatesStore.commandValidationMessage(for: templateID)
   }
 
   // Encodes custom templates to UserDefaults so they are restored on launch.
   func persistNoteTemplates() {
     do {
-      try settingsRepository.saveNoteTemplates(noteTemplates)
+      try noteTemplatesStore.persistTemplates()
     } catch {
       report(error, context: "Saving templates failed")
     }
@@ -244,7 +200,10 @@ extension NotesStore {
     mutateNoteTemplate(id: id) { template in
       template.title = title
       if template.usesGeneratedCommand {
-        template.command = uniqueGeneratedTemplateCommand(for: title, excluding: id)
+        template.command = noteTemplatesStore.uniqueGeneratedTemplateCommand(
+          for: title,
+          excluding: id
+        )
       }
     }
   }
@@ -268,35 +227,9 @@ extension NotesStore {
   }
 
   private func mutateNoteTemplate(id: NoteTemplate.ID, mutate: (inout NoteTemplate) -> Void) {
-    var updatedTemplates = noteTemplates
-    guard let index = updatedTemplates.firstIndex(where: { $0.id == id }) else { return }
-    mutate(&updatedTemplates[index])
-    noteTemplates = updatedTemplates
-    sortTemplates()
-    persistNoteTemplates()
-  }
-
-  private func uniqueGeneratedTemplateCommand(
-    for title: String,
-    excluding excludedID: NoteTemplate.ID? = nil
-  ) -> String {
-    let base = NoteTemplateCommandRules.suggestedCommand(for: title)
-    var candidate = base
-    var suffix = 2
-
-    while EditorSlashCommandHandler.reservedCommandNames.contains(candidate)
-      || noteTemplates.contains(where: { $0.id != excludedID && $0.command == candidate })
-    {
-      candidate = "\(base)-\(suffix)"
-      suffix += 1
-    }
-
-    return candidate
-  }
-
-  private func sortTemplates() {
-    noteTemplates.sort {
-      $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+    objectWillChange.send()
+    if noteTemplatesStore.mutateTemplate(id: id, mutate: mutate) {
+      persistNoteTemplates()
     }
   }
 
