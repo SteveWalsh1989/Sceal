@@ -58,7 +58,6 @@ final class NotesStore: ObservableObject {
       clampCalendarBrowseYear()
     }
   }
-  @Published private(set) var appearanceSettings: NoteAppearanceSettings
   @Published private(set) var continuousSpellCheckingEnabled: Bool
   @Published private(set) var newNoteDefault: NewNoteDefault
   @Published var noteTemplates: [NoteTemplate]
@@ -128,6 +127,7 @@ final class NotesStore: ObservableObject {
   let libraryLocation: ScealLibraryLocation
   let libraryRepository: LibraryRepository
   let settingsRepository: SettingsRepository
+  let appearanceSettingsStore: AppearanceSettingsStore
   let archiveService: ArchiveService
   private var hasLoaded = false
   private var noteIndex: [DayNote.ID: Int] = [:]
@@ -152,7 +152,11 @@ final class NotesStore: ObservableObject {
   ) {
     self.fileManager = fileManager
     self.calendar = calendar
-    self.settingsRepository = SettingsRepository(userDefaults: userDefaults)
+    let resolvedSettingsRepository = SettingsRepository(userDefaults: userDefaults)
+    self.settingsRepository = resolvedSettingsRepository
+    self.appearanceSettingsStore = AppearanceSettingsStore(
+      settingsRepository: resolvedSettingsRepository
+    )
     self.archiveService = ArchiveService(fileManager: fileManager)
     let resolvedLibraryLocation =
       libraryLocation
@@ -169,7 +173,6 @@ final class NotesStore: ObservableObject {
     let currentYear = calendar.component(.year, from: .now)
     self.notes = sortedNotes
     self.noteIndex = Dictionary(uniqueKeysWithValues: sortedNotes.enumerated().map { ($1.id, $0) })
-    self.appearanceSettings = settingsRepository.loadAppearanceSettings()
     self.continuousSpellCheckingEnabled = settingsRepository.loadContinuousSpellCheckingEnabled()
     self.newNoteDefault = settingsRepository.loadNewNoteDefault()
     self.noteTemplates = settingsRepository.loadNoteTemplates()
@@ -183,6 +186,10 @@ final class NotesStore: ObservableObject {
 
   var featureAccess: AppFeatureAccess {
     AppFeatureAccess(plan: activePlan)
+  }
+
+  var appearanceSettings: NoteAppearanceSettings {
+    appearanceSettingsStore.settings
   }
 
   // Returns whether the active plan can use the requested capability.
@@ -787,10 +794,13 @@ final class NotesStore: ObservableObject {
 
   // Applies a mutation to appearance settings, clamps, and persists.
   func updateAppearanceSettings(_ mutate: (inout NoteAppearanceSettings) -> Void) {
-    var updatedSettings = appearanceSettings
-    mutate(&updatedSettings)
-    appearanceSettings = updatedSettings.clamped
-    persistAppearanceSettings()
+    objectWillChange.send()
+
+    do {
+      try appearanceSettingsStore.updateSettings(mutate)
+    } catch {
+      report(error, context: "Saving appearance settings failed")
+    }
   }
 
   // Applies a mutation to a note, rebuilds the index, and schedules a save.
@@ -877,7 +887,7 @@ final class NotesStore: ObservableObject {
   // Encodes appearance settings to UserDefaults.
   func persistAppearanceSettings() {
     do {
-      try settingsRepository.saveAppearanceSettings(appearanceSettings)
+      try appearanceSettingsStore.persistSettings()
     } catch {
       report(error, context: "Saving appearance settings failed")
     }
