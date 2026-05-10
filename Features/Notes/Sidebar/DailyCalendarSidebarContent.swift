@@ -314,7 +314,7 @@ struct DailyCalendarSidebarContent: View {
   }
 
   private var themeColors: ThemeColorSet {
-    store.appearanceSettings.resolvedColors
+    store.effectiveAppearanceSettings.resolvedColors
   }
 
   private var sidebarAccentColor: Color {

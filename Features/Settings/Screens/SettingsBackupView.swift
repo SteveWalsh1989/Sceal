@@ -63,6 +63,15 @@ struct SettingsBackupView: View {
         }
         .pickerStyle(.menu)
 
+        if hasLockedAutomaticSchedule {
+          Label(
+            "\(store.backupSettings.schedule.displayName) is saved but paused in Free.",
+            systemImage: "lock.fill"
+          )
+          .font(.caption)
+          .foregroundStyle(.orange)
+        }
+
         Toggle(
           "Back up when Scéal becomes inactive",
           isOn: Binding(
@@ -71,6 +80,12 @@ struct SettingsBackupView: View {
           )
         )
         .disabled(!store.isBackupOnInactiveAvailable)
+
+        if hasLockedInactiveBackup {
+          Label("Inactive-window backups are saved but paused in Free.", systemImage: "lock.fill")
+            .font(.caption)
+            .foregroundStyle(.orange)
+        }
 
         Text(
           "Automatic backups run while Scéal is open and catch up next time it launches if one is overdue."
@@ -141,6 +156,16 @@ struct SettingsBackupView: View {
     }
 
     return "Keeps the latest \(count) automatic backups."
+  }
+
+  private var hasLockedAutomaticSchedule: Bool {
+    store.backupSettings.schedule != .manualOnly
+      && !store.hasAccess(to: .automaticBackupSchedules)
+  }
+
+  private var hasLockedInactiveBackup: Bool {
+    store.backupSettings.backupOnInactive
+      && !store.hasAccess(to: .automaticBackupSchedules)
   }
 
   private func formattedDate(_ date: Date?) -> String {

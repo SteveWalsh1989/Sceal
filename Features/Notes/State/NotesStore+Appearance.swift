@@ -83,6 +83,17 @@ extension NotesStore {
     }
   }
 
+  // Applies plan gates to runtime appearance without deleting stored paid-only settings.
+  var effectiveAppearanceSettings: NoteAppearanceSettings {
+    guard !hasAccess(to: .customThemeColors) else {
+      return appearanceSettings
+    }
+
+    var settings = appearanceSettings
+    settings.colorOverrides = nil
+    return settings
+  }
+
   // Selects a built-in theme and clears any custom overrides.
   func updateThemeID(_ id: String) {
     updateAppearanceSettings { settings in

@@ -106,7 +106,7 @@ struct NotesSidebarView: View {
               } label: {
                 DayNoteCardView(
                   note: note,
-                  appearanceSettings: store.appearanceSettings,
+                  appearanceSettings: store.effectiveAppearanceSettings,
                   isSelected: store.selectedNoteID == note.id,
                   accentColor: sidebarAccentColor,
                   selectedCardColor: themeColors.selectedCard.color,
@@ -143,7 +143,7 @@ struct NotesSidebarView: View {
 
   // Resolved color set from the active theme.
   private var themeColors: ThemeColorSet {
-    store.appearanceSettings.resolvedColors
+    store.effectiveAppearanceSettings.resolvedColors
   }
 
   // Background color from the active theme.

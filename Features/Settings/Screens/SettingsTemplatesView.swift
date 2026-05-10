@@ -309,7 +309,7 @@ private struct TemplateDetailView: View {
               MarkdownEditorView(
                 noteID: "template-\(template.id)",
                 text: bodyBinding,
-                appearanceSettings: store.appearanceSettings,
+                appearanceSettings: store.effectiveAppearanceSettings,
                 continuousSpellCheckingEnabled: store.continuousSpellCheckingEnabled,
                 customSlashTemplates: store.enabledSlashCommandTemplates(excluding: template.id),
                 allowsImageAttachments: false,

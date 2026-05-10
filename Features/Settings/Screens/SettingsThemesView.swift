@@ -15,13 +15,17 @@ struct SettingsThemesView: View {
     store.appearanceSettings.colorOverrides != nil
   }
 
-  // The effective color set, including any custom overrides.
+  // The color set currently applied after plan gates.
   private var resolvedColors: ThemeColorSet {
-    store.appearanceSettings.resolvedColors
+    store.effectiveAppearanceSettings.resolvedColors
   }
 
   private var canCustomizeColors: Bool {
     store.hasAccess(to: .customThemeColors)
+  }
+
+  private var hasLockedCustomColors: Bool {
+    hasOverrides && !canCustomizeColors
   }
 
   var body: some View {
@@ -63,6 +67,12 @@ struct SettingsThemesView: View {
               }
               .controlSize(.small)
             }
+          }
+
+          if hasLockedCustomColors {
+            Label("Custom colors are saved but inactive in Free.", systemImage: "lock.fill")
+              .font(.caption)
+              .foregroundStyle(.orange)
           }
 
           ColorTokenRow(label: "Sidebar background", color: resolvedColors.sidebarBackground) {

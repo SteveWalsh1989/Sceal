@@ -51,6 +51,39 @@
       XCTAssertTrue(store.isNoteTemplateLockedByPlan(paidTemplateID))
     }
 
+    // Free ignores saved custom theme colors at runtime without deleting them.
+    func testFreePlanPreservesButDoesNotApplyCustomThemeColors() {
+      let store = makeStore(userDefaults: makeUserDefaults())
+      let customEditorBackground = ThemeColor(red: 0.10, green: 0.20, blue: 0.30)
+      let attemptedFreeEditorBackground = ThemeColor(red: 0.60, green: 0.20, blue: 0.10)
+
+      store.updateColorOverride { colors in
+        colors.editorBackground = customEditorBackground
+      }
+      store.updateDeveloperPlan(.free)
+      store.updateColorOverride { colors in
+        colors.editorBackground = attemptedFreeEditorBackground
+      }
+
+      XCTAssertEqual(
+        store.appearanceSettings.colorOverrides?.editorBackground,
+        customEditorBackground
+      )
+      XCTAssertNil(store.effectiveAppearanceSettings.colorOverrides)
+      XCTAssertEqual(
+        store.effectiveAppearanceSettings.resolvedColors.editorBackground,
+        AppTheme.defaultDark.colors.editorBackground
+      )
+      XCTAssertNotNil(store.userMessage)
+
+      store.updateDeveloperPlan(.paid)
+
+      XCTAssertEqual(
+        store.effectiveAppearanceSettings.resolvedColors.editorBackground,
+        customEditorBackground
+      )
+    }
+
     // Free preserves stored backup settings but treats paid schedules as manual at runtime.
     func testFreePlanUsesManualBackupScheduleWithoutMutatingStoredSchedule() {
       let store = makeStore(userDefaults: makeUserDefaults())
@@ -62,6 +95,19 @@
       XCTAssertEqual(store.backupSettings.schedule, .daily)
       XCTAssertEqual(store.effectiveBackupSchedule, .manualOnly)
       XCTAssertEqual(store.availableBackupSchedules, [.manualOnly])
+      XCTAssertNotNil(store.userMessage)
+    }
+
+    // Free cannot enable inactive-window backups, but it does not clear the stored preference.
+    func testFreePlanBlocksInactiveBackupEnableWithoutDeletingStoredPreference() {
+      let store = makeStore(userDefaults: makeUserDefaults())
+      store.updateBackupOnInactive(false)
+
+      store.updateDeveloperPlan(.free)
+      store.updateBackupOnInactive(true)
+
+      XCTAssertFalse(store.backupSettings.backupOnInactive)
+      XCTAssertFalse(store.isBackupOnInactiveAvailable)
       XCTAssertNotNil(store.userMessage)
     }
   }
