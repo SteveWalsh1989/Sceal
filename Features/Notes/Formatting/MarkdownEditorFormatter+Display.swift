@@ -21,17 +21,9 @@ extension MarkdownEditorFormatter {
   )
     -> NSAttributedString
   {
-    // Detect and strip leading whitespace for list indentation (2 spaces or 1 tab = 1 indent level)
-    let leadingWhitespace = rawLine.prefix(while: { $0 == " " || $0 == "\t" })
-    let indentLevel: Int = {
-      var level = 0
-      for ch in leadingWhitespace {
-        level += ch == "\t" ? 1 : 0
-      }
-      let spaceCount = leadingWhitespace.filter { $0 == " " }.count
-      return min(level + spaceCount / 2, 3)
-    }()
-    let trimmedLine = String(rawLine.dropFirst(leadingWhitespace.count))
+    let parsedListLine = MarkdownEditorListMarkdown.parse(rawLine)
+    let trimmedLine =
+      parsedListLine?.displayText ?? MarkdownEditorListMarkdown.lineWithoutIndent(rawLine)
 
     let baseAttrs: [NSAttributedString.Key: Any] = [
       .font: appearance.bodyFont,
@@ -81,11 +73,10 @@ extension MarkdownEditorFormatter {
       return result
     }
 
-    // Checkbox checked
-    if trimmedLine.hasPrefix("- [x] ") {
-      let content = String(trimmedLine.dropFirst(6))
+    if let listLine = parsedListLine, listLine.type == .checkboxChecked {
       let checkAttr = checkboxAttributedString(checked: true, appearance: appearance)
-      let contentAttr = NSMutableAttributedString(string: " \(content)", attributes: baseAttrs)
+      let contentAttr = NSMutableAttributedString(
+        string: " \(listLine.content)", attributes: baseAttrs)
       applyInlineFormatting(in: contentAttr, defaultFont: appearance.bodyFont)
       let result = NSMutableAttributedString()
       result.append(checkAttr)
@@ -95,19 +86,18 @@ extension MarkdownEditorFormatter {
         [
           .markdownListType: MarkdownListType.checkboxChecked.rawValue,
           .strikethroughStyle: NSUnderlineStyle.single.rawValue,
-          .paragraphStyle: listParagraphStyle(for: appearance, indentLevel: indentLevel),
-          .markdownIndentLevel: indentLevel,
+          .paragraphStyle: listParagraphStyle(for: appearance, indentLevel: listLine.indentLevel),
+          .markdownIndentLevel: listLine.indentLevel,
         ], range: fullRange)
       // Remove strikethrough from the checkbox character itself
       result.removeAttribute(.strikethroughStyle, range: NSRange(location: 0, length: 1))
       return result
     }
 
-    // Checkbox unchecked
-    if trimmedLine.hasPrefix("- [ ] ") {
-      let content = String(trimmedLine.dropFirst(6))
+    if let listLine = parsedListLine, listLine.type == .checkboxUnchecked {
       let checkAttr = checkboxAttributedString(checked: false, appearance: appearance)
-      let contentAttr = NSMutableAttributedString(string: " \(content)", attributes: baseAttrs)
+      let contentAttr = NSMutableAttributedString(
+        string: " \(listLine.content)", attributes: baseAttrs)
       applyInlineFormatting(in: contentAttr, defaultFont: appearance.bodyFont)
       let result = NSMutableAttributedString()
       result.append(checkAttr)
@@ -116,23 +106,21 @@ extension MarkdownEditorFormatter {
       result.addAttributes(
         [
           .markdownListType: MarkdownListType.checkboxUnchecked.rawValue,
-          .paragraphStyle: listParagraphStyle(for: appearance, indentLevel: indentLevel),
-          .markdownIndentLevel: indentLevel,
+          .paragraphStyle: listParagraphStyle(for: appearance, indentLevel: listLine.indentLevel),
+          .markdownIndentLevel: listLine.indentLevel,
         ], range: fullRange)
       return result
     }
 
-    // Bullet list
-    if let prefixMatch = trimmedLine.range(of: #"^(?:-|\*|\+|•)\s+"#, options: .regularExpression) {
-      let content = String(trimmedLine[prefixMatch.upperBound...])
-      let displayText = "\(bulletMarker) \(content)"
+    if let listLine = parsedListLine, listLine.type == .bullet {
+      let displayText = "\(bulletMarker) \(listLine.content)"
       let result = NSMutableAttributedString(string: displayText, attributes: baseAttrs)
       let fullRange = NSRange(location: 0, length: result.length)
       result.addAttributes(
         [
           .markdownListType: MarkdownListType.bullet.rawValue,
-          .paragraphStyle: listParagraphStyle(for: appearance, indentLevel: indentLevel),
-          .markdownIndentLevel: indentLevel,
+          .paragraphStyle: listParagraphStyle(for: appearance, indentLevel: listLine.indentLevel),
+          .markdownIndentLevel: listLine.indentLevel,
         ], range: fullRange)
       result.addAttributes(
         [
@@ -143,18 +131,16 @@ extension MarkdownEditorFormatter {
       return result
     }
 
-    // Numbered list
-    if trimmedLine.range(of: #"^\d+\.\s+"#, options: .regularExpression) != nil {
+    if let listLine = parsedListLine, listLine.type == .numbered {
       let result = NSMutableAttributedString(string: trimmedLine, attributes: baseAttrs)
       let fullRange = NSRange(location: 0, length: result.length)
       result.addAttributes(
         [
           .markdownListType: MarkdownListType.numbered.rawValue,
-          .paragraphStyle: listParagraphStyle(for: appearance, indentLevel: indentLevel),
-          .markdownIndentLevel: indentLevel,
+          .paragraphStyle: listParagraphStyle(for: appearance, indentLevel: listLine.indentLevel),
+          .markdownIndentLevel: listLine.indentLevel,
         ], range: fullRange)
-      if let numMatch = trimmedLine.range(of: #"^\d+\."#, options: .regularExpression) {
-        let numLength = trimmedLine.distance(from: numMatch.lowerBound, to: numMatch.upperBound)
+      if let numLength = listLine.orderedMarkerLength {
         result.addAttribute(
           .foregroundColor, value: NSColor.secondaryLabelColor,
           range: NSRange(location: 0, length: numLength))

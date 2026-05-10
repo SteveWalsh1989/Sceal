@@ -183,24 +183,27 @@ extension MarkdownEditorFormatter {
       let listType = MarkdownListType(rawValue: rawType)
     {
       let indentLevel = attrs[.markdownIndentLevel] as? Int ?? 0
-      let indentPrefix = indentLevel > 0 ? String(repeating: " ", count: indentLevel * 2) : ""
       switch listType {
-      case .bullet:
-        prefix = indentPrefix + "- "
-        contentStart = lineText.hasPrefix("\(bulletMarker) ") ? 2 : 0
-      case .checkboxUnchecked:
-        prefix = indentPrefix + "- [ ] "
-        contentStart = lineText.hasPrefix("\(uncheckedMarker) ") ? 2 : 0
-      case .checkboxChecked:
-        prefix = indentPrefix + "- [x] "
-        contentStart = lineText.hasPrefix("\(checkedMarker) ") ? 2 : 0
+      case .bullet, .checkboxUnchecked, .checkboxChecked:
+        prefix =
+          MarkdownEditorListMarkdown.persistedPrefix(
+            for: listType,
+            indentLevel: indentLevel
+          ) ?? ""
+        contentStart = MarkdownEditorListMarkdown.displayContentStart(
+          in: lineText,
+          listType: listType,
+          bulletMarker: bulletMarker,
+          uncheckedMarker: uncheckedMarker,
+          checkedMarker: checkedMarker
+        )
       case .numbered:
         // Number text is already in the display, pass through
         let inlineMarkdown = reconstructInlineMarkdown(
           from: attributedString,
           range: textRange
         )
-        return indentPrefix + inlineMarkdown
+        return MarkdownEditorListMarkdown.indentPrefix(for: indentLevel) + inlineMarkdown
       }
     }
 

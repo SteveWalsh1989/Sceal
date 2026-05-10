@@ -39,7 +39,7 @@ extension NSAttributedString.Key {
   static let markdownTableModel = NSAttributedString.Key("sceal.tableModel")
 }
 
-enum MarkdownListType: String {
+enum MarkdownListType: String, Sendable {
   case bullet
   case numbered
   case checkboxUnchecked
