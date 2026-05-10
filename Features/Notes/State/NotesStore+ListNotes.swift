@@ -356,48 +356,33 @@ extension NotesStore {
 
   // MARK: - Active Mode Helpers
 
+  private var activeNoteRoute: ActiveNoteRoute {
+    ActiveNoteRouting.route(for: sidebarMode, isDemoModeEnabled: isDemoModeEnabled)
+  }
+
   // The selected note ID for the current sidebar mode.
   var activeSelectedNoteID: DayNote.ID? {
-    #if DEBUG
-      if isDemoModeEnabled {
-        return selectedNoteID
-      }
-    #endif
-
-    switch sidebarMode {
-    case .calendar, .daily: return selectedNoteID
-    case .list: return selectedListNoteID
-    }
+    ActiveNoteRouting.selectedNoteID(
+      route: activeNoteRoute,
+      dailyNoteID: selectedNoteID,
+      listNoteID: selectedListNoteID
+    )
   }
 
   // The currently active note for the editor.
   var activeNote: DayNote? {
     guard let noteID = activeSelectedNoteID else { return nil }
-    #if DEBUG
-      if isDemoModeEnabled {
-        return note(withID: noteID)
-      }
-    #endif
 
-    switch sidebarMode {
-    case .calendar, .daily: return note(withID: noteID)
+    switch activeNoteRoute {
+    case .daily: return note(withID: noteID)
     case .list: return listNote(withID: noteID)
     }
   }
 
   // Two-way binding for the active mode's search text.
   var activeSearchTextBinding: Binding<String> {
-    #if DEBUG
-      if isDemoModeEnabled {
-        return Binding(
-          get: { self.searchText },
-          set: { self.searchText = $0 }
-        )
-      }
-    #endif
-
-    switch sidebarMode {
-    case .calendar, .daily:
+    switch activeNoteRoute {
+    case .daily:
       return Binding(
         get: { self.searchText },
         set: { self.searchText = $0 }
@@ -412,17 +397,8 @@ extension NotesStore {
 
   // Two-way binding for the active search bar expanded state.
   var activeSearchBarExpandedBinding: Binding<Bool> {
-    #if DEBUG
-      if isDemoModeEnabled {
-        return Binding(
-          get: { self.isSearchBarExpanded },
-          set: { self.isSearchBarExpanded = $0 }
-        )
-      }
-    #endif
-
-    switch sidebarMode {
-    case .calendar, .daily:
+    switch activeNoteRoute {
+    case .daily:
       return Binding(
         get: { self.isSearchBarExpanded },
         set: { self.isSearchBarExpanded = $0 }
@@ -437,42 +413,24 @@ extension NotesStore {
 
   // Title binding that routes to daily or list note by ID.
   func activeTitleBinding(for noteID: DayNote.ID) -> Binding<String> {
-    #if DEBUG
-      if isDemoModeEnabled {
-        return titleBinding(for: noteID)
-      }
-    #endif
-
-    switch sidebarMode {
-    case .calendar, .daily: return titleBinding(for: noteID)
+    switch activeNoteRoute {
+    case .daily: return titleBinding(for: noteID)
     case .list: return listNoteTitleBinding(for: noteID)
     }
   }
 
   // Tags binding that routes to daily or list note by ID.
   func activeTagsBinding(for noteID: DayNote.ID) -> Binding<String> {
-    #if DEBUG
-      if isDemoModeEnabled {
-        return tagsBinding(for: noteID)
-      }
-    #endif
-
-    switch sidebarMode {
-    case .calendar, .daily: return tagsBinding(for: noteID)
+    switch activeNoteRoute {
+    case .daily: return tagsBinding(for: noteID)
     case .list: return listNoteTagsBinding(for: noteID)
     }
   }
 
   // Body binding that routes to daily or list note by ID.
   func activeBodyBinding(for noteID: DayNote.ID) -> Binding<String> {
-    #if DEBUG
-      if isDemoModeEnabled {
-        return bodyBinding(for: noteID)
-      }
-    #endif
-
-    switch sidebarMode {
-    case .calendar, .daily: return bodyBinding(for: noteID)
+    switch activeNoteRoute {
+    case .daily: return bodyBinding(for: noteID)
     case .list: return listNoteBodyBinding(for: noteID)
     }
   }
