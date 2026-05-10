@@ -145,17 +145,11 @@ extension MarkdownEditorFormatter {
 
     // Section divider — Sceal-specific card-gap marker with optional per-section colors
     if attrs[.markdownSectionDivider] as? Bool == true {
-      var parts = ["section"]
-      if let name = attrs[.markdownSectionHeadingColor] as? String {
-        parts.append("heading:\(name)")
-      }
-      if let name = attrs[.markdownSectionBulletColor] as? String {
-        parts.append("bullet:\(name)")
-      }
-      if let flag = attrs[.markdownSectionUseSectionColor] as? Bool, flag {
-        parts.append("usesectioncolor:true")
-      }
-      return "<!-- \(parts.joined(separator: " ")) -->"
+      return MarkdownEditorSectionDirectiveMarkdown.marker(
+        headingColorName: attrs[.markdownSectionHeadingColor] as? String,
+        bulletColorName: attrs[.markdownSectionBulletColor] as? String,
+        usesSectionColor: (attrs[.markdownSectionUseSectionColor] as? Bool) == true
+      )
     }
 
     // Horizontal rule — standard markdown

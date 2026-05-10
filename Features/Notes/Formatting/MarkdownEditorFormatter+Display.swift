@@ -50,8 +50,13 @@ extension MarkdownEditorFormatter {
     }
 
     // Section divider — Sceal card-gap marker
-    if trimmedLine == "<!-- section -->" {
-      return styledSectionDivider(appearance: appearance)
+    if let section = MarkdownEditorSectionDirectiveMarkdown.parse(trimmedLine) {
+      return styledSectionDivider(
+        appearance: appearance,
+        headingColorName: section.headingColorName,
+        bulletColorName: section.bulletColorName,
+        useSectionColor: section.usesSectionColor ? true : nil
+      )
     }
 
     // Horizontal rule — standard markdown visible line

@@ -197,6 +197,14 @@ extension DayNote {
       let body: String
     }
 
+    private static func demoSectionMarker(colorName: String) -> String {
+      MarkdownEditorSectionDirectiveMarkdown.marker(
+        headingColorName: colorName,
+        bulletColorName: colorName,
+        usesSectionColor: true
+      )
+    }
+
     private static let demoModeDefinitions: [DemoModeDefinition] = [
       DemoModeDefinition(
         offset: 0,
@@ -216,7 +224,7 @@ extension DayNote {
           "",
           "[Read the project README](https://github.com/) when you want the technical details.",
           "",
-          "<!-- section heading:pink bullet:pink usesectioncolor:true -->",
+          demoSectionMarker(colorName: "pink"),
           "",
           "## Today's Focus",
           "",
@@ -229,7 +237,7 @@ extension DayNote {
           "",
           "> Notes should feel calm while you write, but useful when you return to them.",
           "",
-          "<!-- section heading:orange bullet:orange usesectioncolor:true -->",
+          demoSectionMarker(colorName: "orange"),
           "",
           "## Prompt Block",
           "",
@@ -241,7 +249,7 @@ extension DayNote {
           "Keep the tone practical, mention what moved forward, call out one open question, and finish with the next action. Copy this whole prompt with one click, then remove the block with the x button when it is no longer needed.",
           "<!-- /prompt -->",
           "",
-          "<!-- section heading:orange bullet:orange usesectioncolor:true -->",
+          demoSectionMarker(colorName: "orange"),
           "",
           "## Project Plan",
           "",
@@ -259,7 +267,7 @@ extension DayNote {
           "3. Mark completed actions",
           "4. Link out to anything useful",
           "",
-          "<!-- section heading:blue bullet:blue usesectioncolor:true -->",
+          demoSectionMarker(colorName: "blue"),
           "",
           "## End Of Day",
           "",
@@ -284,7 +292,7 @@ extension DayNote {
           "- Check divider gaps at the current font size",
           "- Keep the screenshot crop focused on the editor",
           "",
-          "<!-- section heading:purple bullet:purple usesectioncolor:true -->",
+          demoSectionMarker(colorName: "purple"),
           "",
           "## Capture Checklist",
           "",
@@ -295,7 +303,7 @@ extension DayNote {
           "",
           "Useful reference: [Apple screenshots guidance](https://developer.apple.com/design/human-interface-guidelines/).",
           "",
-          "<!-- section heading:grey bullet:grey usesectioncolor:true -->",
+          demoSectionMarker(colorName: "grey"),
           "",
           "## Notes",
           "",
@@ -320,7 +328,7 @@ extension DayNote {
           "- [Markdown guide](https://www.markdownguide.org/basic-syntax/)",
           "- [Human Interface Guidelines](https://developer.apple.com/design/human-interface-guidelines/)",
           "",
-          "<!-- section heading:turquoise bullet:turquoise usesectioncolor:true -->",
+          demoSectionMarker(colorName: "turquoise"),
           "",
           "## What matters",
           "",
@@ -329,7 +337,7 @@ extension DayNote {
           "- The editor should add polish without hiding markdown",
           "- Search keeps older notes from disappearing",
           "",
-          "<!-- section heading:pink bullet:pink usesectioncolor:true -->",
+          demoSectionMarker(colorName: "pink"),
           "",
           "## Tiny Example",
           "",
@@ -355,7 +363,7 @@ extension DayNote {
           "- Pick the next important thing",
           "- Leave future context in plain language",
           "",
-          "<!-- section heading:orange bullet:orange usesectioncolor:true -->",
+          demoSectionMarker(colorName: "orange"),
           "",
           "## This Week",
           "",
@@ -364,7 +372,7 @@ extension DayNote {
           "- [ ] Capture the README image",
           "- [ ] Write a short release note",
           "",
-          "<!-- section heading:purple bullet:purple usesectioncolor:true -->",
+          demoSectionMarker(colorName: "purple"),
           "",
           "## Parking Lot",
           "",

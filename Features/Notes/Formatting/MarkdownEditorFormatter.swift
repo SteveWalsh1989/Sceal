@@ -43,10 +43,6 @@ enum MarkdownEditorFormatter {
 
   // Cached regex patterns to avoid recreation per format pass.
   static let hcolorRegex = try! NSRegularExpression(pattern: #"^<!-- hcolor:(\w+) -->$"#)
-  static let sectionDividerRegex = try! NSRegularExpression(
-    pattern:
-      #"^<!-- section(?:\s+heading:(\w+))?(?:\s+bullet:(\w+))?(?:\s+usesectioncolor:(true|false))? -->$"#
-  )
   static let promptBlockStartRegex = try! NSRegularExpression(pattern: #"^<!-- prompt -->$"#)
   static let promptBlockEndRegex = try! NSRegularExpression(pattern: #"^<!-- /prompt -->$"#)
   static let boldRegex = try! NSRegularExpression(pattern: #"\*\*(.+?)\*\*"#)
@@ -238,7 +234,6 @@ enum MarkdownEditorFormatter {
     var pendingHeadingColor: NSColor? = nil
     var pendingHeadingColorName: String? = nil
     let hcolorRegex = Self.hcolorRegex
-    let sectionRegex = Self.sectionDividerRegex
     let promptStartRegex = Self.promptBlockStartRegex
     let promptEndRegex = Self.promptBlockEndRegex
     let tableBlocks = tableBlocks(in: lines)
@@ -370,30 +365,24 @@ enum MarkdownEditorFormatter {
       }
 
       // Section divider — Sceal-specific card-gap marker with optional per-section colors
-      if let sectionMatch = sectionRegex.firstMatch(
-        in: line, range: NSRange(location: 0, length: line.utf16.count))
-      {
+      if let section = MarkdownEditorSectionDirectiveMarkdown.parse(line) {
         if let colorName = pendingHeadingColorName {
           result.append(NSAttributedString(string: "<!-- hcolor:\(colorName) -->\n"))
           pendingHeadingColor = nil
           pendingHeadingColorName = nil
         }
-        let headingName = extractGroup(sectionMatch, index: 1, in: line)
-        let bulletName = extractGroup(sectionMatch, index: 2, in: line)
-        let useSCStr = extractGroup(sectionMatch, index: 3, in: line)
-        let useSC = useSCStr == "true"
 
         // Update section tracking state for subsequent lines.
-        currentSectionHeadingColorName = headingName
-        currentSectionBulletColorName = bulletName
-        currentSectionUseSectionColor = useSC
+        currentSectionHeadingColorName = section.headingColorName
+        currentSectionBulletColorName = section.bulletColorName
+        currentSectionUseSectionColor = section.usesSectionColor
 
         result.append(
           styledSectionDivider(
             appearance: appearance,
-            headingColorName: headingName,
-            bulletColorName: bulletName,
-            useSectionColor: useSC ? true : nil
+            headingColorName: section.headingColorName,
+            bulletColorName: section.bulletColorName,
+            useSectionColor: section.usesSectionColor ? true : nil
           ))
         justEmittedDivider = true
         continue

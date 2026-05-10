@@ -201,9 +201,6 @@ enum NoteTemplateCommandRules {
 }
 
 enum NoteTemplateMarkdown {
-  private static let sectionPattern =
-    #"^<!-- section(?:\s+heading:(\w+))?(?:\s+bullet:(\w+))?(?:\s+usesectioncolor:(true|false))? -->$"#
-
   // Applies template-level section styling and optional edge dividers on insertion.
   static func applyingTemplateOptions(
     to markdown: String,
@@ -342,15 +339,20 @@ enum NoteTemplateMarkdown {
   }
 
   private static func isSectionDivider(_ line: String) -> Bool {
-    let regex = try? NSRegularExpression(pattern: sectionPattern)
-    return regex?.firstMatch(in: line, range: NSRange(location: 0, length: line.utf16.count)) != nil
+    MarkdownEditorSectionDirectiveMarkdown.parse(line) != nil
   }
 
   private static func sectionMarker(colorName: String?) -> String {
     guard let colorName, !colorName.isEmpty else {
-      return "<!-- section -->"
+      return MarkdownEditorSectionDirectiveMarkdown.marker(
+        for: MarkdownEditorSectionDirective()
+      )
     }
-    return "<!-- section heading:\(colorName) bullet:\(colorName) usesectioncolor:true -->"
+    return MarkdownEditorSectionDirectiveMarkdown.marker(
+      headingColorName: colorName,
+      bulletColorName: colorName,
+      usesSectionColor: true
+    )
   }
 }
 
