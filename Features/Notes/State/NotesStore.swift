@@ -128,6 +128,7 @@ final class NotesStore: ObservableObject {
   let libraryLocation: ScealLibraryLocation
   let libraryRepository: LibraryRepository
   let settingsRepository: SettingsRepository
+  let archiveService: ArchiveService
   private var hasLoaded = false
   private var noteIndex: [DayNote.ID: Int] = [:]
   var listNoteIndex: [DayNote.ID: Int] = [:]
@@ -152,6 +153,7 @@ final class NotesStore: ObservableObject {
     self.fileManager = fileManager
     self.calendar = calendar
     self.settingsRepository = SettingsRepository(userDefaults: userDefaults)
+    self.archiveService = ArchiveService(fileManager: fileManager)
     let resolvedLibraryLocation =
       libraryLocation
       ?? ScealLibraryLocation.defaultForCurrentBuild(

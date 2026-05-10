@@ -228,6 +228,7 @@ extension NotesStore {
     let backupSettingsSnapshot = backupSettings
     let backupDate = Date.now
     let attachmentsRootURL = libraryRepository.attachmentsRootURL
+    let service = archiveService
 
     isBackupRunning = true
     backupHealth = .running
@@ -238,8 +239,8 @@ extension NotesStore {
     let fm = fileManager
     Task.detached { [weak self] in
       do {
-        let bookmarkData = try Self.requireBookmarkData(from: backupSettingsSnapshot)
-        let archiveURL = try Self.writeBackupArchive(
+        let bookmarkData = try service.requireBookmarkData(from: backupSettingsSnapshot)
+        let archiveURL = try service.writeManagedBackupArchive(
           dailyNotes: dailyNotesSnapshot,
           listNotes: listNotesSnapshot,
           manifest: manifestSnapshot,
@@ -248,8 +249,7 @@ extension NotesStore {
           kind: trigger.archiveKind,
           schedule: backupSettingsSnapshot.schedule,
           createdAt: backupDate,
-          attachmentsRootURL: attachmentsRootURL,
-          fileManager: fm
+          attachmentsRootURL: attachmentsRootURL
         )
 
         let archiveAttributes = try fm.attributesOfItem(atPath: archiveURL.path)
@@ -297,9 +297,8 @@ extension NotesStore {
   }
 
   private func validateBackupFolder(at folderURL: URL, bookmarkData: Data) throws {
-    let backupFolderURL = try Self.accessBookmark(bookmarkData) { scopedFolderURL in
-      let managedFolderURL = ScealBackupArchiveExporter.managedBackupDirectoryURL(
-        in: scopedFolderURL)
+    let backupFolderURL = try archiveService.accessBookmark(bookmarkData) { scopedFolderURL in
+      let managedFolderURL = archiveService.managedBackupDirectoryURL(in: scopedFolderURL)
       try fileManager.createDirectory(at: managedFolderURL, withIntermediateDirectories: true)
       let probeURL = managedFolderURL.appendingPathComponent("backup-access-check.tmp")
       let probeContents = Data("ok".utf8)
@@ -314,38 +313,10 @@ extension NotesStore {
   }
 
   private func resolveManagedBackupFolderURL() throws -> URL {
-    let bookmarkData = try Self.requireBookmarkData(from: backupSettings)
-    return try Self.accessBookmark(bookmarkData) { selectedFolderURL in
-      ScealBackupArchiveExporter.managedBackupDirectoryURL(in: selectedFolderURL)
+    let bookmarkData = try archiveService.requireBookmarkData(from: backupSettings)
+    return try archiveService.accessBookmark(bookmarkData) { selectedFolderURL in
+      archiveService.managedBackupDirectoryURL(in: selectedFolderURL)
     }
-  }
-
-  nonisolated private static func accessBookmark<T>(
-    _ bookmarkData: Data,
-    accessBlock: (URL) throws -> T
-  ) throws -> T {
-    var isStale = false
-    let selectedFolderURL = try URL(
-      resolvingBookmarkData: bookmarkData,
-      options: [.withSecurityScope, .withoutUI],
-      relativeTo: nil,
-      bookmarkDataIsStale: &isStale
-    )
-
-    if isStale {
-      throw BackupFolderError.permissionRequired
-    }
-
-    let didStartAccessing = selectedFolderURL.startAccessingSecurityScopedResource()
-    guard didStartAccessing else {
-      throw BackupFolderError.permissionRequired
-    }
-
-    defer {
-      selectedFolderURL.stopAccessingSecurityScopedResource()
-    }
-
-    return try accessBlock(selectedFolderURL)
   }
 
   private func backupDestinationHealth(for error: Error) -> BackupHealth {
@@ -371,15 +342,6 @@ extension NotesStore {
     }
   }
 
-  nonisolated private static func requireBookmarkData(from settings: BackupSettings) throws -> Data
-  {
-    guard let bookmarkData = settings.folderBookmarkData else {
-      throw BackupFolderError.folderNotConfigured
-    }
-
-    return bookmarkData
-  }
-
   nonisolated static func writeBackupArchive(
     dailyNotes: [DayNote],
     listNotes: [DayNote],
@@ -392,41 +354,17 @@ extension NotesStore {
     attachmentsRootURL: URL? = nil,
     fileManager: FileManager
   ) throws -> URL {
-    try accessBookmark(bookmarkData) { selectedFolderURL in
-      let managedFolderURL = ScealBackupArchiveExporter.managedBackupDirectoryURL(
-        in: selectedFolderURL)
-      try fileManager.createDirectory(at: managedFolderURL, withIntermediateDirectories: true)
-
-      let temporaryArchiveURL = try ScealBackupArchiveExporter.exportBackup(
-        dailyNotes: dailyNotes,
-        listNotes: listNotes,
-        manifest: manifest,
-        templates: templates,
-        kind: kind,
-        createdAt: createdAt,
-        attachmentsRootURL: attachmentsRootURL
-      )
-      let destinationArchiveURL = managedFolderURL.appendingPathComponent(
-        temporaryArchiveURL.lastPathComponent
-      )
-
-      if fileManager.fileExists(atPath: destinationArchiveURL.path) {
-        try fileManager.removeItem(at: destinationArchiveURL)
-      }
-
-      try fileManager.moveItem(at: temporaryArchiveURL, to: destinationArchiveURL)
-      ZipArchiveWriter.cleanUp(zipURL: temporaryArchiveURL)
-
-      if kind == .automatic {
-        try pruneAutomaticBackups(
-          in: managedFolderURL,
-          schedule: schedule,
-          fileManager: fileManager
-        )
-      }
-
-      return destinationArchiveURL
-    }
+    try ArchiveService(fileManager: fileManager).writeManagedBackupArchive(
+      dailyNotes: dailyNotes,
+      listNotes: listNotes,
+      manifest: manifest,
+      templates: templates,
+      bookmarkData: bookmarkData,
+      kind: kind,
+      schedule: schedule,
+      createdAt: createdAt,
+      attachmentsRootURL: attachmentsRootURL
+    )
   }
 
   nonisolated static func pruneAutomaticBackups(
@@ -434,25 +372,10 @@ extension NotesStore {
     schedule: BackupSchedule,
     fileManager: FileManager = .default
   ) throws {
-    guard let retainedAutomaticBackupCount = schedule.retainedAutomaticBackupCount else {
-      return
-    }
-
-    let automaticArchiveURLs = try fileManager.contentsOfDirectory(
-      at: managedFolderURL,
-      includingPropertiesForKeys: nil,
-      options: [.skipsHiddenFiles]
+    try ArchiveService(fileManager: fileManager).pruneAutomaticBackups(
+      in: managedFolderURL,
+      schedule: schedule
     )
-    .filter { $0.lastPathComponent.hasPrefix("sceal-backup-auto-") && $0.pathExtension == "zip" }
-    .sorted(by: { $0.lastPathComponent > $1.lastPathComponent })
-
-    guard automaticArchiveURLs.count > retainedAutomaticBackupCount else {
-      return
-    }
-
-    for archiveURL in automaticArchiveURLs.dropFirst(retainedAutomaticBackupCount) {
-      try fileManager.removeItem(at: archiveURL)
-    }
   }
 }
 

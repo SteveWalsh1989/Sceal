@@ -132,9 +132,10 @@ extension NotesStore {
     let noteCount = filtered.count
     let templatesSnapshot = noteTemplates
     let attachmentsRootURL = libraryRepository.attachmentsRootURL
+    let service = archiveService
     Task.detached { [weak self] in
       do {
-        let zipURL = try ScealArchiveExporter.exportNotes(
+        let zipURL = try service.exportNotes(
           filtered,
           templates: templatesSnapshot,
           attachmentsRootURL: attachmentsRootURL
@@ -145,7 +146,7 @@ extension NotesStore {
         }
         try fm.moveItem(at: zipURL, to: saveURL)
 
-        ScealArchiveExporter.cleanUp(zipURL: zipURL)
+        service.cleanUp(zipURL: zipURL)
 
         await MainActor.run { [weak self] in
           self?.userMessage = (text: "Exported \(noteCount) notes.", kind: .info)
@@ -210,9 +211,10 @@ extension NotesStore {
     progressMessage = "Exporting library..."
 
     let fm = fileManager
+    let service = archiveService
     Task.detached { [weak self] in
       do {
-        let zipURL = try ScealBackupArchiveExporter.exportBackup(
+        let zipURL = try service.exportBackup(
           dailyNotes: dailyNotesSnapshot,
           listNotes: listNotesSnapshot,
           manifest: manifestSnapshot,
@@ -226,7 +228,7 @@ extension NotesStore {
         }
         try fm.moveItem(at: zipURL, to: saveURL)
 
-        ZipArchiveWriter.cleanUp(zipURL: zipURL)
+        service.cleanUp(zipURL: zipURL)
 
         await MainActor.run { [weak self] in
           self?.userMessage = (
@@ -323,7 +325,7 @@ extension NotesStore {
     let currentListNotes = listNotes
     let currentManifest = listNoteManifest
     let currentTemplates = noteTemplates
-    let fm = fileManager
+    let service = archiveService
     let didStartAccessing = archiveURL.startAccessingSecurityScopedResource()
 
     isPerformingFileOperation = true
@@ -337,15 +339,14 @@ extension NotesStore {
       }
 
       do {
-        let result = try ScealBackupArchiveImporter.restoreLibrary(
+        let result = try service.restoreLibrary(
           from: archiveURL,
           currentDailyNotes: currentDailyNotes,
           currentListNotes: currentListNotes,
           currentManifest: currentManifest,
           currentTemplates: currentTemplates,
           destinationURLs: storageURLs,
-          safetyArchiveDirectoryURL: safetyArchiveDirectoryURL,
-          fileManager: fm
+          safetyArchiveDirectoryURL: safetyArchiveDirectoryURL
         )
 
         await MainActor.run { [weak self] in
