@@ -154,7 +154,7 @@ extension MarkdownEditorFormatter {
 
     // Horizontal rule — standard markdown
     if attrs[.markdownHorizontalRule] as? Bool == true {
-      return "---"
+      return MarkdownEditorBlockMarkdown.horizontalRuleMarker
     }
 
     // Determine line prefix from attributes
@@ -162,7 +162,7 @@ extension MarkdownEditorFormatter {
     var contentStart = 0
 
     if let level = attrs[.markdownHeadingLevel] as? Int {
-      prefix = String(repeating: "#", count: level) + " "
+      prefix = MarkdownEditorBlockMarkdown.headingPrefix(for: level)
       contentStart = 0
 
       // Heading color comment
@@ -177,7 +177,7 @@ extension MarkdownEditorFormatter {
           + inlineMarkdown
       }
     } else if attrs[.markdownBlockquote] as? Bool == true {
-      prefix = "> "
+      prefix = MarkdownEditorBlockMarkdown.blockquotePrefix
       contentStart = 0
     } else if let rawType = attrs[.markdownListType] as? String,
       let listType = MarkdownListType(rawValue: rawType)

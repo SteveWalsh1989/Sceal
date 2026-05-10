@@ -13,6 +13,17 @@ final class MarkdownBlockPreservationTests: MarkdownPreservationTestCase {
     XCTAssertEqual(preservedMarkdown(markdown), markdown)
   }
 
+  // Prevents fenced code blocks with language names from losing the opening fence.
+  func testCodeBlockWithLanguage() {
+    let markdown = "```swift\nlet x = 1\n```"
+    XCTAssertEqual(preservedMarkdown(markdown), markdown)
+  }
+
+  // Prevents standard horizontal rules from being saved as visible editor placeholders.
+  func testHorizontalRule() {
+    XCTAssertEqual(preservedMarkdown("---"), "---")
+  }
+
   // Prevents section divider markers from disappearing during editor conversion.
   func testSectionDivider() {
     XCTAssertEqual(preservedMarkdown("<!-- section -->"), "<!-- section -->")

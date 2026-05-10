@@ -52,21 +52,19 @@ extension MarkdownEditorFormatter {
     }
 
     // Horizontal rule — standard markdown visible line
-    if trimmedLine.range(of: #"^-{3,}$"#, options: .regularExpression) != nil {
+    if MarkdownEditorBlockMarkdown.isHorizontalRule(trimmedLine) {
       return styledHorizontalRule()
     }
 
     // Heading
-    if let match = trimmedLine.range(of: #"^(#{1,3})\s+"#, options: .regularExpression) {
-      let level = trimmedLine[match].filter { $0 == "#" }.count
-      let content = String(trimmedLine[match.upperBound...])
-      let fontSize = headingFontSize(for: level)
+    if let headingLine = MarkdownEditorBlockMarkdown.parseHeading(trimmedLine) {
+      let fontSize = headingFontSize(for: headingLine.level)
       let result = NSMutableAttributedString(
-        string: content,
+        string: headingLine.content,
         attributes: [
           .font: appearance.boldBodyFont(ofSize: fontSize),
           .foregroundColor: NSColor.labelColor,
-          .markdownHeadingLevel: level,
+          .markdownHeadingLevel: headingLine.level,
           .paragraphStyle: bodyParagraphStyle(for: appearance),
         ])
       applyInlineFormatting(in: result, defaultFont: appearance.boldBodyFont(ofSize: fontSize))
@@ -150,11 +148,10 @@ extension MarkdownEditorFormatter {
     }
 
     // Blockquote (single-level only)
-    if trimmedLine.hasPrefix("> ") {
-      let content = String(trimmedLine.dropFirst(2))
+    if let blockquoteLine = MarkdownEditorBlockMarkdown.parseBlockquote(trimmedLine) {
       let quoteStyle = blockquoteParagraphStyle(for: appearance)
       let result = NSMutableAttributedString(
-        string: content,
+        string: blockquoteLine.content,
         attributes: [
           .font: appearance.bodyFont,
           .foregroundColor: NSColor.secondaryLabelColor,

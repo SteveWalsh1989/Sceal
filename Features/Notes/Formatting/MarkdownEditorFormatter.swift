@@ -329,7 +329,7 @@ enum MarkdownEditorFormatter {
         continue
       }
 
-      if line.hasPrefix("```") {
+      if MarkdownEditorBlockMarkdown.isCodeFence(line) {
         // Flush pending color as-is if next line is a code fence
         flushPendingHeadingColorMarker()
         insideCodeBlock.toggle()
@@ -372,7 +372,7 @@ enum MarkdownEditorFormatter {
       }
 
       // Horizontal rule — standard markdown, renders as a visible line
-      if line.range(of: #"^-{3,}$"#, options: .regularExpression) != nil {
+      if MarkdownEditorBlockMarkdown.isHorizontalRule(line) {
         flushPendingHeadingColorMarker()
         result.append(styledHorizontalRule())
         continue
