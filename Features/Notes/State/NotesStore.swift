@@ -93,11 +93,6 @@ final class NotesStore: ObservableObject {
     }
   }
   @Published var calendarBrowseYear: Int
-  @Published var listNotes: [DayNote] = []
-  @Published var listNoteManifest: ListNotesManifest = .empty
-  @Published var selectedListNoteID: DayNote.ID?
-  @Published var listSearchText: String = ""
-  @Published var isListSearchBarExpanded = false
   @Published private(set) var isLoading = false
   @Published var userMessage: (text: String, kind: UserMessageKind)?
   @Published var isPerformingFileOperation = false
@@ -126,11 +121,11 @@ final class NotesStore: ObservableObject {
   let backupSettingsStore: BackupSettingsStore
   let editorPreferencesStore: EditorPreferencesStore
   let planAccessStore: PlanAccessStore
+  let listNotesStore: ListNotesStore
   let noteTemplatesStore: NoteTemplatesStore
   let archiveService: ArchiveService
   private var hasLoaded = false
   private var noteIndex: [DayNote.ID: Int] = [:]
-  var listNoteIndex: [DayNote.ID: Int] = [:]
   private var cachedMonthSections: [NoteMonthSection]?
   private var pendingSaveTasks: [DayNote.ID: Task<Void, Never>] = [:]
   var pendingListNoteSaveTasks: [DayNote.ID: Task<Void, Never>] = [:]
@@ -164,6 +159,7 @@ final class NotesStore: ObservableObject {
       settingsRepository: resolvedSettingsRepository
     )
     self.planAccessStore = PlanAccessStore(settingsRepository: resolvedSettingsRepository)
+    self.listNotesStore = ListNotesStore()
     self.noteTemplatesStore = NoteTemplatesStore(settingsRepository: resolvedSettingsRepository)
     self.archiveService = ArchiveService(fileManager: fileManager)
     let resolvedLibraryLocation =
@@ -213,6 +209,46 @@ final class NotesStore: ObservableObject {
 
   var newNoteDefault: NewNoteDefault {
     editorPreferencesStore.newNoteDefault
+  }
+
+  var listNotes: [DayNote] {
+    get { listNotesStore.notes }
+    set {
+      objectWillChange.send()
+      listNotesStore.replaceNotes(newValue)
+    }
+  }
+
+  var listNoteManifest: ListNotesManifest {
+    get { listNotesStore.manifest }
+    set {
+      objectWillChange.send()
+      listNotesStore.replaceManifest(newValue)
+    }
+  }
+
+  var selectedListNoteID: DayNote.ID? {
+    get { listNotesStore.selectedNoteID }
+    set {
+      objectWillChange.send()
+      listNotesStore.selectNote(newValue)
+    }
+  }
+
+  var listSearchText: String {
+    get { listNotesStore.searchText }
+    set {
+      objectWillChange.send()
+      listNotesStore.updateSearchText(newValue)
+    }
+  }
+
+  var isListSearchBarExpanded: Bool {
+    get { listNotesStore.isSearchBarExpanded }
+    set {
+      objectWillChange.send()
+      listNotesStore.updateSearchBarExpanded(newValue)
+    }
   }
 
   // Returns whether the active plan can use the requested capability.

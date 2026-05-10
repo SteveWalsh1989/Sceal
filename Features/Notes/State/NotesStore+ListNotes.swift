@@ -51,17 +51,12 @@ extension NotesStore {
 
   // Rebuilds the list note ID-to-index lookup for fast access.
   func rebuildListNoteIndex() {
-    listNoteIndex = Dictionary(uniqueKeysWithValues: listNotes.enumerated().map { ($1.id, $0) })
+    listNotesStore.rebuildNoteIndex()
   }
 
   // Looks up a list note by ID using the fast index.
   func listNote(withID noteID: DayNote.ID) -> DayNote? {
-    if let index = listNoteIndex[noteID], listNotes.indices.contains(index),
-      listNotes[index].id == noteID
-    {
-      return listNotes[index]
-    }
-    return listNotes.first(where: { $0.id == noteID })
+    listNotesStore.note(withID: noteID)
   }
 
   // MARK: - CRUD
