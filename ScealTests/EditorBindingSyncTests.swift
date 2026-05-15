@@ -31,6 +31,39 @@ final class EditorBindingSyncTests: EditorTestCase {
     XCTAssertEqual(markdown.value, "Original body")
   }
 
+  func testProgrammaticPromptBlockReplacementKeepsPromptContentRenderable() throws {
+    let markdown = MarkdownBox("Original body")
+    let coordinator = makeCoordinator(markdown: markdown)
+    let fixture = makeEditorFixture(markdown: markdown.value)
+    let textView = fixture.textView
+    textView.delegate = coordinator
+
+    let replacement = MarkdownEditorFormatter.formatForDisplay(
+      """
+      <!-- prompt -->
+      Saved prompt text that should be visible before focus
+      <!-- /prompt -->
+      """,
+      appearance: appearance
+    )
+
+    coordinator.performProgrammaticUpdate {
+      textView.textStorage?.setAttributedString(replacement)
+      textView.ensureEditorLayoutForEntireDocument()
+    }
+
+    guard let textStorage = textView.textStorage else {
+      return XCTFail("Expected editor text storage.")
+    }
+
+    let promptRanges = promptBlockContentRanges(in: textStorage)
+    XCTAssertFalse(promptRanges.isEmpty)
+    for range in promptRanges {
+      XCTAssertTrue(textView.editorHasVisibleGlyphs(forCharacterRange: range))
+    }
+    XCTAssertEqual(markdown.value, "Original body")
+  }
+
   func testLayoutOnlyTextDidChangeDoesNotPushMarkdownWithoutEditorEdit() throws {
     let markdown = MarkdownBox("Body\n\n<!-- section -->\n\nMore body")
     let coordinator = makeCoordinator(markdown: markdown)
@@ -143,5 +176,19 @@ final class EditorBindingSyncTests: EditorTestCase {
     coordinator.flushPendingMarkdownPushIfNeeded(from: textStorage)
 
     XCTAssertTrue(markdown.value.contains("Ship fix"))
+  }
+
+  private func promptBlockContentRanges(in textStorage: NSTextStorage) -> [NSRange] {
+    var ranges: [NSRange] = []
+    textStorage.enumerateAttribute(
+      .markdownPromptBlock,
+      in: NSRange(location: 0, length: textStorage.length),
+      options: []
+    ) { value, range, _ in
+      if value as? Bool == true {
+        ranges.append(range)
+      }
+    }
+    return ranges
   }
 }

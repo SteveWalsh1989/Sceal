@@ -139,7 +139,6 @@ struct NotesEditorView: View {
               showToast("Copied", .info)
             }
           )
-          .id("\(isListMode ? "list" : "daily"):\(noteID)")
         }
         .background(
           RoundedRectangle(cornerRadius: 26, style: .continuous)
