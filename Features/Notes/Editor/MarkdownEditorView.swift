@@ -255,7 +255,10 @@ struct MarkdownEditorView: NSViewRepresentable {
     textView.selectedTextAttributes = [
       .backgroundColor: NSColor.selectedTextBackgroundColor.withAlphaComponent(0.28)
     ]
-    textView.textContainerInset = NSSize(width: 22, height: 22)
+    textView.textContainerInset = NSSize(
+      width: MarkdownEditorPromptBlockLayout.editorTextContainerHorizontalInset,
+      height: 22
+    )
     textView.linkTextAttributes = [
       .foregroundColor: NSColor.linkColor,
       .cursor: NSCursor.pointingHand,

@@ -2,7 +2,9 @@
 //  MarkdownEditorPromptBlockMarkdown.swift
 //
 
-// Pure markdown helpers for Sceal prompt block directives.
+// Markdown and layout helpers for Sceal prompt block directives.
+
+import AppKit
 
 enum MarkdownEditorPromptBlockMarkdown {
   static let startMarker = "<!-- prompt -->"
@@ -36,5 +38,45 @@ enum MarkdownEditorPromptBlockMarkdown {
 
   static func isEndBoundaryKind(_ kind: String) -> Bool {
     kind == endBoundaryKind
+  }
+}
+
+enum MarkdownEditorPromptBlockLayout {
+  static let blockHorizontalInset: CGFloat = 18
+  static let cornerRadius: CGFloat = 8
+  static let textHorizontalInset: CGFloat = 18
+  static let editorTextContainerHorizontalInset: CGFloat = 22
+  static let copyButtonWidth: CGFloat = 58
+  static let copyButtonHeight: CGFloat = 22
+  static let closeButtonSize: CGFloat = 22
+  static let closeButtonGap: CGFloat = 8
+  static let actionPadding: CGFloat = 10
+  static let bottomPaddingLineHeight: CGFloat = 12
+
+  static var closeButtonLaneWidth: CGFloat {
+    closeButtonGap + closeButtonSize
+  }
+
+  static var actionRowHeight: CGFloat {
+    copyButtonHeight + actionPadding * 2
+  }
+
+  static var copyButtonTopOffset: CGFloat {
+    (actionRowHeight - copyButtonHeight) / 2
+  }
+
+  // Keeps prompt text aligned with the drawn box while leaving the close-button lane clear.
+  static var paragraphTailIndent: CGFloat {
+    let insetFromTextContainerRight =
+      blockHorizontalInset + closeButtonLaneWidth + textHorizontalInset
+      - editorTextContainerHorizontalInset
+    return -max(insetFromTextContainerRight, textHorizontalInset)
+  }
+
+  // Reserves the start marker row for prompt actions so content never sits beneath Copy.
+  static func boundaryLineHeight(for kind: String) -> CGFloat {
+    MarkdownEditorPromptBlockMarkdown.isStartBoundaryKind(kind)
+      ? actionRowHeight
+      : bottomPaddingLineHeight
   }
 }

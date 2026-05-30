@@ -138,15 +138,16 @@ enum MarkdownEditorFormatter {
     return cachedStyle
   }
 
-  // Paragraph style for prompt blocks; the trailing inset leaves room for the copy button.
+  // Paragraph style for prompt blocks; the trailing inset keeps text inside the box.
   static func promptBlockParagraphStyle(for appearance: NoteAppearanceSettings)
     -> NSParagraphStyle
   {
     let style = NSMutableParagraphStyle()
     style.baseWritingDirection = .leftToRight
-    style.firstLineHeadIndent = 18
-    style.headIndent = 18
-    style.tailIndent = -114
+    style.firstLineHeadIndent = MarkdownEditorPromptBlockLayout.textHorizontalInset
+    style.headIndent = MarkdownEditorPromptBlockLayout.textHorizontalInset
+    style.tailIndent = MarkdownEditorPromptBlockLayout.paragraphTailIndent
+    style.lineBreakMode = .byCharWrapping
     style.paragraphSpacing = 2
     style.lineHeightMultiple = appearance.lineHeight
     return style.copy() as! NSParagraphStyle

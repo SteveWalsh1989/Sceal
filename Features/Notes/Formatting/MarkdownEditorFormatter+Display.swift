@@ -397,9 +397,10 @@ extension MarkdownEditorFormatter {
     appearance _: NoteAppearanceSettings
   ) -> NSAttributedString {
     let style = NSMutableParagraphStyle()
+    let lineHeight = MarkdownEditorPromptBlockLayout.boundaryLineHeight(for: kind)
     style.baseWritingDirection = .leftToRight
-    style.minimumLineHeight = 12
-    style.maximumLineHeight = 12
+    style.minimumLineHeight = lineHeight
+    style.maximumLineHeight = lineHeight
 
     return NSAttributedString(
       string: " ",
