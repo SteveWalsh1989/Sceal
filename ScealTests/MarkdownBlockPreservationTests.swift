@@ -39,4 +39,20 @@ final class MarkdownBlockPreservationTests: MarkdownPreservationTestCase {
       """
     XCTAssertEqual(preservedMarkdown(markdown), markdown)
   }
+
+  // Drops an unmatched opening prompt marker without losing the following note text.
+  func testOrphanedPromptStartMarkerIsRemoved() {
+    XCTAssertEqual(
+      preservedMarkdown("Intro\n<!-- prompt -->\nKeep this"),
+      "Intro\nKeep this"
+    )
+  }
+
+  // Drops an unmatched closing prompt marker instead of exposing its raw markdown.
+  func testOrphanedPromptEndMarkerIsRemoved() {
+    XCTAssertEqual(
+      preservedMarkdown("Intro\n<!-- /prompt -->\nOutro"),
+      "Intro\nOutro"
+    )
+  }
 }

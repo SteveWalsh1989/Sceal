@@ -586,6 +586,12 @@ extension MarkdownEditorView {
       shouldChangeTextIn affectedCharRange: NSRange,
       replacementString: String?
     ) -> Bool {
+      if let editorTextView = textView as? MarkdownEditorTextView,
+        !editorTextView.allowsTextChangeNearPromptBoundaries(in: affectedCharRange)
+      {
+        return false
+      }
+
       if let pendingSlashHeadingLineLocation,
         let pendingSlashHeadingTypingAttributes
       {

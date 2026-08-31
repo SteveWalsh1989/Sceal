@@ -5,6 +5,32 @@ import XCTest
 
 @MainActor
 final class EditorSlashCommandTests: EditorTestCase {
+  // Finds a rendered prompt boundary by kind for interaction assertions.
+  private func firstPromptBoundaryRange(
+    in textStorage: NSTextStorage,
+    kind expectedKind: String,
+    file: StaticString = #filePath,
+    line: UInt = #line
+  ) -> NSRange {
+    let fullRange = NSRange(location: 0, length: textStorage.length)
+    var match: NSRange?
+    textStorage.enumerateAttribute(
+      .markdownPromptBoundaryKind,
+      in: fullRange,
+      options: []
+    ) { value, range, stop in
+      guard value as? String == expectedKind else { return }
+      match = range
+      stop.pointee = true
+    }
+
+    guard let match else {
+      XCTFail("Expected a rendered prompt boundary.", file: file, line: line)
+      return NSRange(location: 0, length: 0)
+    }
+    return match
+  }
+
   // Confirms divider slash commands replace the raw shortcut with the rendered divider path.
   private func assertSectionDividerInserted(
     command: String,
@@ -524,17 +550,90 @@ final class EditorSlashCommandTests: EditorTestCase {
     )
   }
 
+  // Preserves text attached to the hidden header glyph when copying an older affected prompt.
+  func testPromptBlockCopyIncludesTextBesideStartBoundary() {
+    let markdown = """
+      <!-- prompt -->
+      Second line
+      <!-- /prompt -->
+      """
+    let fixture = makeEditorFixture(markdown: markdown)
+    let textView = fixture.textView
+
+    guard let textStorage = textView.textStorage else {
+      return XCTFail("Expected editor text storage.")
+    }
+
+    let startBoundaryRange = firstPromptBoundaryRange(
+      in: textStorage,
+      kind: MarkdownEditorPromptBlockMarkdown.startBoundaryKind
+    )
+    let attachedText = NSAttributedString(
+      string: "Top line",
+      attributes: [
+        .font: appearance.bodyFont,
+        .foregroundColor: NSColor.labelColor,
+        .paragraphStyle: MarkdownEditorFormatter.promptBlockParagraphStyle(for: appearance),
+        .markdownPromptBlock: true,
+      ]
+    )
+    textStorage.insert(attachedText, at: NSMaxRange(startBoundaryRange))
+
+    NSPasteboard.general.clearContents()
+    XCTAssertTrue(textView.copyPromptBlock(containing: startBoundaryRange.location))
+    XCTAssertEqual(
+      NSPasteboard.general.string(forType: .string),
+      "Top line\nSecond line"
+    )
+    XCTAssertEqual(
+      MarkdownEditorFormatter.convertToMarkdown(from: textStorage),
+      """
+      <!-- prompt -->
+      Top line
+      Second line
+      <!-- /prompt -->
+      """
+    )
+  }
+
+  // Keeps the caret out of the prompt action row so new text starts in editable content.
+  func testPromptBoundarySelectionRedirectsToContent() {
+    let fixture = makeEditorFixture(markdown: MarkdownEditorPromptBlockMarkdown.emptyBlock)
+    let textView = fixture.textView
+
+    guard let textStorage = textView.textStorage else {
+      return XCTFail("Expected editor text storage.")
+    }
+
+    let startBoundaryRange = firstPromptBoundaryRange(
+      in: textStorage,
+      kind: MarkdownEditorPromptBlockMarkdown.startBoundaryKind
+    )
+    let startLineRange = (textStorage.string as NSString).lineRange(for: startBoundaryRange)
+    textView.setSelectedRange(NSRange(location: NSMaxRange(startBoundaryRange), length: 0))
+
+    XCTAssertTrue(textView.editorNormalizeSelectionIfNeeded())
+    XCTAssertEqual(
+      textView.selectedRange(),
+      NSRange(location: NSMaxRange(startLineRange), length: 0)
+    )
+    XCTAssertFalse(textView.allowsTextChangeNearPromptBoundaries(in: startLineRange))
+  }
+
   // Prevents the prompt close button path from leaving hidden markers or block text behind.
   func testPromptBlockDeleteRemovesWholeBlock() {
-    let markdown = """
+    let initialMarkdown = """
       Intro
       <!-- prompt -->
       Delete this
       <!-- /prompt -->
       Outro
       """
-    let fixture = makeEditorFixture(markdown: markdown)
+    let markdown = MarkdownBox(initialMarkdown)
+    let coordinator = makeCoordinator(markdown: markdown)
+    let fixture = makeEditorFixture(markdown: initialMarkdown)
     let textView = fixture.textView
+    textView.delegate = coordinator
 
     guard let textStorage = textView.textStorage else {
       return XCTFail("Expected editor text storage.")
@@ -561,11 +660,12 @@ final class EditorSlashCommandTests: EditorTestCase {
       Outro
       """
     )
+    XCTAssertEqual(markdown.value, "Intro\nOutro")
   }
 
   // Prevents clearing a prompt from removing its reusable block boundaries.
   func testPromptBlockClearRetainsEmptyBlock() {
-    let markdown = """
+    let initialMarkdown = """
       Intro
       <!-- prompt -->
       First line
@@ -573,8 +673,11 @@ final class EditorSlashCommandTests: EditorTestCase {
       <!-- /prompt -->
       Outro
       """
-    let fixture = makeEditorFixture(markdown: markdown)
+    let markdown = MarkdownBox(initialMarkdown)
+    let coordinator = makeCoordinator(markdown: markdown)
+    let fixture = makeEditorFixture(markdown: initialMarkdown)
     let textView = fixture.textView
+    textView.delegate = coordinator
 
     guard let textStorage = textView.textStorage else {
       return XCTFail("Expected editor text storage.")
@@ -596,6 +699,16 @@ final class EditorSlashCommandTests: EditorTestCase {
     XCTAssertTrue(textView.clearPromptBlock(containing: promptLocation))
     XCTAssertEqual(
       MarkdownEditorFormatter.convertToMarkdown(from: textView.textStorage!),
+      """
+      Intro
+      <!-- prompt -->
+
+      <!-- /prompt -->
+      Outro
+      """
+    )
+    XCTAssertEqual(
+      markdown.value,
       """
       Intro
       <!-- prompt -->

@@ -18,6 +18,7 @@ extension MarkdownEditorFormatter {
     var markdownLines: [String] = []
     var lineStart = 0
     var insidePromptBlock = false
+    var unmatchedPromptStartIndex: Int?
 
     while lineStart <= nsString.length {
       if lineStart == nsString.length {
@@ -36,29 +37,53 @@ extension MarkdownEditorFormatter {
 
       let lineText =
         textRange.length > 0 ? nsString.substring(with: textRange) : ""
-      let attrs =
-        textRange.length > 0
-        ? attributedString.attributes(at: textRange.location, effectiveRange: nil)
-        : [:]
+
+      if let boundary = promptBoundary(in: textRange, from: attributedString) {
+        let boundaryLineText = lineTextRemovingPromptBoundary(
+          boundary.range,
+          from: textRange,
+          in: attributedString
+        )
+
+        if MarkdownEditorPromptBlockMarkdown.isStartBoundaryKind(boundary.kind) {
+          if let unmatchedPromptStartIndex {
+            markdownLines.remove(at: unmatchedPromptStartIndex)
+          }
+          markdownLines.append(
+            MarkdownEditorPromptBlockMarkdown.marker(forBoundaryKind: boundary.kind))
+          unmatchedPromptStartIndex = markdownLines.count - 1
+          insidePromptBlock = true
+          if !boundaryLineText.isEmpty {
+            markdownLines.append(boundaryLineText)
+          }
+        } else if insidePromptBlock {
+          if !boundaryLineText.isEmpty {
+            markdownLines.append(boundaryLineText)
+          }
+          markdownLines.append(
+            MarkdownEditorPromptBlockMarkdown.marker(forBoundaryKind: boundary.kind))
+          unmatchedPromptStartIndex = nil
+          insidePromptBlock = false
+        } else if !boundaryLineText.isEmpty {
+          markdownLines.append(boundaryLineText)
+        }
+
+        lineStart = NSMaxRange(lineRange)
+        continue
+      }
 
       let markdownLine: String
-      if attrs[.markdownPromptBoundary] as? Bool == true,
-        let kind = attrs[.markdownPromptBoundaryKind] as? String
-      {
-        if MarkdownEditorPromptBlockMarkdown.isStartBoundaryKind(kind) {
-          insidePromptBlock = true
-          markdownLine = MarkdownEditorPromptBlockMarkdown.marker(forBoundaryKind: kind)
-        } else {
-          insidePromptBlock = false
-          markdownLine = MarkdownEditorPromptBlockMarkdown.marker(forBoundaryKind: kind)
-        }
-      } else if insidePromptBlock {
+      if insidePromptBlock {
         markdownLine = lineText
       } else {
         markdownLine = reconstructLine(from: attributedString, textRange: textRange)
       }
       markdownLines.append(markdownLine)
       lineStart = NSMaxRange(lineRange)
+    }
+
+    if let unmatchedPromptStartIndex {
+      markdownLines.remove(at: unmatchedPromptStartIndex)
     }
 
     // Collapse blank lines immediately after section dividers so they don't accumulate on reload.
@@ -81,6 +106,46 @@ extension MarkdownEditorFormatter {
     }
 
     return normalized.joined(separator: "\n")
+  }
+
+  // Finds a prompt marker even when editable text has become attached to its hidden glyph.
+  private static func promptBoundary(
+    in textRange: NSRange,
+    from attributedString: NSAttributedString
+  ) -> (kind: String, range: NSRange)? {
+    guard textRange.length > 0 else { return nil }
+
+    var boundary: (kind: String, range: NSRange)?
+    attributedString.enumerateAttribute(
+      .markdownPromptBoundaryKind,
+      in: textRange,
+      options: []
+    ) { value, range, stop in
+      guard let kind = value as? String else { return }
+      boundary = (kind, range)
+      stop.pointee = true
+    }
+    return boundary
+  }
+
+  // Preserves accidental text on a boundary row while stripping only the structural glyph.
+  private static func lineTextRemovingPromptBoundary(
+    _ boundaryRange: NSRange,
+    from textRange: NSRange,
+    in attributedString: NSAttributedString
+  ) -> String {
+    let line = NSMutableAttributedString(
+      attributedString: attributedString.attributedSubstring(from: textRange)
+    )
+    let intersection = NSIntersectionRange(boundaryRange, textRange)
+    guard intersection.length > 0 else { return line.string }
+    line.deleteCharacters(
+      in: NSRange(
+        location: intersection.location - textRange.location,
+        length: intersection.length
+      )
+    )
+    return line.string
   }
 
   // Converts a selection to markdown, falling back to inline-only reconstruction for partial lines.

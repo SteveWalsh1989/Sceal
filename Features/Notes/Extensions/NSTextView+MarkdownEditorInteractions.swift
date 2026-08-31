@@ -13,7 +13,7 @@ enum DividerResolutionPreference {
 }
 
 extension NSTextView {
-  // Moves an insertion point out of a divider line to the nearest editable position.
+  // Moves an insertion point out of a structural line to the nearest editable position.
   @discardableResult
   func editorNormalizeSelectionIfNeeded(
     prefer preference: DividerResolutionPreference = .nearest
@@ -151,6 +151,18 @@ extension NSTextView {
     for proposedLocation: Int,
     prefer preference: DividerResolutionPreference
   ) -> Int {
+    if let promptBoundary = editorPromptBoundary(
+      containingInsertionLocation: proposedLocation
+    ) {
+      if MarkdownEditorPromptBlockMarkdown.isStartBoundaryKind(promptBoundary.kind) {
+        return editorNextEditableInsertionLocation(after: promptBoundary.lineRange)
+          ?? promptBoundary.lineRange.location
+      }
+
+      return editorPreviousEditableInsertionLocation(before: promptBoundary.lineRange)
+        ?? NSMaxRange(promptBoundary.lineRange)
+    }
+
     guard
       let dividerLineRange = editorSectionDividerLineRange(
         containingInsertionLocation: proposedLocation
@@ -182,6 +194,41 @@ extension NSTextView {
     }
   }
 
+  // Finds a hidden prompt boundary line containing the proposed insertion point.
+  private func editorPromptBoundary(
+    containingInsertionLocation location: Int
+  ) -> (lineRange: NSRange, kind: String)? {
+    guard let textStorage, textStorage.length > 0 else { return nil }
+
+    let nsString = string as NSString
+    let clampedLocation = min(max(location, 0), textStorage.length)
+    if clampedLocation == textStorage.length,
+      nsString.character(at: textStorage.length - 1) == 0x0A
+    {
+      return nil
+    }
+    let lineProbe = min(clampedLocation, textStorage.length - 1)
+
+    let lineRange = nsString.lineRange(for: NSRange(location: lineProbe, length: 0))
+    let trimmedRange = editorTrimmedLineRange(from: lineRange, in: nsString)
+    guard trimmedRange.length > 0 else { return nil }
+
+    var boundaryKind: String?
+    textStorage.enumerateAttribute(
+      .markdownPromptBoundaryKind,
+      in: trimmedRange,
+      options: []
+    ) { value, _, stop in
+      guard let kind = value as? String else { return }
+      boundaryKind = kind
+      stop.pointee = true
+    }
+
+    guard let boundaryKind else { return nil }
+
+    return (lineRange, boundaryKind)
+  }
+
   private func editorSectionDividerLineRange(
     containingInsertionLocation location: Int
   ) -> NSRange? {
@@ -195,11 +242,12 @@ extension NSTextView {
     return editorLineHasSectionDivider(lineRange) ? lineRange : nil
   }
 
-  private func editorPreviousEditableInsertionLocation(before dividerLineRange: NSRange) -> Int? {
-    guard dividerLineRange.location > 0 else { return nil }
+  private func editorPreviousEditableInsertionLocation(before structuralLineRange: NSRange) -> Int?
+  {
+    guard structuralLineRange.location > 0 else { return nil }
 
     let nsString = string as NSString
-    var searchLocation = dividerLineRange.location - 1
+    var searchLocation = structuralLineRange.location - 1
 
     while searchLocation >= 0 {
       let lineRange = nsString.lineRange(for: NSRange(location: searchLocation, length: 0))
@@ -215,9 +263,9 @@ extension NSTextView {
     return nil
   }
 
-  private func editorNextEditableInsertionLocation(after dividerLineRange: NSRange) -> Int? {
+  private func editorNextEditableInsertionLocation(after structuralLineRange: NSRange) -> Int? {
     let nsString = string as NSString
-    var searchLocation = NSMaxRange(dividerLineRange)
+    var searchLocation = NSMaxRange(structuralLineRange)
 
     while searchLocation < nsString.length {
       let lineRange = nsString.lineRange(for: NSRange(location: searchLocation, length: 0))

@@ -289,7 +289,7 @@ enum MarkdownEditorFormatter {
         continue
       }
 
-      if !insideCodeBlock, insidePromptBlock,
+      if !insideCodeBlock,
         MarkdownEditorPromptBlockMarkdown.boundaryKind(for: line) == promptBoundaryEndKind
       {
         insidePromptBlock = false

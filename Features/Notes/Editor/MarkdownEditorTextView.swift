@@ -76,6 +76,7 @@ final class MarkdownEditorTextView: NSTextView {
   private var promptCopyTrackingAreas: [NSTrackingArea] = []
   private var promptClearTrackingAreas: [NSTrackingArea] = []
   private var promptCloseTrackingAreas: [NSTrackingArea] = []
+  private var isPerformingPromptStructureEdit = false
   private var tableBlockViews: [String: EditorTableBlockView] = [:]
   private var isSyncingTableBlockViews = false
   private var activeTableBlockID: String? = nil
@@ -191,6 +192,57 @@ final class MarkdownEditorTextView: NSTextView {
       attributes: attributes,
       textStorage: textStorage
     )
+  }
+
+  // Prevents ordinary typing and deletion from changing hidden prompt boundary rows.
+  func allowsTextChangeNearPromptBoundaries(in proposedRange: NSRange) -> Bool {
+    guard !isPerformingPromptStructureEdit else { return true }
+    if undoManager?.isUndoing == true || undoManager?.isRedoing == true {
+      return true
+    }
+    guard proposedRange.location != NSNotFound else { return true }
+    guard let textStorage, textStorage.length > 0 else { return true }
+
+    let safeLocation = min(max(proposedRange.location, 0), textStorage.length)
+    if proposedRange.length == 0 {
+      if safeLocation == textStorage.length,
+        (textStorage.string as NSString).character(at: textStorage.length - 1) == 0x0A
+      {
+        return true
+      }
+      let lineProbe = min(safeLocation, textStorage.length - 1)
+      let lineRange = (textStorage.string as NSString).lineRange(
+        for: NSRange(location: lineProbe, length: 0)
+      )
+      return !containsPromptBoundary(in: lineRange, textStorage: textStorage)
+    }
+
+    let safeLength = min(proposedRange.length, textStorage.length - safeLocation)
+    let nsString = textStorage.string as NSString
+    let startProbe = min(safeLocation, textStorage.length - 1)
+    let endProbe = min(safeLocation + safeLength, textStorage.length - 1)
+    let startLineRange = nsString.lineRange(for: NSRange(location: startProbe, length: 0))
+    let endLineRange = nsString.lineRange(for: NSRange(location: endProbe, length: 0))
+    let lineSpan = NSRange(
+      location: startLineRange.location,
+      length: NSMaxRange(endLineRange) - startLineRange.location
+    )
+    return !containsPromptBoundary(in: lineSpan, textStorage: textStorage)
+  }
+
+  // Checks whether a line span contains either hidden prompt boundary glyph.
+  private func containsPromptBoundary(
+    in range: NSRange,
+    textStorage: NSTextStorage
+  ) -> Bool {
+    var containsBoundary = false
+    textStorage.enumerateAttribute(.markdownPromptBoundary, in: range, options: []) {
+      value, _, stop in
+      guard value as? Bool == true else { return }
+      containsBoundary = true
+      stop.pointee = true
+    }
+    return containsBoundary
   }
 
   // Skips list marker glyph runs so typing inherits the list paragraph style without marker fonts.
@@ -1092,6 +1144,21 @@ final class MarkdownEditorTextView: NSTextView {
     }
   }
 
+  // Copies the prompt block containing a storage location.
+  @discardableResult
+  func copyPromptBlock(containing location: Int) -> Bool {
+    guard let textStorage else { return false }
+    let ranges = promptBlockVisualRanges(in: textStorage)
+    guard
+      let range = ranges.first(where: {
+        NSLocationInRange(location, $0) || location == NSMaxRange($0)
+      })
+    else { return false }
+
+    copyPromptBlock(in: range, textStorage: textStorage)
+    return true
+  }
+
   // Clears prompt content while retaining the block's hidden boundary markers.
   @discardableResult
   func clearPromptBlock(containing location: Int) -> Bool {
@@ -1107,36 +1174,33 @@ final class MarkdownEditorTextView: NSTextView {
 
   // Replaces all editable prompt content with the single empty line required by the format.
   private func clearPromptBlock(in range: NSRange, textStorage: NSTextStorage) -> Bool {
-    let nsString = textStorage.string as NSString
-    let startLineRange = nsString.lineRange(for: NSRange(location: range.location, length: 0))
-    let lastLocation = min(max(NSMaxRange(range) - 1, range.location), nsString.length - 1)
-    let endLineRange = nsString.lineRange(for: NSRange(location: lastLocation, length: 0))
-    let contentRange = NSRange(
-      location: NSMaxRange(startLineRange),
-      length: max(endLineRange.location - NSMaxRange(startLineRange), 0)
-    )
-
     if promptBlockText(in: range, textStorage: textStorage).isEmpty {
       return true
     }
 
-    let handled = performEditorEdit(
-      affectedRange: contentRange,
-      replacementString: "\n",
+    let preservesTrailingNewline = (textStorage.string as NSString)
+      .substring(with: range)
+      .hasSuffix("\n")
+    let replacementMarkdown =
+      MarkdownEditorPromptBlockMarkdown.emptyBlock + (preservesTrailingNewline ? "\n" : "")
+    let replacement = MarkdownEditorFormatter.formatForDisplay(
+      replacementMarkdown,
+      appearance: appearanceSettings
+    )
+    let handled = performPromptStructureEdit(
+      affectedRange: range,
+      replacementString: replacementMarkdown,
       actionName: "Clear Prompt Block"
     ) { textStorage in
-      let emptyLine = NSAttributedString(
-        string: "\n",
-        attributes: self.promptBlockTypingAttributes()
-      )
-      textStorage.replaceCharacters(in: contentRange, with: emptyLine)
-      return NSRange(location: contentRange.location, length: 0)
+      textStorage.replaceCharacters(in: range, with: replacement)
+      return NSRange(location: range.location + 2, length: 0)
     }
 
     if handled {
       hoveredPromptClearLocation = nil
       updateTrackingAreas()
       setNeedsDisplay(bounds)
+      flushPromptBlockEditIfNeeded()
     }
     return handled
   }
@@ -1155,7 +1219,7 @@ final class MarkdownEditorTextView: NSTextView {
   }
 
   private func deletePromptBlock(in range: NSRange) -> Bool {
-    let handled = performEditorEdit(
+    let handled = performPromptStructureEdit(
       affectedRange: range,
       replacementString: "",
       actionName: "Delete Prompt Block"
@@ -1170,8 +1234,34 @@ final class MarkdownEditorTextView: NSTextView {
       hoveredPromptCloseLocation = nil
       updateTrackingAreas()
       setNeedsDisplay(bounds)
+      flushPromptBlockEditIfNeeded()
     }
     return handled
+  }
+
+  // Allows deliberate Clear/Delete operations to replace protected prompt structure.
+  private func performPromptStructureEdit(
+    affectedRange: NSRange,
+    replacementString: String,
+    actionName: String,
+    edit: (NSTextStorage) -> NSRange?
+  ) -> Bool {
+    isPerformingPromptStructureEdit = true
+    defer { isPerformingPromptStructureEdit = false }
+    return performEditorEdit(
+      affectedRange: affectedRange,
+      replacementString: replacementString,
+      actionName: actionName,
+      edit: edit
+    )
+  }
+
+  // Persists prompt structure actions before an immediate app close can beat the editor debounce.
+  private func flushPromptBlockEditIfNeeded() {
+    guard let textStorage,
+      let coordinator = delegate as? MarkdownEditorView.Coordinator
+    else { return }
+    coordinator.flushPendingMarkdownPushIfNeeded(from: textStorage)
   }
 
   private func deleteTableBlock(in range: NSRange) -> Bool {
@@ -1222,12 +1312,24 @@ final class MarkdownEditorTextView: NSTextView {
         textRange.length -= 1
       }
 
-      let isBoundary =
-        textRange.length > 0
-        && textStorage.attribute(
-          .markdownPromptBoundary, at: textRange.location, effectiveRange: nil) as? Bool == true
-      if !isBoundary {
-        lines.append(textRange.length > 0 ? nsString.substring(with: textRange) : "")
+      let line = NSMutableAttributedString(
+        attributedString: textStorage.attributedSubstring(from: textRange)
+      )
+      var boundaryRanges: [NSRange] = []
+      line.enumerateAttribute(
+        .markdownPromptBoundary,
+        in: NSRange(location: 0, length: line.length),
+        options: []
+      ) { value, boundaryRange, _ in
+        guard value as? Bool == true else { return }
+        boundaryRanges.append(boundaryRange)
+      }
+      for boundaryRange in boundaryRanges.reversed() {
+        line.deleteCharacters(in: boundaryRange)
+      }
+
+      if boundaryRanges.isEmpty || line.length > 0 {
+        lines.append(line.string)
       }
 
       lineStart = NSMaxRange(lineRange)
@@ -1542,19 +1644,19 @@ final class MarkdownEditorTextView: NSTextView {
 
   // MARK: - Navigation
 
-  // Skips section dividers when arrowing up.
+  // Skips structural marker rows when arrowing up.
   override func moveUp(_ sender: Any?) {
     super.moveUp(sender)
     _ = editorNormalizeSelectionIfNeeded(prefer: .previous)
   }
 
-  // Skips section dividers when arrowing down.
+  // Skips structural marker rows when arrowing down.
   override func moveDown(_ sender: Any?) {
     super.moveDown(sender)
     _ = editorNormalizeSelectionIfNeeded(prefer: .next)
   }
 
-  // Sanitizes the replacement range to avoid writing into dividers.
+  // Sanitizes the replacement range to avoid writing into structural marker rows.
   override func insertText(_ insertString: Any, replacementRange: NSRange) {
     let baseRange = replacementRange.location == NSNotFound ? selectedRange() : replacementRange
     guard baseRange.length == 0 else {
