@@ -562,4 +562,47 @@ final class EditorSlashCommandTests: EditorTestCase {
       """
     )
   }
+
+  // Prevents clearing a prompt from removing its reusable block boundaries.
+  func testPromptBlockClearRetainsEmptyBlock() {
+    let markdown = """
+      Intro
+      <!-- prompt -->
+      First line
+      Second line
+      <!-- /prompt -->
+      Outro
+      """
+    let fixture = makeEditorFixture(markdown: markdown)
+    let textView = fixture.textView
+
+    guard let textStorage = textView.textStorage else {
+      return XCTFail("Expected editor text storage.")
+    }
+
+    let fullRange = NSRange(location: 0, length: textStorage.length)
+    var promptLocation: Int?
+    textStorage.enumerateAttribute(.markdownPromptBoundary, in: fullRange, options: []) {
+      value, range, stop in
+      guard value as? Bool == true else { return }
+      promptLocation = range.location
+      stop.pointee = true
+    }
+
+    guard let promptLocation else {
+      return XCTFail("Expected rendered prompt block.")
+    }
+
+    XCTAssertTrue(textView.clearPromptBlock(containing: promptLocation))
+    XCTAssertEqual(
+      MarkdownEditorFormatter.convertToMarkdown(from: textView.textStorage!),
+      """
+      Intro
+      <!-- prompt -->
+
+      <!-- /prompt -->
+      Outro
+      """
+    )
+  }
 }

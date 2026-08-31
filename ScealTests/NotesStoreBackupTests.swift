@@ -5,6 +5,22 @@ import XCTest
 
 @MainActor
 final class NotesStoreBackupTests: NotesStoreTestCase {
+  // Confirms successful backup feedback clears itself after its display interval.
+  func testTransientBackupMessageDismissesItself() async {
+    let store = makeStore()
+
+    store.showTransientMessage(
+      "Automatic backup complete.",
+      kind: .info,
+      dismissAfterNanoseconds: 1_000_000
+    )
+    XCTAssertEqual(store.userMessage?.text, "Automatic backup complete.")
+
+    try? await Task.sleep(nanoseconds: 20_000_000)
+
+    XCTAssertNil(store.userMessage)
+  }
+
   func testUpdatingBackupSchedulePersistsChoice() throws {
     let userDefaults = makeUserDefaults()
     let store = makeStore(userDefaults: userDefaults)

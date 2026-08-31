@@ -70,9 +70,11 @@ final class MarkdownEditorTextView: NSTextView {
   // Prompt block hover and hit testing state.
   private var hoveredPromptBlockLocation: Int? = nil
   private var hoveredPromptCopyLocation: Int? = nil
+  private var hoveredPromptClearLocation: Int? = nil
   private var hoveredPromptCloseLocation: Int? = nil
   private var promptBlockTrackingAreas: [NSTrackingArea] = []
   private var promptCopyTrackingAreas: [NSTrackingArea] = []
+  private var promptClearTrackingAreas: [NSTrackingArea] = []
   private var promptCloseTrackingAreas: [NSTrackingArea] = []
   private var tableBlockViews: [String: EditorTableBlockView] = [:]
   private var isSyncingTableBlockViews = false
@@ -812,6 +814,10 @@ final class MarkdownEditorTextView: NSTextView {
         in: promptCopyButtonRect(in: blockRect),
         hovered: hoveredPromptCopyLocation == range.location
       )
+      drawPromptClearButton(
+        in: promptClearButtonRect(in: blockRect),
+        hovered: hoveredPromptClearLocation == range.location
+      )
       if hoveredPromptBlockLocation == range.location
         || hoveredPromptCloseLocation == range.location
       {
@@ -885,6 +891,18 @@ final class MarkdownEditorTextView: NSTextView {
     )
   }
 
+  // Places Clear beside Copy in the prompt action row.
+  private func promptClearButtonRect(in blockRect: NSRect) -> NSRect {
+    let copyButtonRect = promptCopyButtonRect(in: blockRect)
+    return NSRect(
+      x: copyButtonRect.minX - PromptBlockLayout.actionButtonSpacing
+        - PromptBlockLayout.clearButtonWidth,
+      y: copyButtonRect.minY,
+      width: PromptBlockLayout.clearButtonWidth,
+      height: copyButtonRect.height
+    )
+  }
+
   private func promptCloseButtonRect(in blockRect: NSRect) -> NSRect {
     return NSRect(
       x: blockRect.maxX + PromptBlockLayout.closeButtonGap,
@@ -895,6 +913,16 @@ final class MarkdownEditorTextView: NSTextView {
   }
 
   private func drawPromptCopyButton(in buttonRect: NSRect, hovered: Bool) {
+    drawPromptActionButton(title: "Copy", in: buttonRect, hovered: hovered)
+  }
+
+  // Draws the prompt Clear action using the same treatment as Copy.
+  private func drawPromptClearButton(in buttonRect: NSRect, hovered: Bool) {
+    drawPromptActionButton(title: "Clear", in: buttonRect, hovered: hovered)
+  }
+
+  // Draws a text action in the prompt block header.
+  private func drawPromptActionButton(title: NSString, in buttonRect: NSRect, hovered: Bool) {
     let buttonPath = NSBezierPath(roundedRect: buttonRect, xRadius: 5, yRadius: 5)
     let buttonFill =
       hovered
@@ -903,7 +931,6 @@ final class MarkdownEditorTextView: NSTextView {
     buttonFill.setFill()
     buttonPath.fill()
 
-    let title = "Copy" as NSString
     let attributes: [NSAttributedString.Key: Any] = [
       .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
       .foregroundColor: NSColor.secondaryLabelColor,
@@ -991,6 +1018,19 @@ final class MarkdownEditorTextView: NSTextView {
     return nil
   }
 
+  // Returns the prompt block whose Clear action contains the point.
+  private func promptClearHitTest(at point: NSPoint) -> NSRange? {
+    guard let textStorage else { return nil }
+    let nsString = textStorage.string as NSString
+    for range in promptBlockVisualRanges(in: textStorage) {
+      guard let blockRect = promptBlockRect(for: range, string: nsString) else { continue }
+      if promptClearButtonRect(in: blockRect).contains(point) {
+        return range
+      }
+    }
+    return nil
+  }
+
   private func promptCloseHitTest(at point: NSPoint) -> NSRange? {
     guard let textStorage else { return nil }
     let nsString = textStorage.string as NSString
@@ -1050,6 +1090,55 @@ final class MarkdownEditorTextView: NSTextView {
     if NSPasteboard.general.setString(promptText, forType: .string) {
       onPromptCopied?()
     }
+  }
+
+  // Clears prompt content while retaining the block's hidden boundary markers.
+  @discardableResult
+  func clearPromptBlock(containing location: Int) -> Bool {
+    guard let textStorage else { return false }
+    let ranges = promptBlockVisualRanges(in: textStorage)
+    guard
+      let range = ranges.first(where: {
+        NSLocationInRange(location, $0) || location == NSMaxRange($0)
+      })
+    else { return false }
+    return clearPromptBlock(in: range, textStorage: textStorage)
+  }
+
+  // Replaces all editable prompt content with the single empty line required by the format.
+  private func clearPromptBlock(in range: NSRange, textStorage: NSTextStorage) -> Bool {
+    let nsString = textStorage.string as NSString
+    let startLineRange = nsString.lineRange(for: NSRange(location: range.location, length: 0))
+    let lastLocation = min(max(NSMaxRange(range) - 1, range.location), nsString.length - 1)
+    let endLineRange = nsString.lineRange(for: NSRange(location: lastLocation, length: 0))
+    let contentRange = NSRange(
+      location: NSMaxRange(startLineRange),
+      length: max(endLineRange.location - NSMaxRange(startLineRange), 0)
+    )
+
+    if promptBlockText(in: range, textStorage: textStorage).isEmpty {
+      return true
+    }
+
+    let handled = performEditorEdit(
+      affectedRange: contentRange,
+      replacementString: "\n",
+      actionName: "Clear Prompt Block"
+    ) { textStorage in
+      let emptyLine = NSAttributedString(
+        string: "\n",
+        attributes: self.promptBlockTypingAttributes()
+      )
+      textStorage.replaceCharacters(in: contentRange, with: emptyLine)
+      return NSRange(location: contentRange.location, length: 0)
+    }
+
+    if handled {
+      hoveredPromptClearLocation = nil
+      updateTrackingAreas()
+      setNeedsDisplay(bounds)
+    }
+    return handled
   }
 
   // Deletes a whole prompt block, including hidden boundary markers and its content.
@@ -1178,6 +1267,8 @@ final class MarkdownEditorTextView: NSTextView {
     promptBlockTrackingAreas.removeAll()
     for area in promptCopyTrackingAreas { removeTrackingArea(area) }
     promptCopyTrackingAreas.removeAll()
+    for area in promptClearTrackingAreas { removeTrackingArea(area) }
+    promptClearTrackingAreas.removeAll()
     for area in promptCloseTrackingAreas { removeTrackingArea(area) }
     promptCloseTrackingAreas.removeAll()
     for area in tableBlockTrackingAreas { removeTrackingArea(area) }
@@ -1227,6 +1318,12 @@ final class MarkdownEditorTextView: NSTextView {
         owner: self,
         userInfo: ["promptLocation": range.location]
       )
+      let clearArea = NSTrackingArea(
+        rect: promptClearButtonRect(in: blockRect),
+        options: [.mouseEnteredAndExited, .activeInActiveApp],
+        owner: self,
+        userInfo: ["promptClearLocation": range.location]
+      )
       let closeArea = NSTrackingArea(
         rect: promptCloseButtonRect(in: blockRect),
         options: [.mouseEnteredAndExited, .activeInActiveApp],
@@ -1235,9 +1332,11 @@ final class MarkdownEditorTextView: NSTextView {
       )
       addTrackingArea(blockArea)
       addTrackingArea(copyArea)
+      addTrackingArea(clearArea)
       addTrackingArea(closeArea)
       promptBlockTrackingAreas.append(blockArea)
       promptCopyTrackingAreas.append(copyArea)
+      promptClearTrackingAreas.append(clearArea)
       promptCloseTrackingAreas.append(closeArea)
     }
   }
@@ -1289,6 +1388,12 @@ final class MarkdownEditorTextView: NSTextView {
       setNeedsDisplay(bounds)
       return
     }
+    if let location = event.trackingArea?.userInfo?["promptClearLocation"] as? Int {
+      hoveredPromptClearLocation = location
+      setNeedsDisplay(bounds)
+      NSCursor.pointingHand.push()
+      return
+    }
     if let location = event.trackingArea?.userInfo?["promptLocation"] as? Int {
       hoveredPromptCopyLocation = location
       setNeedsDisplay(bounds)
@@ -1333,6 +1438,12 @@ final class MarkdownEditorTextView: NSTextView {
     if event.trackingArea?.userInfo?["promptBlockLocation"] != nil {
       hoveredPromptBlockLocation = nil
       setNeedsDisplay(bounds)
+      return
+    }
+    if event.trackingArea?.userInfo?["promptClearLocation"] != nil {
+      hoveredPromptClearLocation = nil
+      setNeedsDisplay(bounds)
+      NSCursor.pop()
       return
     }
     if event.trackingArea?.userInfo?["promptLocation"] != nil {
@@ -1907,6 +2018,11 @@ final class MarkdownEditorTextView: NSTextView {
 
     if let promptRange = promptCloseHitTest(at: point) {
       _ = deletePromptBlock(in: promptRange)
+      return
+    }
+
+    if let promptRange = promptClearHitTest(at: point) {
+      _ = clearPromptBlock(in: promptRange, textStorage: textStorage)
       return
     }
 

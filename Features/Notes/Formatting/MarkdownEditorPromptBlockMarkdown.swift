@@ -47,7 +47,9 @@ enum MarkdownEditorPromptBlockLayout {
   static let textHorizontalInset: CGFloat = 18
   static let editorTextContainerHorizontalInset: CGFloat = 22
   static let copyButtonWidth: CGFloat = 58
+  static let clearButtonWidth: CGFloat = 58
   static let copyButtonHeight: CGFloat = 22
+  static let actionButtonSpacing: CGFloat = 6
   static let closeButtonSize: CGFloat = 22
   static let closeButtonGap: CGFloat = 8
   static let actionPadding: CGFloat = 10

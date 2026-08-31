@@ -32,7 +32,7 @@ struct NoteMonthSection: Identifiable, Equatable, Sendable {
   }
 }
 
-enum UserMessageKind {
+enum UserMessageKind: Equatable {
   case error
   case info
 }
@@ -114,6 +114,7 @@ final class NotesStore: ObservableObject {
   var pendingListNoteSaveTasks: [DayNote.ID: Task<Void, Never>] = [:]
   private var periodicFlushTask: Task<Void, Never>?
   var periodicBackupCheckTask: Task<Void, Never>?
+  private var userMessageDismissTask: Task<Void, Never>?
   #if DEBUG
     private var demoReturnContext: DemoReturnContext?
   #endif
@@ -698,7 +699,33 @@ final class NotesStore: ObservableObject {
 
   // Clears the current user-facing message banner.
   func dismissMessage() {
+    userMessageDismissTask?.cancel()
+    userMessageDismissTask = nil
     userMessage = nil
+  }
+
+  // Shows a user-facing message briefly without affecting persistent errors and notices.
+  func showTransientMessage(
+    _ text: String,
+    kind: UserMessageKind,
+    dismissAfterNanoseconds: UInt64 = 1_800_000_000
+  ) {
+    userMessageDismissTask?.cancel()
+    let message = (text: text, kind: kind)
+    userMessage = message
+
+    userMessageDismissTask = Task { @MainActor [weak self] in
+      try? await Task.sleep(nanoseconds: dismissAfterNanoseconds)
+      guard
+        !Task.isCancelled,
+        let self,
+        self.userMessage?.text == message.text,
+        self.userMessage?.kind == message.kind
+      else { return }
+
+      self.userMessage = nil
+      self.userMessageDismissTask = nil
+    }
   }
 
   // Immediately writes all debounced saves to disk.
