@@ -32,6 +32,7 @@ struct StructuredNoteEditorView: View {
 
   private func editor(_ document: StructuredNoteDocument) -> some View {
     let items = sectionItems(in: document)
+    let itemsByID = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
 
     return VStack(alignment: .leading, spacing: 12) {
       editorHeader(document)
@@ -45,15 +46,15 @@ struct StructuredNoteEditorView: View {
       ScrollViewReader { scrollProxy in
         ScrollView {
           VStack(spacing: 14) {
-            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-              StructuredSectionEditorCard(
-                store: store,
-                editorCoordinator: editorCoordinator,
+            ForEach(Array(document.nodes.enumerated()), id: \.element.id) {
+              rootNodeIndex,
+              node in
+              editorNode(
+                node,
+                rootNodeIndex: rootNodeIndex,
                 documentID: document.id,
-                item: item,
-                position: index + 1
+                itemsByID: itemsByID
               )
-              .id(item.id)
             }
           }
           .frame(maxWidth: .infinity)
@@ -155,9 +156,50 @@ struct StructuredNoteEditorView: View {
     store.effectiveAppearanceSettings.resolvedColors
   }
 
+  @ViewBuilder
+  // Preserves root group boundaries while building the visible editor hierarchy.
+  private func editorNode(
+    _ node: StructuredNoteNode,
+    rootNodeIndex: Int,
+    documentID: String,
+    itemsByID: [UUID: StructuredEditorSectionItem]
+  ) -> some View {
+    switch node {
+    case .section(let section):
+      if let item = itemsByID[section.id] {
+        StructuredSectionEditorCard(
+          store: store,
+          editorCoordinator: editorCoordinator,
+          documentID: documentID,
+          item: item
+        )
+        .id(item.id)
+      }
+
+    case .group(let group):
+      StructuredSectionGroupContainer(
+        store: store,
+        editorCoordinator: editorCoordinator,
+        documentID: documentID,
+        group: group,
+        rootNodeIndex: rootNodeIndex,
+        sectionItems: group.sections.compactMap { itemsByID[$0.id] }
+      )
+      .id(group.id)
+    }
+  }
+
   // Flattens root and grouped sections while retaining their structural action context.
   private func sectionItems(in document: StructuredNoteDocument) -> [StructuredEditorSectionItem] {
     var items: [StructuredEditorSectionItem] = []
+    let groupDestinations = document.nodes.compactMap { node -> StructuredEditorGroupDestination? in
+      guard case .group(let group) = node else { return nil }
+      return StructuredEditorGroupDestination(
+        id: group.id,
+        title: group.title,
+        insertionIndex: group.sections.count
+      )
+    }
     let totalSectionCount = document.nodes.reduce(into: 0) { count, node in
       switch node {
       case .section:
@@ -186,13 +228,13 @@ struct StructuredNoteEditorView: View {
           StructuredEditorSectionItem(
             section: section,
             parent: .root,
-            groupTitle: nil,
             groupStyle: nil,
             indexInContainer: rootNodeIndex,
             containerCount: document.nodes.count,
             totalSectionCount: totalSectionCount,
             previousMergeSectionID: previousMergeID,
-            nextMergeSectionID: nextMergeID
+            nextMergeSectionID: nextMergeID,
+            availableGroups: groupDestinations
           )
         )
 
@@ -202,7 +244,6 @@ struct StructuredNoteEditorView: View {
             StructuredEditorSectionItem(
               section: section,
               parent: .group(group.id),
-              groupTitle: group.title,
               groupStyle: group.style,
               indexInContainer: sectionIndex,
               containerCount: group.sections.count,
@@ -214,7 +255,8 @@ struct StructuredNoteEditorView: View {
               nextMergeSectionID:
                 group.sections.indices.contains(sectionIndex + 1)
                 ? group.sections[sectionIndex + 1].id
-                : nil
+                : nil,
+              availableGroups: groupDestinations.filter { $0.id != group.id }
             )
           )
         }
@@ -223,6 +265,7 @@ struct StructuredNoteEditorView: View {
 
     return items.enumerated().map { index, item in
       var item = item
+      item.position = index + 1
       item.previousVisibleSectionID = index > items.startIndex ? items[index - 1].id : nil
       item.nextVisibleSectionID = items.indices.contains(index + 1) ? items[index + 1].id : nil
       return item
@@ -236,41 +279,50 @@ struct StructuredNoteEditorView: View {
   }
 }
 
+private struct StructuredEditorGroupDestination: Identifiable {
+  let id: UUID
+  let title: String
+  let insertionIndex: Int
+}
+
 private struct StructuredEditorSectionItem: Identifiable {
   let section: StructuredNoteSection
   let parent: StructuredNoteSectionParent
-  let groupTitle: String?
   let groupStyle: StructuredSectionStyle?
   let indexInContainer: Int
   let containerCount: Int
   let totalSectionCount: Int
   let previousMergeSectionID: UUID?
   let nextMergeSectionID: UUID?
+  let availableGroups: [StructuredEditorGroupDestination]
+  var position = 1
   var previousVisibleSectionID: UUID?
   var nextVisibleSectionID: UUID?
 
   init(
     section: StructuredNoteSection,
     parent: StructuredNoteSectionParent,
-    groupTitle: String?,
     groupStyle: StructuredSectionStyle?,
     indexInContainer: Int,
     containerCount: Int,
     totalSectionCount: Int,
     previousMergeSectionID: UUID?,
     nextMergeSectionID: UUID?,
+    availableGroups: [StructuredEditorGroupDestination],
+    position: Int = 1,
     previousVisibleSectionID: UUID? = nil,
     nextVisibleSectionID: UUID? = nil
   ) {
     self.section = section
     self.parent = parent
-    self.groupTitle = groupTitle
     self.groupStyle = groupStyle
     self.indexInContainer = indexInContainer
     self.containerCount = containerCount
     self.totalSectionCount = totalSectionCount
     self.previousMergeSectionID = previousMergeSectionID
     self.nextMergeSectionID = nextMergeSectionID
+    self.availableGroups = availableGroups
+    self.position = position
     self.previousVisibleSectionID = previousVisibleSectionID
     self.nextVisibleSectionID = nextVisibleSectionID
   }
@@ -279,6 +331,234 @@ private struct StructuredEditorSectionItem: Identifiable {
   var canMoveUp: Bool { indexInContainer > 0 }
   var canMoveDown: Bool { indexInContainer + 1 < containerCount }
   var canDelete: Bool { totalSectionCount > 1 }
+  var isGrouped: Bool {
+    guard case .group = parent else { return false }
+    return true
+  }
+}
+
+private struct StructuredSectionGroupContainer: View {
+  @ObservedObject var store: NotesStore
+  @ObservedObject var editorCoordinator: StructuredNoteEditorCoordinator
+  let documentID: String
+  let group: StructuredSectionGroup
+  let rootNodeIndex: Int
+  let sectionItems: [StructuredEditorSectionItem]
+  @State private var isHovering = false
+  @State private var isRenaming = false
+  @State private var titleDraft = ""
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      groupHeader
+
+      VStack(spacing: 12) {
+        ForEach(sectionItems) { item in
+          StructuredSectionEditorCard(
+            store: store,
+            editorCoordinator: editorCoordinator,
+            documentID: documentID,
+            item: item
+          )
+          .id(item.id)
+        }
+      }
+    }
+    .padding(14)
+    .background(groupBackground)
+    .overlay(
+      RoundedRectangle(cornerRadius: 28, style: .continuous)
+        .strokeBorder(groupBorderColor, lineWidth: 1.5)
+    )
+    .onHover { isHovering = $0 }
+    .accessibilityElement(children: .contain)
+    .accessibilityLabel("Group \(rootNodeIndex + 1): \(group.title)")
+    .alert("Rename Group", isPresented: $isRenaming) {
+      TextField("Group name", text: $titleDraft)
+      Button("Rename") {
+        renameGroup()
+      }
+      .disabled(normalizedTitleDraft.isEmpty)
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text("The group name is exported as a Markdown heading.")
+    }
+  }
+
+  private var groupHeader: some View {
+    HStack(spacing: 10) {
+      Image(systemName: "square.stack.3d.up.fill")
+        .font(.system(size: 13, weight: .semibold))
+        .foregroundStyle(groupBorderColor)
+
+      VStack(alignment: .leading, spacing: 2) {
+        Text("GROUP")
+          .font(.system(size: 9, weight: .bold))
+          .tracking(1.1)
+          .foregroundStyle(.tertiary)
+
+        Text(group.title)
+          .font(.system(size: 18, weight: .semibold))
+          .foregroundStyle(groupHeadingColor)
+      }
+
+      Text(sectionCountLabel)
+        .font(.caption)
+        .foregroundStyle(.tertiary)
+
+      Spacer()
+
+      groupOptionsMenu
+        .opacity(isHovering || containsFocusedSection ? 1 : 0)
+        .allowsHitTesting(isHovering || containsFocusedSection)
+    }
+    .padding(.horizontal, 6)
+    .padding(.top, 2)
+  }
+
+  private var groupOptionsMenu: some View {
+    Menu {
+      Button("Rename Group", systemImage: "pencil") {
+        titleDraft = group.title
+        isRenaming = true
+      }
+
+      StructuredGroupAppearanceMenu(style: group.style, onChange: updateGroupStyle)
+
+      Divider()
+
+      Button("Undo Structural Change", systemImage: "arrow.uturn.backward") {
+        editorCoordinator.undoStructuralChange()
+      }
+      .disabled(!editorCoordinator.structuralUndoManager.canUndo)
+
+      Button("Redo Structural Change", systemImage: "arrow.uturn.forward") {
+        editorCoordinator.redoStructuralChange()
+      }
+      .disabled(!editorCoordinator.structuralUndoManager.canRedo)
+
+      Divider()
+
+      Button("Ungroup Sections", systemImage: "square.stack.3d.up.slash") {
+        ungroupSections()
+      }
+    } label: {
+      Image(systemName: "ellipsis")
+        .font(.system(size: 13, weight: .semibold))
+        .foregroundStyle(.secondary)
+        .frame(width: 28, height: 24)
+        .contentShape(Rectangle())
+    }
+    .menuStyle(.borderlessButton)
+    .menuIndicator(.hidden)
+    .fixedSize()
+    .accessibilityLabel("\(group.title) group options")
+  }
+
+  private var normalizedTitleDraft: String {
+    titleDraft.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+  }
+
+  private var sectionCountLabel: String {
+    sectionItems.count == 1 ? "1 section" : "\(sectionItems.count) sections"
+  }
+
+  private var containsFocusedSection: Bool {
+    guard let focusedSectionID = editorCoordinator.focusedSectionID else { return false }
+    return sectionItems.contains(where: { $0.id == focusedSectionID })
+  }
+
+  private var themeColors: ThemeColorSet {
+    store.effectiveAppearanceSettings.resolvedColors
+  }
+
+  private var groupBackground: some View {
+    ZStack {
+      RoundedRectangle(cornerRadius: 28, style: .continuous)
+        .fill(themeColors.sectionCardFill.color.opacity(0.45))
+      if let colorName = group.style.backgroundColorName,
+        let color = ThemePalette.color(named: colorName)
+      {
+        RoundedRectangle(cornerRadius: 28, style: .continuous)
+          .fill(Color(nsColor: color).opacity(0.12))
+      }
+    }
+  }
+
+  private var groupBorderColor: Color {
+    guard let colorName = group.style.borderColorName,
+      let color = ThemePalette.color(named: colorName)
+    else {
+      return themeColors.divider.color
+    }
+    return Color(nsColor: color).opacity(0.85)
+  }
+
+  private var groupHeadingColor: Color {
+    guard let colorName = group.style.headingColorName,
+      let color = ThemePalette.color(named: colorName)
+    else { return .primary }
+    return Color(nsColor: color)
+  }
+
+  // Normalizes the semantic title to the single-line heading used by portable export.
+  private func renameGroup() {
+    let title = normalizedTitleDraft
+    guard !title.isEmpty else { return }
+    performStructuralChange(actionName: "Rename Group") { document in
+      try document.setGroupTitle(title, groupID: group.id)
+    }
+  }
+
+  // Stores group defaults without copying them into individual child overrides.
+  private func updateGroupStyle(_ style: StructuredSectionStyle) {
+    performStructuralChange(actionName: "Change Group Appearance") { document in
+      try document.setGroupStyle(style, groupID: group.id)
+    }
+  }
+
+  // Lifts every child into the group's root position without changing child state.
+  private func ungroupSections() {
+    performStructuralChange(actionName: "Ungroup Sections") { document in
+      try document.ungroup(id: group.id)
+    }
+  }
+
+  // Applies one group mutation while retaining a valid child focus for undo and redo.
+  private func performStructuralChange(
+    actionName: String,
+    mutate: (inout StructuredNoteDocument) throws -> Void
+  ) {
+    guard store.selectedStructuredNote?.id == documentID,
+      let previousDocument = store.selectedStructuredNote
+    else { return }
+    var updatedDocument = previousDocument
+    let focusSectionID =
+      editorCoordinator.focusedSectionID.flatMap { focusedSectionID in
+        sectionItems.contains(where: { $0.id == focusedSectionID }) ? focusedSectionID : nil
+      } ?? sectionItems.first?.id
+
+    do {
+      try mutate(&updatedDocument)
+      let focusTarget = focusSectionID.map {
+        StructuredNoteEditorCoordinator.FocusTarget(sectionID: $0)
+      }
+      editorCoordinator.commitStructuralChange(
+        from: previousDocument,
+        to: updatedDocument,
+        actionName: actionName,
+        undoFocusTarget: focusTarget,
+        redoFocusTarget: focusTarget
+      ) { [weak store] document in
+        store?.replaceStructuredDocument(document)
+      }
+      if let focusSectionID {
+        editorCoordinator.requestFocus(sectionID: focusSectionID)
+      }
+    } catch {
+      store.showTransientMessage(error.localizedDescription, kind: .error)
+    }
+  }
 }
 
 private struct StructuredSectionEditorCard: View {
@@ -286,10 +566,11 @@ private struct StructuredSectionEditorCard: View {
   @ObservedObject var editorCoordinator: StructuredNoteEditorCoordinator
   let documentID: String
   let item: StructuredEditorSectionItem
-  let position: Int
   @State private var editorHeight: CGFloat = 132
   @State private var isHovering = false
   @State private var isConfirmingDeletion = false
+  @State private var isCreatingGroup = false
+  @State private var groupTitleDraft = "New Group"
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
@@ -367,6 +648,16 @@ private struct StructuredSectionEditorCard: View {
         "This section contains content. You can undo the deletion from another section's options menu."
       )
     }
+    .alert("Create Group", isPresented: $isCreatingGroup) {
+      TextField("Group name", text: $groupTitleDraft)
+      Button("Create") {
+        createGroup()
+      }
+      .disabled(normalizedGroupTitleDraft.isEmpty)
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text("This section becomes the first item in the new group without changing its content.")
+    }
   }
 
   private var sectionHeader: some View {
@@ -374,17 +665,11 @@ private struct StructuredSectionEditorCard: View {
       Button {
         editorCoordinator.requestFocus(sectionID: item.id)
       } label: {
-        Text("Section \(position)")
+        Text("Section \(item.position)")
           .font(.caption.weight(.semibold))
           .foregroundStyle(isFocused ? accentColor : Color(nsColor: .secondaryLabelColor))
       }
       .buttonStyle(.plain)
-
-      if let groupTitle = item.groupTitle {
-        Text("Group: \(groupTitle)")
-          .font(.caption)
-          .foregroundStyle(.tertiary)
-      }
 
       Spacer()
 
@@ -419,6 +704,29 @@ private struct StructuredSectionEditorCard: View {
 
       Divider()
 
+      if item.isGrouped {
+        Button("Detach from Group", systemImage: "rectangle.portrait.and.arrow.right") {
+          detachSection()
+        }
+      } else {
+        Button("Create Group", systemImage: "square.stack.3d.up") {
+          groupTitleDraft = "New Group"
+          isCreatingGroup = true
+        }
+      }
+
+      if !item.availableGroups.isEmpty {
+        Menu("Move to Group", systemImage: "arrow.right") {
+          ForEach(item.availableGroups) { destination in
+            Button(destination.title) {
+              moveSection(toGroup: destination)
+            }
+          }
+        }
+      }
+
+      Divider()
+
       Button("Merge With Previous", systemImage: "arrow.up.to.line") {
         mergeSection(direction: .previous)
       }
@@ -431,6 +739,7 @@ private struct StructuredSectionEditorCard: View {
 
       StructuredSectionAppearanceMenu(
         styleOverrides: item.section.styleOverrides,
+        inheritanceLabel: item.isGrouped ? "Inherit from Group" : "Inherit from Theme",
         onChange: updateStyleOverrides
       )
 
@@ -462,7 +771,7 @@ private struct StructuredSectionEditorCard: View {
     .menuStyle(.borderlessButton)
     .menuIndicator(.hidden)
     .fixedSize()
-    .accessibilityLabel("Section \(position) options")
+    .accessibilityLabel("Section \(item.position) options")
   }
 
   private var focusRequest: StructuredNoteEditorCoordinator.FocusRequest? {
@@ -511,6 +820,10 @@ private struct StructuredSectionEditorCard: View {
     Color(nsColor: store.effectiveAppearanceSettings.accentColor)
   }
 
+  private var normalizedGroupTitleDraft: String {
+    groupTitleDraft.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+  }
+
   // Splits current Markdown and focuses the newly inserted section at its beginning.
   private func splitSection(markdown: String, atUTF16Offset splitOffset: Int) {
     guard var previousDocument = currentDocument else { return }
@@ -546,6 +859,37 @@ private struct StructuredSectionEditorCard: View {
           to: StructuredNoteSectionDestination(parent: .group(groupID), index: destinationIndex)
         )
       }
+    }
+  }
+
+  // Wraps a root section in a semantic group without changing the section itself.
+  private func createGroup() {
+    let title = normalizedGroupTitleDraft
+    guard !title.isEmpty, !item.isGrouped else { return }
+    performStructuralChange(actionName: "Create Group", focusSectionID: item.id) { document in
+      _ = try document.createGroup(title: title, aroundSectionID: item.id)
+    }
+  }
+
+  // Appends a section to another group while retaining content, identity, and overrides.
+  private func moveSection(toGroup destination: StructuredEditorGroupDestination) {
+    performStructuralChange(actionName: "Move Section to Group", focusSectionID: item.id) {
+      document in
+      try document.moveSection(
+        id: item.id,
+        to: StructuredNoteSectionDestination(
+          parent: .group(destination.id),
+          index: destination.insertionIndex
+        )
+      )
+    }
+  }
+
+  // Places a grouped section immediately after its group at the root level.
+  private func detachSection() {
+    guard item.isGrouped else { return }
+    performStructuralChange(actionName: "Detach Section", focusSectionID: item.id) { document in
+      try document.detachSection(id: item.id)
     }
   }
 
@@ -666,13 +1010,15 @@ private struct StructuredSectionEditorCard: View {
 
 private struct StructuredSectionAppearanceMenu: View {
   let styleOverrides: StructuredSectionStyleOverrides
+  let inheritanceLabel: String
   let onChange: (StructuredSectionStyleOverrides) -> Void
 
   var body: some View {
     Menu("Appearance", systemImage: "paintpalette") {
       StructuredColorOverrideMenu(
         title: "Background",
-        currentValue: styleOverrides.backgroundColor
+        currentValue: styleOverrides.backgroundColor,
+        inheritanceLabel: inheritanceLabel
       ) { value in
         var updated = styleOverrides
         updated.backgroundColor = value
@@ -681,7 +1027,8 @@ private struct StructuredSectionAppearanceMenu: View {
 
       StructuredColorOverrideMenu(
         title: "Border",
-        currentValue: styleOverrides.borderColor
+        currentValue: styleOverrides.borderColor,
+        inheritanceLabel: inheritanceLabel
       ) { value in
         var updated = styleOverrides
         updated.borderColor = value
@@ -690,7 +1037,8 @@ private struct StructuredSectionAppearanceMenu: View {
 
       StructuredColorOverrideMenu(
         title: "Headings",
-        currentValue: styleOverrides.headingColor
+        currentValue: styleOverrides.headingColor,
+        inheritanceLabel: inheritanceLabel
       ) { value in
         var updated = styleOverrides
         updated.headingColor = value
@@ -699,7 +1047,8 @@ private struct StructuredSectionAppearanceMenu: View {
 
       StructuredColorOverrideMenu(
         title: "Bullets",
-        currentValue: styleOverrides.bulletColor
+        currentValue: styleOverrides.bulletColor,
+        inheritanceLabel: inheritanceLabel
       ) { value in
         var updated = styleOverrides
         updated.bulletColor = value
@@ -712,11 +1061,12 @@ private struct StructuredSectionAppearanceMenu: View {
 private struct StructuredColorOverrideMenu: View {
   let title: String
   let currentValue: StructuredColorOverride
+  let inheritanceLabel: String
   let onSelect: (StructuredColorOverride) -> Void
 
   var body: some View {
     Menu(title) {
-      option("Inherit", value: .inherit)
+      option(inheritanceLabel, value: .inherit)
       option("Theme Default", value: .themeDefault)
 
       Divider()
@@ -728,6 +1078,71 @@ private struct StructuredColorOverrideMenu: View {
   }
 
   private func option(_ title: String, value: StructuredColorOverride) -> some View {
+    Button {
+      onSelect(value)
+    } label: {
+      if currentValue == value {
+        Label(title, systemImage: "checkmark")
+      } else {
+        Text(title)
+      }
+    }
+  }
+}
+
+private struct StructuredGroupAppearanceMenu: View {
+  let style: StructuredSectionStyle
+  let onChange: (StructuredSectionStyle) -> Void
+
+  var body: some View {
+    Menu("Appearance", systemImage: "paintpalette") {
+      StructuredGroupColorMenu(title: "Background", currentValue: style.backgroundColorName) {
+        value in
+        var updated = style
+        updated.backgroundColorName = value
+        onChange(updated)
+      }
+
+      StructuredGroupColorMenu(title: "Border", currentValue: style.borderColorName) { value in
+        var updated = style
+        updated.borderColorName = value
+        onChange(updated)
+      }
+
+      StructuredGroupColorMenu(title: "Headings", currentValue: style.headingColorName) { value in
+        var updated = style
+        updated.headingColorName = value
+        onChange(updated)
+      }
+
+      StructuredGroupColorMenu(title: "Bullets", currentValue: style.bulletColorName) { value in
+        var updated = style
+        updated.bulletColorName = value
+        onChange(updated)
+      }
+    }
+  }
+}
+
+private struct StructuredGroupColorMenu: View {
+  let title: String
+  let currentValue: String?
+  let onSelect: (String?) -> Void
+
+  var body: some View {
+    Menu(title) {
+      option("Theme Default", value: nil)
+
+      Divider()
+
+      ForEach(ThemePalette.colors.map(\.name), id: \.self) { colorName in
+        option(colorName.capitalized, value: colorName)
+      }
+    }
+  }
+
+  // Marks the active group default while keeping theme fallback represented as nil.
+  private func option(_ title: String, value: String?) -> some View {
     Button {
       onSelect(value)
     } label: {

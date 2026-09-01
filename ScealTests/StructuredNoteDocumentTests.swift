@@ -178,11 +178,33 @@ final class StructuredNoteDocumentTests: XCTestCase {
     let group = StructuredSectionGroup(title: "Feature", sections: [groupedSection])
     var document = makeDocument(nodes: [.section(rootSection), .group(group)])
 
-    try document.detachSection(id: groupedSection.id, toRootIndex: 1)
+    try document.detachSection(id: groupedSection.id)
 
     XCTAssertEqual(document.nodes.count, 2)
     XCTAssertEqual(self.rootSection(in: document, at: 1)?.id, groupedSection.id)
     XCTAssertNil(self.group(in: document, id: group.id))
+  }
+
+  // Places a detached child immediately after a group that still has other sections.
+  func testDetachSectionUsesStablePositionAfterSurvivingGroup() throws {
+    let rootSection = StructuredNoteSection(markdown: "Root")
+    let detachedSection = StructuredNoteSection(markdown: "Detach")
+    let remainingSection = StructuredNoteSection(markdown: "Remain")
+    let group = StructuredSectionGroup(
+      title: "Feature",
+      sections: [detachedSection, remainingSection]
+    )
+    let trailingSection = StructuredNoteSection(markdown: "Trailing")
+    var document = makeDocument(
+      nodes: [.section(rootSection), .group(group), .section(trailingSection)]
+    )
+
+    try document.detachSection(id: detachedSection.id)
+
+    XCTAssertEqual(
+      document.nodes.map(\.id), [rootSection.id, group.id, detachedSection.id, trailingSection.id])
+    XCTAssertEqual(
+      self.group(in: document, id: group.id)?.sections.map(\.id), [remainingSection.id])
   }
 
   // Supports creating a new root section and a new section inside an existing group.
@@ -273,6 +295,43 @@ final class StructuredNoteDocumentTests: XCTestCase {
     XCTAssertEqual(document.nodes.compactMap(rootSectionID), [first.id, second.id])
   }
 
+  // Enforces one-level nesting by rejecting attempts to wrap an already grouped section.
+  func testCreateGroupRejectsGroupedSectionTransactionally() {
+    let section = StructuredNoteSection(markdown: "Grouped")
+    let group = StructuredSectionGroup(title: "Existing", sections: [section])
+    var document = makeDocument(nodes: [.group(group)])
+    let originalDocument = document
+
+    XCTAssertThrowsError(
+      try document.createGroup(title: "Nested", aroundSectionID: section.id)
+    ) { error in
+      XCTAssertEqual(error as? StructuredNoteDocumentError, .sectionAlreadyGrouped(section.id))
+    }
+    XCTAssertEqual(document, originalDocument)
+  }
+
+  // Moves a root section into a group without changing its content, identity, or overrides.
+  func testMoveRootSectionIntoGroupPreservesSectionState() throws {
+    let overrides = StructuredSectionStyleOverrides(borderColor: .colorName("pink"))
+    let movingSection = StructuredNoteSection(
+      markdown: "Move me",
+      styleOverrides: overrides,
+      isCollapsed: true
+    )
+    let existingSection = StructuredNoteSection(markdown: "Existing")
+    let group = StructuredSectionGroup(title: "Feature", sections: [existingSection])
+    var document = makeDocument(nodes: [.section(movingSection), .group(group)])
+
+    try document.moveSection(
+      id: movingSection.id,
+      to: StructuredNoteSectionDestination(parent: .group(group.id), index: 1)
+    )
+
+    let movedSection = try XCTUnwrap(self.group(in: document, id: group.id)?.sections.last)
+    XCTAssertEqual(movedSection, movingSection)
+    XCTAssertEqual(movedSection.styleOverrides, overrides)
+  }
+
   // Supports top-level group movement without changing the group's child order.
   func testMoveRootNodeReordersGroupAsOneItem() throws {
     let first = StructuredNoteSection(markdown: "First")
@@ -360,6 +419,71 @@ final class StructuredNoteDocumentTests: XCTestCase {
     XCTAssertEqual(updatedGroup.style, groupStyle)
     XCTAssertEqual(updatedGroup.sections.first?.styleOverrides, sectionOverrides)
     XCTAssertEqual(self.rootSection(in: document, at: 0)?.styleOverrides, .inherited)
+  }
+
+  // Restores group inheritance per property when an explicit section override is cleared.
+  func testClearingSectionOverrideReturnsToGroupAppearance() throws {
+    let groupStyle = StructuredSectionStyle(
+      backgroundColorName: "blue",
+      headingColorName: "purple"
+    )
+    let section = StructuredNoteSection(
+      markdown: "Grouped",
+      styleOverrides: StructuredSectionStyleOverrides(
+        backgroundColor: .colorName("pink"),
+        headingColor: .themeDefault
+      )
+    )
+    let group = StructuredSectionGroup(
+      title: "Feature",
+      style: groupStyle,
+      sections: [section]
+    )
+    var document = makeDocument(nodes: [.group(group)])
+
+    try document.setStyleOverrides(.inherited, sectionID: section.id)
+
+    let updatedSection = try XCTUnwrap(self.group(in: document, id: group.id)?.sections.first)
+    XCTAssertEqual(updatedSection.styleOverrides, .inherited)
+    XCTAssertEqual(
+      updatedSection.resolvedStyle(groupStyle: groupStyle, themeStyle: .themeDefault),
+      groupStyle
+    )
+  }
+
+  // Renames a group without changing its stable identity, style, or child order.
+  func testSetGroupTitlePreservesGroupState() throws {
+    let first = StructuredNoteSection(markdown: "First")
+    let second = StructuredNoteSection(markdown: "Second")
+    let group = StructuredSectionGroup(
+      title: "Before",
+      style: StructuredSectionStyle(borderColorName: "orange"),
+      sections: [first, second]
+    )
+    var document = makeDocument(nodes: [.group(group)])
+
+    try document.setGroupTitle("After", groupID: group.id)
+
+    let renamedGroup = try XCTUnwrap(self.group(in: document, id: group.id))
+    XCTAssertEqual(renamedGroup.title, "After")
+    XCTAssertEqual(renamedGroup.id, group.id)
+    XCTAssertEqual(renamedGroup.style, group.style)
+    XCTAssertEqual(renamedGroup.sections.map(\.id), [first.id, second.id])
+  }
+
+  // Rejects an empty renamed title without mutating the original group.
+  func testSetGroupTitleRejectsWhitespaceTransactionally() {
+    let group = StructuredSectionGroup(
+      title: "Keep",
+      sections: [StructuredNoteSection(markdown: "Content")]
+    )
+    var document = makeDocument(nodes: [.group(group)])
+    let originalDocument = document
+
+    XCTAssertThrowsError(try document.setGroupTitle("  ", groupID: group.id)) { error in
+      XCTAssertEqual(error as? StructuredNoteDocumentError, .emptyGroupTitle(group.id))
+    }
+    XCTAssertEqual(document, originalDocument)
   }
 
   // Creates a valid document fixture with stable metadata.

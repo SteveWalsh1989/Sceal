@@ -306,6 +306,70 @@ final class NotesStoreStructuredModeTests: NotesStoreTestCase {
     )
   }
 
+  // Persists a complete group lifecycle snapshot with inherited and overridden appearance intact.
+  func testStructuredGroupLifecycleSavesAndReloadsExactDocument() throws {
+    let userDefaults = makeUserDefaults()
+    let libraryLocation = makeLibraryLocation()
+    SettingsRepository(userDefaults: userDefaults).saveDailyNoteStorageMode(
+      .structuredExperimental
+    )
+    let firstSection = StructuredNoteSection(markdown: "Alpha")
+    let secondSection = StructuredNoteSection(markdown: "Beta")
+    let originalDocument = StructuredNoteDocument(
+      id: "2026-06-09",
+      date: makeDate(year: 2026, month: 6, day: 9),
+      title: "Group lifecycle",
+      tags: ["v2"],
+      nodes: [.section(firstSection), .section(secondSection)]
+    )
+    let repository = StructuredNoteRepository(libraryLocation: libraryLocation)
+    try repository.save(originalDocument)
+    let store = makeStore(userDefaults: userDefaults, libraryLocation: libraryLocation)
+    store.loadIfNeeded()
+    var updatedDocument = try XCTUnwrap(store.selectedStructuredNote)
+
+    let groupID = try updatedDocument.createGroup(
+      title: "Draft",
+      aroundSectionID: firstSection.id
+    )
+    try updatedDocument.setGroupTitle("Feature Group", groupID: groupID)
+    try updatedDocument.setGroupStyle(
+      StructuredSectionStyle(
+        backgroundColorName: "grey",
+        borderColorName: "blue",
+        headingColorName: "purple",
+        bulletColorName: "orange"
+      ),
+      groupID: groupID
+    )
+    try updatedDocument.moveSection(
+      id: secondSection.id,
+      to: StructuredNoteSectionDestination(parent: .group(groupID), index: 1)
+    )
+    try updatedDocument.setStyleOverrides(
+      StructuredSectionStyleOverrides(
+        borderColor: .colorName("pink"),
+        headingColor: .themeDefault
+      ),
+      sectionID: secondSection.id
+    )
+
+    store.replaceStructuredDocument(updatedDocument)
+    store.flushPendingSaves()
+
+    let relaunchedStore = makeStore(
+      userDefaults: userDefaults,
+      libraryLocation: libraryLocation
+    )
+    relaunchedStore.loadIfNeeded()
+    let reloadedDocument = try XCTUnwrap(relaunchedStore.selectedStructuredNote)
+    XCTAssertEqual(reloadedDocument, updatedDocument)
+    XCTAssertEqual(
+      try StructuredNoteMarkdownExporter.body(for: reloadedDocument),
+      "## Feature Group\n\nAlpha\n\nBeta"
+    )
+  }
+
   // Flushes an edited structured document before navigation changes the active note.
   func testSelectingAnotherStructuredNoteFlushesPendingSave() throws {
     let userDefaults = makeUserDefaults()

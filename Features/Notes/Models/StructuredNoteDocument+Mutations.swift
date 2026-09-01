@@ -152,6 +152,22 @@ extension StructuredNoteDocument {
     )
   }
 
+  // Detaches a section immediately after its group without exposing root-index bookkeeping.
+  mutating func detachSection(id sectionID: UUID) throws {
+    guard let location = sectionLocation(for: sectionID) else {
+      throw StructuredNoteDocumentError.sectionNotFound(sectionID)
+    }
+    guard case .group = location.parent,
+      case .group(let group) = nodes[location.rootNodeIndex]
+    else {
+      throw StructuredNoteDocumentError.sectionNotGrouped(sectionID)
+    }
+
+    let destinationIndex =
+      group.sections.count == 1 ? location.rootNodeIndex : location.rootNodeIndex + 1
+    try detachSection(id: sectionID, toRootIndex: destinationIndex)
+  }
+
   // Replaces a group with its sections at the group's existing root position.
   mutating func ungroup(id groupID: UUID) throws {
     try applyMutation { document in
@@ -209,6 +225,19 @@ extension StructuredNoteDocument {
         throw StructuredNoteDocumentError.groupNotFound(groupID)
       }
       group.isCollapsed = isCollapsed
+      document.nodes[groupIndex] = .group(group)
+    }
+  }
+
+  // Replaces one group's semantic title while preserving its identity and children.
+  mutating func setGroupTitle(_ title: String, groupID: UUID) throws {
+    try applyMutation { document in
+      guard let groupIndex = document.groupNodeIndex(for: groupID),
+        case .group(var group) = document.nodes[groupIndex]
+      else {
+        throw StructuredNoteDocumentError.groupNotFound(groupID)
+      }
+      group.title = title
       document.nodes[groupIndex] = .group(group)
     }
   }
