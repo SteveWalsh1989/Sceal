@@ -370,6 +370,72 @@ final class NotesStoreStructuredModeTests: NotesStoreTestCase {
     )
   }
 
+  // Persists the exact result of root, group, cross-container, and detach drag paths.
+  func testStructuredDragMutationsSaveAndReloadExactDocument() throws {
+    let userDefaults = makeUserDefaults()
+    let libraryLocation = makeLibraryLocation()
+    SettingsRepository(userDefaults: userDefaults).saveDailyNoteStorageMode(
+      .structuredExperimental
+    )
+    let rootSection = StructuredNoteSection(markdown: "Root")
+    let groupedSection = StructuredNoteSection(
+      markdown: "Grouped",
+      styleOverrides: StructuredSectionStyleOverrides(
+        headingColor: .colorName("orange")
+      )
+    )
+    let secondGroupedSection = StructuredNoteSection(markdown: "Second grouped")
+    let trailingSection = StructuredNoteSection(markdown: "Trailing", isCollapsed: true)
+    let group = StructuredSectionGroup(
+      title: "Feature",
+      style: StructuredSectionStyle(backgroundColorName: "grey"),
+      sections: [groupedSection, secondGroupedSection]
+    )
+    let originalDocument = StructuredNoteDocument(
+      id: "2026-06-13",
+      date: makeDate(year: 2026, month: 6, day: 13),
+      title: "Drag persistence",
+      tags: ["v2"],
+      nodes: [.section(rootSection), .group(group), .section(trailingSection)]
+    )
+    let repository = StructuredNoteRepository(libraryLocation: libraryLocation)
+    try repository.save(originalDocument)
+    let store = makeStore(userDefaults: userDefaults, libraryLocation: libraryLocation)
+    store.loadIfNeeded()
+    var updatedDocument = try XCTUnwrap(store.selectedStructuredNote)
+
+    try StructuredNoteDragDrop.apply(
+      .section(trailingSection.id),
+      to: .group(groupID: group.id, insertionIndex: 1),
+      in: &updatedDocument
+    )
+    try StructuredNoteDragDrop.apply(
+      .section(groupedSection.id),
+      to: .root(insertionIndex: 0),
+      in: &updatedDocument
+    )
+    try StructuredNoteDragDrop.apply(
+      .group(group.id),
+      to: .root(insertionIndex: 0),
+      in: &updatedDocument
+    )
+
+    store.replaceStructuredDocument(updatedDocument)
+    store.flushPendingSaves()
+
+    let relaunchedStore = makeStore(
+      userDefaults: userDefaults,
+      libraryLocation: libraryLocation
+    )
+    relaunchedStore.loadIfNeeded()
+
+    XCTAssertEqual(relaunchedStore.selectedStructuredNote, updatedDocument)
+    XCTAssertEqual(
+      try StructuredNoteDocumentCodec.read(from: repository.fileURL(for: updatedDocument.id)),
+      updatedDocument
+    )
+  }
+
   // Flushes an edited structured document before navigation changes the active note.
   func testSelectingAnotherStructuredNoteFlushesPendingSave() throws {
     let userDefaults = makeUserDefaults()

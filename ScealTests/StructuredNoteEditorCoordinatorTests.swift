@@ -63,6 +63,58 @@ final class StructuredNoteEditorCoordinatorTests: XCTestCase {
     XCTAssertEqual(coordinator.focusRequest?.caretPlacement, .end)
   }
 
+  // Restores a drag mutation exactly, including group ownership and section state.
+  func testDragSnapshotSupportsUndoAndRedo() throws {
+    let coordinator = StructuredNoteEditorCoordinator()
+    let rootSection = StructuredNoteSection(markdown: "Root")
+    let groupedSection = StructuredNoteSection(
+      markdown: "Grouped",
+      styleOverrides: StructuredSectionStyleOverrides(
+        backgroundColor: .colorName("purple")
+      ),
+      isCollapsed: true
+    )
+    let group = StructuredSectionGroup(
+      title: "Feature",
+      style: StructuredSectionStyle(borderColorName: "blue"),
+      sections: [groupedSection]
+    )
+    let previousDocument = StructuredNoteDocument(
+      id: "2026-06-13",
+      date: Date(timeIntervalSince1970: 1_781_308_800),
+      title: "Drag undo",
+      tags: [],
+      nodes: [.section(rootSection), .group(group)]
+    )
+    var updatedDocument = previousDocument
+    let dragResult = try StructuredNoteDragDrop.apply(
+      .section(rootSection.id),
+      to: .group(groupID: group.id, insertionIndex: 1),
+      in: &updatedDocument
+    )
+    var appliedDocument = previousDocument
+
+    coordinator.commitStructuralChange(
+      from: previousDocument,
+      to: updatedDocument,
+      actionName: "Move Section",
+      undoFocusTarget: .init(sectionID: rootSection.id, caretPlacement: .end),
+      redoFocusTarget: dragResult.focusedSectionID.map {
+        .init(sectionID: $0, caretPlacement: .start)
+      }
+    ) { appliedDocument = $0 }
+
+    XCTAssertEqual(appliedDocument, updatedDocument)
+
+    coordinator.structuralUndoManager.undo()
+    XCTAssertEqual(appliedDocument, previousDocument)
+    XCTAssertEqual(coordinator.focusRequest?.sectionID, rootSection.id)
+
+    coordinator.structuralUndoManager.redo()
+    XCTAssertEqual(appliedDocument, updatedDocument)
+    XCTAssertEqual(coordinator.focusRequest?.sectionID, rootSection.id)
+  }
+
   // Traverses the flattened section order and requests the correct caret edge.
   func testBoundaryNavigationTargetsAdjacentSectionEdges() throws {
     let coordinator = StructuredNoteEditorCoordinator()

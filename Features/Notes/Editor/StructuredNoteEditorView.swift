@@ -5,12 +5,15 @@
 // Multi-section daily-note editor backed directly by StructuredNoteDocument values.
 
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct StructuredNoteEditorView: View {
   @Environment(\.openWindow) private var openWindow
   @ObservedObject var store: NotesStore
   var sidebarCollapsed: Bool
   @StateObject private var editorCoordinator = StructuredNoteEditorCoordinator()
+  @State private var activeDragPayload: StructuredNoteDragPayload?
+  @State private var activeDropTarget: StructuredNoteDropTarget?
 
   var body: some View {
     if let document = store.selectedStructuredNote {
@@ -33,6 +36,7 @@ struct StructuredNoteEditorView: View {
   private func editor(_ document: StructuredNoteDocument) -> some View {
     let items = sectionItems(in: document)
     let itemsByID = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
+    let dragContext = dragContext(for: document.id)
 
     return VStack(alignment: .leading, spacing: 12) {
       editorHeader(document)
@@ -45,7 +49,14 @@ struct StructuredNoteEditorView: View {
 
       ScrollViewReader { scrollProxy in
         ScrollView {
-          VStack(spacing: 14) {
+          VStack(spacing: 0) {
+            StructuredEditorDropZone(
+              context: dragContext,
+              target: .root(insertionIndex: 0),
+              label: rootDropLabel(for: activeDragPayload, in: document),
+              accentColor: accentColor
+            )
+
             ForEach(Array(document.nodes.enumerated()), id: \.element.id) {
               rootNodeIndex,
               node in
@@ -53,7 +64,15 @@ struct StructuredNoteEditorView: View {
                 node,
                 rootNodeIndex: rootNodeIndex,
                 documentID: document.id,
-                itemsByID: itemsByID
+                itemsByID: itemsByID,
+                dragContext: dragContext
+              )
+
+              StructuredEditorDropZone(
+                context: dragContext,
+                target: .root(insertionIndex: rootNodeIndex + 1),
+                label: rootDropLabel(for: activeDragPayload, in: document),
+                accentColor: accentColor
               )
             }
           }
@@ -83,6 +102,10 @@ struct StructuredNoteEditorView: View {
     }
     .onChange(of: document.tags) { _, _ in
       editorCoordinator.invalidateStructuralUndo()
+    }
+    .onDisappear {
+      activeDragPayload = nil
+      activeDropTarget = nil
     }
   }
 
@@ -156,13 +179,18 @@ struct StructuredNoteEditorView: View {
     store.effectiveAppearanceSettings.resolvedColors
   }
 
+  private var accentColor: Color {
+    Color(nsColor: store.effectiveAppearanceSettings.accentColor)
+  }
+
   @ViewBuilder
   // Preserves root group boundaries while building the visible editor hierarchy.
   private func editorNode(
     _ node: StructuredNoteNode,
     rootNodeIndex: Int,
     documentID: String,
-    itemsByID: [UUID: StructuredEditorSectionItem]
+    itemsByID: [UUID: StructuredEditorSectionItem],
+    dragContext: StructuredEditorDragContext
   ) -> some View {
     switch node {
     case .section(let section):
@@ -171,7 +199,8 @@ struct StructuredNoteEditorView: View {
           store: store,
           editorCoordinator: editorCoordinator,
           documentID: documentID,
-          item: item
+          item: item,
+          dragContext: dragContext
         )
         .id(item.id)
       }
@@ -183,9 +212,112 @@ struct StructuredNoteEditorView: View {
         documentID: documentID,
         group: group,
         rootNodeIndex: rootNodeIndex,
-        sectionItems: group.sections.compactMap { itemsByID[$0.id] }
+        sectionItems: group.sections.compactMap { itemsByID[$0.id] },
+        dragContext: dragContext,
+        accentColor: accentColor
       )
       .id(group.id)
+    }
+  }
+
+  // Shares one local drag session across root and nested group insertion targets.
+  private func dragContext(for documentID: String) -> StructuredEditorDragContext {
+    StructuredEditorDragContext(
+      activePayload: $activeDragPayload,
+      activeTarget: $activeDropTarget,
+      beginDrag: beginDrag,
+      canDrop: { payload, target in
+        guard store.selectedStructuredNote?.id == documentID,
+          let document = store.selectedStructuredNote
+        else { return false }
+        return StructuredNoteDragDrop.canApply(payload, to: target, in: document)
+      },
+      performDrop: { payload, target in
+        performDrop(payload, to: target, documentID: documentID)
+      }
+    )
+  }
+
+  // Starts a local move session while still publishing a typed plain-text provider payload.
+  private func beginDrag(_ payload: StructuredNoteDragPayload) -> NSItemProvider {
+    activeDragPayload = payload
+    activeDropTarget = nil
+    let itemProvider = NSItemProvider(object: payload.encodedValue as NSString)
+    itemProvider.suggestedName = payload.encodedValue
+    return itemProvider
+  }
+
+  // Commits a successful resolved drop through the existing structural undo stack.
+  private func performDrop(
+    _ payload: StructuredNoteDragPayload,
+    to target: StructuredNoteDropTarget,
+    documentID: String
+  ) -> Bool {
+    guard store.selectedStructuredNote?.id == documentID,
+      let previousDocument = store.selectedStructuredNote
+    else { return false }
+    var updatedDocument = previousDocument
+
+    do {
+      let result = try StructuredNoteDragDrop.apply(payload, to: target, in: &updatedDocument)
+      guard result.didChange else { return false }
+      let focusTarget = result.focusedSectionID.map {
+        StructuredNoteEditorCoordinator.FocusTarget(sectionID: $0)
+      }
+      editorCoordinator.commitStructuralChange(
+        from: previousDocument,
+        to: updatedDocument,
+        actionName: dragActionName(for: payload),
+        undoFocusTarget: focusTarget,
+        redoFocusTarget: focusTarget
+      ) { [weak store] document in
+        store?.replaceStructuredDocument(document)
+      }
+      if let focusedSectionID = result.focusedSectionID {
+        editorCoordinator.requestFocus(sectionID: focusedSectionID)
+      }
+      return true
+    } catch {
+      store.showTransientMessage(error.localizedDescription, kind: .error)
+      return false
+    }
+  }
+
+  // Names section moves and top-level group reorders distinctly in the Edit menu.
+  private func dragActionName(for payload: StructuredNoteDragPayload) -> String {
+    switch payload {
+    case .section:
+      return "Move Section"
+    case .group:
+      return "Move Group"
+    }
+  }
+
+  // Describes root targets as detach locations when the source belongs to a group.
+  private func rootDropLabel(
+    for payload: StructuredNoteDragPayload?,
+    in document: StructuredNoteDocument
+  ) -> String {
+    switch payload {
+    case .section(let sectionID) where isGroupedSection(sectionID, in: document):
+      return "Detach section here"
+    case .section:
+      return "Move section here"
+    case .group:
+      return "Move group here"
+    case nil:
+      return "Move here"
+    }
+  }
+
+  // Detects whether a section-to-root drop changes group membership.
+  private func isGroupedSection(
+    _ sectionID: UUID,
+    in document: StructuredNoteDocument
+  ) -> Bool {
+    document.nodes.contains { node in
+      guard case .group(let group) = node else { return false }
+      return group.sections.contains(where: { $0.id == sectionID })
     }
   }
 
@@ -279,6 +411,123 @@ struct StructuredNoteEditorView: View {
   }
 }
 
+private struct StructuredEditorDragContext {
+  let activePayload: Binding<StructuredNoteDragPayload?>
+  let activeTarget: Binding<StructuredNoteDropTarget?>
+  let beginDrag: (StructuredNoteDragPayload) -> NSItemProvider
+  let canDrop: (StructuredNoteDragPayload, StructuredNoteDropTarget) -> Bool
+  let performDrop: (StructuredNoteDragPayload, StructuredNoteDropTarget) -> Bool
+}
+
+private struct StructuredEditorDropZone: View {
+  let context: StructuredEditorDragContext
+  let target: StructuredNoteDropTarget
+  let label: String
+  let accentColor: Color
+
+  var body: some View {
+    HStack(spacing: 8) {
+      Capsule()
+        .fill(isActive ? accentColor : .clear)
+        .frame(height: 2)
+
+      if isActive {
+        Text(label)
+          .font(.system(size: 10, weight: .semibold))
+          .foregroundStyle(accentColor)
+          .fixedSize()
+      }
+    }
+    .padding(.horizontal, 10)
+    .frame(maxWidth: .infinity)
+    .frame(height: 18)
+    .contentShape(Rectangle())
+    .animation(.easeOut(duration: 0.12), value: isActive)
+    .onDrop(
+      of: [UTType.plainText],
+      delegate: StructuredEditorDropDelegate(context: context, target: target)
+    )
+    .accessibilityHidden(!isActive)
+    .accessibilityLabel(label)
+  }
+
+  private var isActive: Bool {
+    context.activeTarget.wrappedValue == target
+  }
+}
+
+private struct StructuredEditorDropDelegate: DropDelegate {
+  let context: StructuredEditorDragContext
+  let target: StructuredNoteDropTarget
+
+  // Accepts only the active local payload and a target that produces a real mutation.
+  func validateDrop(info: DropInfo) -> Bool {
+    guard let payload = localPayload(in: info) else { return false }
+    return context.canDrop(payload, target)
+  }
+
+  // Activates the insertion line only for a currently valid move.
+  func dropEntered(info: DropInfo) {
+    guard let payload = localPayload(in: info),
+      context.canDrop(payload, target)
+    else { return }
+    context.activeTarget.wrappedValue = target
+  }
+
+  func dropUpdated(info: DropInfo) -> DropProposal? {
+    guard let payload = localPayload(in: info),
+      context.canDrop(payload, target)
+    else { return DropProposal(operation: .forbidden) }
+    return DropProposal(operation: .move)
+  }
+
+  func dropExited(info: DropInfo) {
+    guard context.activeTarget.wrappedValue == target else { return }
+    context.activeTarget.wrappedValue = nil
+  }
+
+  // Clears the local session whether the resolved move succeeds or is rejected.
+  func performDrop(info: DropInfo) -> Bool {
+    guard let payload = localPayload(in: info),
+      context.canDrop(payload, target)
+    else {
+      context.activeTarget.wrappedValue = nil
+      context.activePayload.wrappedValue = nil
+      return false
+    }
+
+    let didMove = context.performDrop(payload, target)
+    context.activeTarget.wrappedValue = nil
+    context.activePayload.wrappedValue = nil
+    return didMove
+  }
+
+  // Matches the provider to this editor session so a cancelled drag cannot authorize a later one.
+  private func localPayload(in info: DropInfo) -> StructuredNoteDragPayload? {
+    guard let activePayload = context.activePayload.wrappedValue else { return nil }
+    return info.itemProviders(for: [.plainText])
+      .compactMap(\.suggestedName)
+      .compactMap(StructuredNoteDragPayload.init(encodedValue:))
+      .first(where: { $0 == activePayload })
+  }
+}
+
+private struct StructuredEditorDragHandle: View {
+  let accessibilityLabel: String
+  let itemProvider: () -> NSItemProvider
+
+  var body: some View {
+    Image(systemName: "line.3.horizontal")
+      .font(.system(size: 12, weight: .semibold))
+      .foregroundStyle(.tertiary)
+      .frame(width: 24, height: 24)
+      .contentShape(Rectangle())
+      .onDrag(itemProvider)
+      .help("Drag to move")
+      .accessibilityLabel(accessibilityLabel)
+  }
+}
+
 private struct StructuredEditorGroupDestination: Identifiable {
   let id: UUID
   let title: String
@@ -344,6 +593,8 @@ private struct StructuredSectionGroupContainer: View {
   let group: StructuredSectionGroup
   let rootNodeIndex: Int
   let sectionItems: [StructuredEditorSectionItem]
+  let dragContext: StructuredEditorDragContext
+  let accentColor: Color
   @State private var isHovering = false
   @State private var isRenaming = false
   @State private var titleDraft = ""
@@ -352,15 +603,30 @@ private struct StructuredSectionGroupContainer: View {
     VStack(alignment: .leading, spacing: 12) {
       groupHeader
 
-      VStack(spacing: 12) {
-        ForEach(sectionItems) { item in
+      VStack(spacing: 0) {
+        StructuredEditorDropZone(
+          context: dragContext,
+          target: .group(groupID: group.id, insertionIndex: 0),
+          label: "Move into \(group.title)",
+          accentColor: accentColor
+        )
+
+        ForEach(Array(sectionItems.enumerated()), id: \.element.id) { index, item in
           StructuredSectionEditorCard(
             store: store,
             editorCoordinator: editorCoordinator,
             documentID: documentID,
-            item: item
+            item: item,
+            dragContext: dragContext
           )
           .id(item.id)
+
+          StructuredEditorDropZone(
+            context: dragContext,
+            target: .group(groupID: group.id, insertionIndex: index + 1),
+            label: "Move into \(group.title)",
+            accentColor: accentColor
+          )
         }
       }
     }
@@ -407,6 +673,12 @@ private struct StructuredSectionGroupContainer: View {
         .foregroundStyle(.tertiary)
 
       Spacer()
+
+      StructuredEditorDragHandle(accessibilityLabel: "Move \(group.title) group") {
+        dragContext.beginDrag(.group(group.id))
+      }
+      .opacity(isHovering || containsFocusedSection ? 1 : 0)
+      .allowsHitTesting(isHovering || containsFocusedSection)
 
       groupOptionsMenu
         .opacity(isHovering || containsFocusedSection ? 1 : 0)
@@ -566,6 +838,7 @@ private struct StructuredSectionEditorCard: View {
   @ObservedObject var editorCoordinator: StructuredNoteEditorCoordinator
   let documentID: String
   let item: StructuredEditorSectionItem
+  let dragContext: StructuredEditorDragContext
   @State private var editorHeight: CGFloat = 132
   @State private var isHovering = false
   @State private var isConfirmingDeletion = false
@@ -672,6 +945,12 @@ private struct StructuredSectionEditorCard: View {
       .buttonStyle(.plain)
 
       Spacer()
+
+      StructuredEditorDragHandle(accessibilityLabel: "Move section \(item.position)") {
+        dragContext.beginDrag(.section(item.id))
+      }
+      .opacity(isHovering || isFocused ? 1 : 0)
+      .allowsHitTesting(isHovering || isFocused)
 
       sectionOptionsMenu
         .opacity(isHovering || isFocused ? 1 : 0)
