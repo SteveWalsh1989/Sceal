@@ -188,6 +188,17 @@ extension NotesStore {
   }
 
   private func performBackup(trigger: BackupTrigger, respectSchedule: Bool) {
+    guard !isStructuredDailyNoteMode else {
+      if trigger == .manual || trigger == .locationConfigured {
+        userMessage = (
+          text:
+            "Lossless Structured Notes V2 backup arrives in Stage 10. Switch to Legacy Markdown to run the existing backup.",
+          kind: .info
+        )
+      }
+      return
+    }
+
     guard backupSettings.isConfigured else {
       return
     }

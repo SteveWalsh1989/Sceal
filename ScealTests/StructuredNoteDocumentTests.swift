@@ -295,6 +295,26 @@ final class StructuredNoteDocumentTests: XCTestCase {
     XCTAssertFalse(try XCTUnwrap(self.rootSection(in: document, at: 0)).isCollapsed)
   }
 
+  // Replaces only the requested section and group appearance values.
+  func testAppearanceMutationsTargetRequestedItems() throws {
+    let rootSection = StructuredNoteSection(markdown: "Root")
+    let groupedSection = StructuredNoteSection(markdown: "Grouped")
+    let group = StructuredSectionGroup(title: "Feature", sections: [groupedSection])
+    var document = makeDocument(nodes: [.section(rootSection), .group(group)])
+    let sectionOverrides = StructuredSectionStyleOverrides(
+      backgroundColor: .colorName("section-background")
+    )
+    let groupStyle = StructuredSectionStyle(borderColorName: "group-border")
+
+    try document.setStyleOverrides(sectionOverrides, sectionID: groupedSection.id)
+    try document.setGroupStyle(groupStyle, groupID: group.id)
+
+    let updatedGroup = try XCTUnwrap(self.group(in: document, id: group.id))
+    XCTAssertEqual(updatedGroup.style, groupStyle)
+    XCTAssertEqual(updatedGroup.sections.first?.styleOverrides, sectionOverrides)
+    XCTAssertEqual(self.rootSection(in: document, at: 0)?.styleOverrides, .inherited)
+  }
+
   // Creates a valid document fixture with stable metadata.
   private func makeDocument(nodes: [StructuredNoteNode]) -> StructuredNoteDocument {
     StructuredNoteDocument(

@@ -14,15 +14,19 @@ final class ScealLibraryLocationTests: XCTestCase {
 
     let location = ScealLibraryLocation.test(rootURL: rootURL)
     let notesURL = try location.notesDirectoryURL()
+    let structuredNotesURL = location.structuredNotesDirectoryURL
     let listNotesURL = try location.listNotesDirectoryURL()
     let attachmentsURL = try location.attachmentsRootURL()
     let restoreURL = try location.restoreSafetyArchiveDirectoryURL()
 
     XCTAssertEqual(notesURL.deletingLastPathComponent(), rootURL)
+    XCTAssertEqual(structuredNotesURL.deletingLastPathComponent(), rootURL)
+    XCTAssertNotEqual(structuredNotesURL, notesURL)
     XCTAssertEqual(listNotesURL.deletingLastPathComponent(), rootURL)
     XCTAssertEqual(attachmentsURL.deletingLastPathComponent(), rootURL)
     XCTAssertEqual(restoreURL.deletingLastPathComponent(), rootURL)
     XCTAssertTrue(FileManager.default.fileExists(atPath: notesURL.path))
+    XCTAssertFalse(FileManager.default.fileExists(atPath: structuredNotesURL.path))
     XCTAssertTrue(FileManager.default.fileExists(atPath: listNotesURL.path))
     XCTAssertTrue(FileManager.default.fileExists(atPath: attachmentsURL.path))
     XCTAssertTrue(FileManager.default.fileExists(atPath: restoreURL.path))

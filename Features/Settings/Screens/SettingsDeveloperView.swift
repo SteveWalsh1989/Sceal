@@ -59,12 +59,14 @@
           Button("Copy production library to developer library") {
             store.copyProductionLibraryToDeveloperLibrary()
           }
-          .disabled(!store.canCopyProductionLibraryToDeveloper)
+          .disabled(
+            !store.canCopyProductionLibraryToDeveloper || store.isStructuredDailyNoteMode
+          )
 
           Button("Reset and seed developer library", role: .destructive) {
             store.resetDeveloperLibrary()
           }
-          .disabled(!store.canResetDeveloperLibrary)
+          .disabled(!store.canResetDeveloperLibrary || store.isStructuredDailyNoteMode)
 
           Text(
             "Use the production copy when you need real notes in DEBUG without writing to the production library. Reset replaces the active non-production library with deterministic test data."
@@ -74,8 +76,34 @@
         }
 
         Section("Storage") {
+          LabeledContent("Daily-note mode") {
+            Text(store.dailyNoteStorageMode.displayName)
+              .foregroundStyle(.secondary)
+          }
+
           LabeledContent("Active library") {
             Text(store.libraryLocation.rootURL.path)
+              .font(.caption)
+              .foregroundStyle(.secondary)
+              .textSelection(.enabled)
+          }
+
+          LabeledContent("Active daily-note folder") {
+            Text(store.activeDailyNotesStorageURL.path)
+              .font(.caption)
+              .foregroundStyle(.secondary)
+              .textSelection(.enabled)
+          }
+
+          LabeledContent("Legacy Markdown folder") {
+            Text(store.legacyDailyNotesStorageURL.path)
+              .font(.caption)
+              .foregroundStyle(.secondary)
+              .textSelection(.enabled)
+          }
+
+          LabeledContent("Structured notes folder") {
+            Text(store.structuredDailyNotesStorageURL.path)
               .font(.caption)
               .foregroundStyle(.secondary)
               .textSelection(.enabled)

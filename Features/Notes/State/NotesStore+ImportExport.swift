@@ -105,6 +105,14 @@ extension NotesStore {
 
   // Exports notes within a date range to a zip file at a user-chosen location.
   func exportNotes(startDate: Date, endDate: Date) {
+    guard !isStructuredDailyNoteMode else {
+      userMessage = (
+        text: "Structured Notes V2 portable export is connected in Stage 9.",
+        kind: .info
+      )
+      return
+    }
+
     flushPendingSaves()
 
     let filtered = notes.filter { note in
@@ -165,6 +173,14 @@ extension NotesStore {
 
   // Exports the whole library, including list notes, groups, metadata, and attachments.
   func exportFullLibrary() {
+    guard !isStructuredDailyNoteMode else {
+      userMessage = (
+        text: "Lossless Structured Notes V2 library export arrives in Stage 10.",
+        kind: .info
+      )
+      return
+    }
+
     #if DEBUG
       if isDemoModeEnabled {
         userMessage = (
@@ -276,6 +292,14 @@ extension NotesStore {
 
   // Restores a full-library archive after confirmation, replacing current note storage.
   func restoreFullLibraryFromArchive() {
+    guard !isStructuredDailyNoteMode else {
+      userMessage = (
+        text: "Lossless Structured Notes V2 restore arrives in Stage 10.",
+        kind: .info
+      )
+      return
+    }
+
     #if DEBUG
       if isDemoModeEnabled {
         userMessage = (
@@ -407,6 +431,15 @@ extension NotesStore {
       @Sendable @escaping (_ sourceURL: URL, _ existingNoteIDs: Set<DayNote.ID>) throws ->
       ImportOutcome
   ) {
+    guard !isStructuredDailyNoteMode else {
+      userMessage = (
+        text:
+          "Switch to Legacy Markdown to use the existing importers. Structured copy import is available in Experimental Settings.",
+        kind: .info
+      )
+      return
+    }
+
     guard let folderURL = selectImportFolder(title: panelTitle, message: panelMessage) else {
       return
     }
@@ -430,6 +463,15 @@ extension NotesStore {
       @Sendable @escaping (_ sourceURL: URL, _ existingNoteIDs: Set<DayNote.ID>) throws ->
       ImportOutcome
   ) {
+    guard !isStructuredDailyNoteMode else {
+      userMessage = (
+        text:
+          "Switch to Legacy Markdown to use the existing importers. Structured copy import is available in Experimental Settings.",
+        kind: .info
+      )
+      return
+    }
+
     guard
       let fileURL = selectImportFile(
         title: panelTitle,

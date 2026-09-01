@@ -82,6 +82,12 @@ final class NotesStore: ObservableObject {
   @Published var progressMessage: String?
   @Published var backupHealth: BackupHealth
   @Published var isBackupRunning = false
+  @Published var dailyNoteStorageMode: DailyNoteStorageMode
+  @Published var structuredNotes: [StructuredNoteDocument] = []
+  @Published var selectedStructuredNoteID: String?
+  @Published var structuredSearchText = ""
+  @Published var isStructuredSearchBarExpanded = false
+  @Published var structuredCalendarBrowseYear: Int
   #if DEBUG
     @Published var isDemoModeEnabled = false
     @Published private(set) var demoNotes: [DayNote] = [] {
@@ -99,6 +105,7 @@ final class NotesStore: ObservableObject {
   let calendar: Calendar
   let libraryLocation: ScealLibraryLocation
   let libraryRepository: LibraryRepository
+  let structuredNoteRepository: StructuredNoteRepository
   let settingsRepository: SettingsRepository
   let appearanceSettingsStore: AppearanceSettingsStore
   let backupSettingsStore: BackupSettingsStore
@@ -108,8 +115,10 @@ final class NotesStore: ObservableObject {
   let listNotesStore: ListNotesStore
   let noteTemplatesStore: NoteTemplatesStore
   let archiveService: ArchiveService
-  private var hasLoaded = false
-  private var cachedMonthSections: [NoteMonthSection]?
+  var hasLoaded = false
+  var hasLoadedLegacyNotes = false
+  var hasLoadedStructuredNotes = false
+  var cachedMonthSections: [NoteMonthSection]?
   private var pendingSaveTasks: [DayNote.ID: Task<Void, Never>] = [:]
   var pendingListNoteSaveTasks: [DayNote.ID: Task<Void, Never>] = [:]
   private var periodicFlushTask: Task<Void, Never>?
@@ -119,7 +128,7 @@ final class NotesStore: ObservableObject {
     private var demoReturnContext: DemoReturnContext?
   #endif
 
-  private static let logger = Logger(subsystem: "com.sceal.app", category: "store")
+  static let logger = Logger(subsystem: "com.sceal.app", category: "store")
 
   init(
     fileManager: FileManager = .default,
@@ -132,6 +141,7 @@ final class NotesStore: ObservableObject {
     self.calendar = calendar
     let resolvedSettingsRepository = SettingsRepository(userDefaults: userDefaults)
     self.settingsRepository = resolvedSettingsRepository
+    self.dailyNoteStorageMode = resolvedSettingsRepository.loadDailyNoteStorageMode()
     self.appearanceSettingsStore = AppearanceSettingsStore(
       settingsRepository: resolvedSettingsRepository
     )
@@ -156,9 +166,14 @@ final class NotesStore: ObservableObject {
       libraryLocation: resolvedLibraryLocation,
       fileManager: fileManager
     )
+    self.structuredNoteRepository = StructuredNoteRepository(
+      libraryLocation: resolvedLibraryLocation,
+      fileManager: fileManager
+    )
     let sortedNotes = previewNotes.sorted(by: { $0.date > $1.date })
     let loadedBackupSettings = resolvedBackupSettingsStore.settings
     let currentYear = calendar.component(.year, from: .now)
+    self.structuredCalendarBrowseYear = currentYear
     self.dailyNotesStore = DailyNotesStore(
       notes: sortedNotes,
       selectedNoteID: sortedNotes.first?.id,
@@ -166,6 +181,7 @@ final class NotesStore: ObservableObject {
     )
     self.backupHealth = loadedBackupSettings.isConfigured ? .healthy : .notConfigured
     self.hasLoaded = !previewNotes.isEmpty
+    self.hasLoadedLegacyNotes = !previewNotes.isEmpty
   }
 
   var featureAccess: AppFeatureAccess {
@@ -342,11 +358,11 @@ final class NotesStore: ObservableObject {
   }
 
   var isSearchActive: Bool {
-    !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    !activeDailySearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 
   var dailyNotesForDisplay: [DayNote] {
-    activeDailyNotes
+    displayedDailyNotes
   }
 
   var isListModeAvailable: Bool {
@@ -365,15 +381,20 @@ final class NotesStore: ObservableObject {
   // The oldest/newest years available to the calendar browser, always including today.
   var calendarYearBounds: ClosedRange<Int> {
     let currentYear = calendar.component(.year, from: .now)
-    let noteYears = activeDailyNotes.map { calendar.component(.year, from: $0.date) }
+    let noteYears = displayedDailyNotes.map { calendar.component(.year, from: $0.date) }
     let minimumYear = min(noteYears.min() ?? currentYear, currentYear)
     let maximumYear = max(noteYears.max() ?? currentYear, currentYear)
     return minimumYear...maximumYear
   }
 
   func clearSearch() {
-    searchText = ""
-    isSearchBarExpanded = false
+    if isStructuredDailyNoteMode {
+      updateStructuredSearchText("")
+      updateStructuredSearchBarExpanded(false)
+    } else {
+      searchText = ""
+      isSearchBarExpanded = false
+    }
   }
 
   #if DEBUG
@@ -536,9 +557,13 @@ final class NotesStore: ObservableObject {
     return notes
   }
 
+  private var displayedDailyNotes: [DayNote] {
+    isStructuredDailyNoteMode ? structuredNoteSummaries : activeDailyNotes
+  }
+
   private var filteredNotes: [DayNote] {
-    let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-    let dailyNotes = activeDailyNotes
+    let query = activeDailySearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    let dailyNotes = displayedDailyNotes
     guard !query.isEmpty else { return dailyNotes }
     return dailyNotes.filter { note in
       note.title.localizedCaseInsensitiveContains(query)
@@ -561,7 +586,7 @@ final class NotesStore: ObservableObject {
 
   // Groups notes by month for sidebar section display.
   var monthSections: [NoteMonthSection] {
-    if let cachedMonthSections {
+    if !isStructuredDailyNoteMode, let cachedMonthSections {
       return cachedMonthSections
     }
 
@@ -579,13 +604,15 @@ final class NotesStore: ObservableObject {
         )
       }
       .sorted(by: { $0.monthStartDate > $1.monthStartDate })
-    cachedMonthSections = builtSections
+    if !isStructuredDailyNoteMode {
+      cachedMonthSections = builtSections
+    }
     return builtSections
   }
 
   // Whether a note already exists for today's date.
   var hasTodayNote: Bool {
-    note(withID: dayID(for: .now)) != nil
+    displayedDailyNotes.contains(where: { $0.id == dayID(for: .now) })
   }
 
   // The currently selected note, if any.
@@ -605,22 +632,7 @@ final class NotesStore: ObservableObject {
 
     isLoading = true
 
-    do {
-      try loadNotes()
-      Self.logger.info("Loaded \(self.notes.count) notes")
-      userMessage = nil
-    } catch {
-      report(error, context: "Loading notes failed")
-      notes = [DayNote.empty(for: .now, calendar: calendar)]
-      rebuildNoteIndex()
-      selectedNoteID = notes.first?.id
-
-      do {
-        try save(notes[0])
-      } catch {
-        report(error, context: "Creating today's note failed")
-      }
-    }
+    loadSelectedDailyNoteStore()
 
     loadListNotesIfNeeded()
 
@@ -634,6 +646,11 @@ final class NotesStore: ObservableObject {
 
   // Creates today's note if needed and selects it.
   func selectToday() {
+    if isStructuredDailyNoteMode {
+      selectStructuredDailyDate(.now)
+      return
+    }
+
     #if DEBUG
       if isDemoModeEnabled {
         selectedNoteID = demoNotes.first?.id
@@ -656,6 +673,11 @@ final class NotesStore: ObservableObject {
   // Opens an existing daily note for the target date, creating a blank one when missing.
   func openDailyDate(_ date: Date) {
     let targetDate = calendar.startOfDay(for: date)
+
+    if isStructuredDailyNoteMode {
+      selectStructuredDailyDate(targetDate)
+      return
+    }
 
     #if DEBUG
       if isDemoModeEnabled {
@@ -682,19 +704,20 @@ final class NotesStore: ObservableObject {
 
   // Returns the daily note saved for a date, if one exists.
   func dailyNote(on date: Date) -> DayNote? {
-    note(withID: dayID(for: date))
+    displayedDailyNotes.first(where: { $0.id == dayID(for: date) })
   }
 
   // Steps the visible calendar year while staying inside the available note range.
   func browseCalendarYear(by delta: Int) {
     let bounds = calendarYearBounds
-    let targetYear = min(max(calendarBrowseYear + delta, bounds.lowerBound), bounds.upperBound)
-    calendarBrowseYear = targetYear
+    let currentYear = activeDailyCalendarBrowseYear
+    let targetYear = min(max(currentYear + delta, bounds.lowerBound), bounds.upperBound)
+    updateActiveDailyCalendarBrowseYear(targetYear)
   }
 
   // Whether a one-step year navigation stays inside the available note range.
   func canBrowseCalendarYear(by delta: Int) -> Bool {
-    calendarYearBounds.contains(calendarBrowseYear + delta)
+    calendarYearBounds.contains(activeDailyCalendarBrowseYear + delta)
   }
 
   // Clears the current user-facing message banner.
@@ -763,25 +786,31 @@ final class NotesStore: ObservableObject {
 
   // Sets the selected note ID.
   func select(noteID: DayNote.ID) {
-    selectedNoteID = noteID
+    if isStructuredDailyNoteMode {
+      selectStructuredNote(noteID)
+    } else {
+      selectedNoteID = noteID
+    }
   }
 
   // Selects the next newer note (earlier in date-descending array).
   func selectNextNote() {
-    guard let currentID = selectedNoteID,
-      let currentIndex = activeDailyNotes.firstIndex(where: { $0.id == currentID }),
-      currentIndex > activeDailyNotes.startIndex
+    let dailyNotes = displayedDailyNotes
+    guard let currentID = activeDailySelectedNoteID,
+      let currentIndex = dailyNotes.firstIndex(where: { $0.id == currentID }),
+      currentIndex > dailyNotes.startIndex
     else { return }
-    selectedNoteID = activeDailyNotes[currentIndex - 1].id
+    select(noteID: dailyNotes[currentIndex - 1].id)
   }
 
   // Selects the next older note (later in date-descending array).
   func selectPreviousNote() {
-    guard let currentID = selectedNoteID,
-      let currentIndex = activeDailyNotes.firstIndex(where: { $0.id == currentID }),
-      activeDailyNotes.indices.contains(currentIndex + 1)
+    let dailyNotes = displayedDailyNotes
+    guard let currentID = activeDailySelectedNoteID,
+      let currentIndex = dailyNotes.firstIndex(where: { $0.id == currentID }),
+      dailyNotes.indices.contains(currentIndex + 1)
     else { return }
-    selectedNoteID = activeDailyNotes[currentIndex + 1].id
+    select(noteID: dailyNotes[currentIndex + 1].id)
   }
 
   // Persists the new-note default preference to UserDefaults.
@@ -944,6 +973,13 @@ final class NotesStore: ObservableObject {
     }
 
     selectedNoteID = notes.first?.id
+  }
+
+  // Loads the legacy Markdown library at most once while retaining its independent selection.
+  func loadLegacyDailyNotesIfNeeded() throws {
+    guard !hasLoadedLegacyNotes else { return }
+    try loadNotes()
+    hasLoadedLegacyNotes = true
   }
 
   // Seeds recent example notes so the first launch shows formatting features immediately.

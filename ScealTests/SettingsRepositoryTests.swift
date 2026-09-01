@@ -26,6 +26,7 @@ final class SettingsRepositoryTests: NotesStoreTestCase {
     try repository.saveAppearanceSettings(appearance)
     repository.saveContinuousSpellCheckingEnabled(false)
     repository.saveNewNoteDefault(.template(template.id))
+    repository.saveDailyNoteStorageMode(.structuredExperimental)
     repository.saveDeveloperPlan(.free)
     try repository.saveBackupSettings(backupSettings)
     try repository.saveNoteTemplates([template])
@@ -41,12 +42,29 @@ final class SettingsRepositoryTests: NotesStoreTestCase {
     )
     XCTAssertFalse(userDefaults.bool(forKey: "sceal.continuousSpellCheckingEnabled"))
     XCTAssertEqual(userDefaults.string(forKey: "sceal.newNoteDefault"), "template:\(template.id)")
+    XCTAssertEqual(
+      userDefaults.string(forKey: "sceal.dailyNoteStorageMode"),
+      "structuredExperimental"
+    )
+    XCTAssertEqual(repository.loadDailyNoteStorageMode(), .structuredExperimental)
     XCTAssertEqual(userDefaults.string(forKey: "sceal.developer.plan"), "free")
     XCTAssertEqual(
       try JSONDecoder().decode(BackupSettings.self, from: savedBackupData), backupSettings)
     XCTAssertEqual(
       try JSONDecoder().decode([NoteTemplate].self, from: savedTemplateData), [template])
     XCTAssertTrue(userDefaults.bool(forKey: "sceal.noteTemplatesSeeded"))
+  }
+
+  // Unknown or absent experimental storage values never opt the app out of legacy mode.
+  func testDailyNoteStorageModeDefaultsSafely() {
+    let userDefaults = makeUserDefaults()
+    let repository = SettingsRepository(userDefaults: userDefaults)
+
+    XCTAssertEqual(repository.loadDailyNoteStorageMode(), .legacyMarkdown)
+
+    userDefaults.set("future-mode", forKey: "sceal.dailyNoteStorageMode")
+
+    XCTAssertEqual(repository.loadDailyNoteStorageMode(), .legacyMarkdown)
   }
 
   // Starter templates seed once, then respect the existing seeded marker.

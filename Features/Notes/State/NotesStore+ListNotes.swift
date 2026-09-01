@@ -357,7 +357,7 @@ extension NotesStore {
   var activeSelectedNoteID: DayNote.ID? {
     ActiveNoteRouting.selectedNoteID(
       route: activeNoteRoute,
-      dailyNoteID: selectedNoteID,
+      dailyNoteID: activeDailySelectedNoteID,
       listNoteID: selectedListNoteID
     )
   }
@@ -367,7 +367,9 @@ extension NotesStore {
     guard let noteID = activeSelectedNoteID else { return nil }
 
     switch activeNoteRoute {
-    case .daily: return note(withID: noteID)
+    case .daily:
+      guard !isStructuredDailyNoteMode else { return nil }
+      return note(withID: noteID)
     case .list: return listNote(withID: noteID)
     }
   }
@@ -377,8 +379,14 @@ extension NotesStore {
     switch activeNoteRoute {
     case .daily:
       return Binding(
-        get: { self.searchText },
-        set: { self.searchText = $0 }
+        get: { self.activeDailySearchText },
+        set: { value in
+          if self.isStructuredDailyNoteMode {
+            self.updateStructuredSearchText(value)
+          } else {
+            self.searchText = value
+          }
+        }
       )
     case .list:
       return Binding(
@@ -393,8 +401,14 @@ extension NotesStore {
     switch activeNoteRoute {
     case .daily:
       return Binding(
-        get: { self.isSearchBarExpanded },
-        set: { self.isSearchBarExpanded = $0 }
+        get: { self.activeDailySearchBarExpanded },
+        set: { isExpanded in
+          if self.isStructuredDailyNoteMode {
+            self.updateStructuredSearchBarExpanded(isExpanded)
+          } else {
+            self.isSearchBarExpanded = isExpanded
+          }
+        }
       )
     case .list:
       return Binding(

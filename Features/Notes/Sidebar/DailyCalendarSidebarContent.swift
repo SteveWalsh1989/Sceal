@@ -35,7 +35,7 @@ struct DailyCalendarSidebarContent: View {
       VStack(alignment: .leading, spacing: 14) {
         CalendarHeader(
           displayMode: $displayMode,
-          year: store.calendarBrowseYear,
+          year: store.activeDailyCalendarBrowseYear,
           canBrowseBackward: store.canBrowseCalendarYear(by: -1),
           canBrowseForward: store.canBrowseCalendarYear(by: 1),
           controlColor: themeColors.controlBackground.color,
@@ -78,7 +78,7 @@ struct DailyCalendarSidebarContent: View {
                         CalendarDayButton(
                           date: date,
                           note: note,
-                          isSelected: note?.id == store.selectedNoteID,
+                          isSelected: note?.id == store.activeDailySelectedNoteID,
                           isToday: store.calendar.isDateInToday(date),
                           isSearchActive: store.isSearchActive,
                           isSearchMatch: note.map { filteredNoteIDs.contains($0.id) } ?? false,
@@ -90,7 +90,10 @@ struct DailyCalendarSidebarContent: View {
                           }
                         )
                         .contextMenu {
-                          if let note, !store.isDemoModeEnabled {
+                          if let note,
+                            !store.isDemoModeEnabled,
+                            !store.isStructuredDailyNoteMode
+                          {
                             Button {
                               requestChangeDate(note.id)
                             } label: {
@@ -167,7 +170,7 @@ struct DailyCalendarSidebarContent: View {
     (1...12).compactMap { month in
       var components = DateComponents()
       components.calendar = store.calendar
-      components.year = store.calendarBrowseYear
+      components.year = store.activeDailyCalendarBrowseYear
       components.month = month
       components.day = 1
       return store.calendar.date(from: components)

@@ -31,7 +31,9 @@ struct AppRootView: View {
       .navigationSplitViewColumnWidth(min: 240, ideal: 290, max: 360)
     } detail: {
       Group {
-        if let activeNoteID = store.activeSelectedNoteID {
+        if store.isStructuredDailyModeActive {
+          StructuredNotePlaceholderView(store: store)
+        } else if let activeNoteID = store.activeSelectedNoteID {
           NotesEditorView(
             store: store,
             noteID: activeNoteID,
@@ -183,7 +185,10 @@ struct AppRootView: View {
   #if DEBUG
     // Applies the DEBUG launch default once, after real notes have been loaded.
     private func applyLaunchDemoModeIfNeeded() {
-      guard enablesDemoModeOnLaunch, !hasAppliedLaunchDemoMode else { return }
+      guard enablesDemoModeOnLaunch,
+        !hasAppliedLaunchDemoMode,
+        store.dailyNoteStorageMode != .structuredExperimental
+      else { return }
       hasAppliedLaunchDemoMode = true
       store.setDemoModeEnabled(true)
     }

@@ -107,16 +107,16 @@ struct NotesSidebarView: View {
                 DayNoteCardView(
                   note: note,
                   appearanceSettings: store.effectiveAppearanceSettings,
-                  isSelected: store.selectedNoteID == note.id,
+                  isSelected: store.activeDailySelectedNoteID == note.id,
                   accentColor: sidebarAccentColor,
                   selectedCardColor: themeColors.selectedCard.color,
                   unselectedCardColor: themeColors.unselectedCard.color,
-                  searchText: store.searchText
+                  searchText: store.activeDailySearchText
                 )
               }
               .buttonStyle(.plain)
               .contextMenu {
-                if !store.isDemoModeEnabled {
+                if !store.isDemoModeEnabled, !store.isStructuredDailyNoteMode {
                   Button {
                     requestChangeDate(note.id)
                   } label: {

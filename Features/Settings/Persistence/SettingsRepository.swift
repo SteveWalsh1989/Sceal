@@ -15,6 +15,7 @@ struct SettingsRepository {
     static let backupSettings = "sceal.backupSettings"
     static let noteTemplates = "sceal.noteTemplates"
     static let noteTemplatesSeeded = "sceal.noteTemplatesSeeded"
+    static let dailyNoteStorageMode = "sceal.dailyNoteStorageMode"
   }
 
   let userDefaults: UserDefaults
@@ -66,6 +67,23 @@ struct SettingsRepository {
   // Persists the new-note default preference.
   func saveNewNoteDefault(_ value: NewNoteDefault) {
     userDefaults.set(value.rawValue, forKey: Keys.newNoteDefault)
+  }
+
+  // Reads the experimental daily-note storage mode, defaulting to the legacy app behavior.
+  func loadDailyNoteStorageMode() -> DailyNoteStorageMode {
+    guard
+      let rawValue = userDefaults.string(forKey: Keys.dailyNoteStorageMode),
+      let mode = DailyNoteStorageMode(rawValue: rawValue)
+    else {
+      return .legacyMarkdown
+    }
+
+    return mode
+  }
+
+  // Persists the explicit experimental selection between isolated daily-note stores.
+  func saveDailyNoteStorageMode(_ mode: DailyNoteStorageMode) {
+    userDefaults.set(mode.rawValue, forKey: Keys.dailyNoteStorageMode)
   }
 
   // Loads the active plan, defaulting to paid so existing builds keep full feature parity.

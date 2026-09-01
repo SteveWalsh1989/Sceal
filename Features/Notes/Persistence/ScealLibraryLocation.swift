@@ -10,6 +10,7 @@ struct ScealLibraryLocation: Equatable, Sendable {
   nonisolated static let productionFolderName = "Sceal"
   nonisolated static let developerFolderName = "Sceal Developer"
   nonisolated static let notesFolderName = "Notes"
+  nonisolated static let structuredNotesFolderName = "StructuredNotes"
   nonisolated static let listNotesFolderName = "ListNotes"
   nonisolated static let restoreSafetyBackupsFolderName = "Restore Safety Backups"
 
@@ -39,6 +40,16 @@ struct ScealLibraryLocation: Equatable, Sendable {
 
   nonisolated func notesDirectoryURL(fileManager: FileManager = .default) throws -> URL {
     try createdDirectory(named: Self.notesFolderName, fileManager: fileManager)
+  }
+
+  // Resolves the legacy daily-note folder without creating or changing it.
+  nonisolated var legacyNotesDirectoryURL: URL {
+    rootURL.appendingPathComponent(Self.notesFolderName, isDirectory: true)
+  }
+
+  // Resolves the isolated structured daily-note folder without creating or changing it.
+  nonisolated var structuredNotesDirectoryURL: URL {
+    rootURL.appendingPathComponent(Self.structuredNotesFolderName, isDirectory: true)
   }
 
   nonisolated func listNotesDirectoryURL(fileManager: FileManager = .default) throws -> URL {

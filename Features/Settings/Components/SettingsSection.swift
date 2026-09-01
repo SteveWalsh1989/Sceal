@@ -12,6 +12,7 @@ enum SettingsSection: String, Identifiable, Hashable {
   case backup
   case importData
   case exportData
+  case experimental
   #if DEBUG
     case developer
   #endif
@@ -24,6 +25,7 @@ enum SettingsSection: String, Identifiable, Hashable {
       .backup,
       .importData,
       .exportData,
+      .experimental,
     ]
     #if DEBUG
       sections.append(.developer)
@@ -41,6 +43,7 @@ enum SettingsSection: String, Identifiable, Hashable {
     case .backup: return "Backup"
     case .importData: return "Import"
     case .exportData: return "Export"
+    case .experimental: return "Experimental"
     #if DEBUG
       case .developer: return "Developer"
     #endif
@@ -55,6 +58,7 @@ enum SettingsSection: String, Identifiable, Hashable {
     case .backup: return "externaldrive.badge.timemachine"
     case .importData: return "square.and.arrow.down"
     case .exportData: return "square.and.arrow.up"
+    case .experimental: return "testtube.2"
     #if DEBUG
       case .developer: return "hammer"
     #endif

@@ -66,6 +66,8 @@ struct SettingsRootView: View {
       SettingsImportView(store: store)
     case .exportData:
       SettingsExportView(store: store)
+    case .experimental:
+      SettingsExperimentalView(store: store)
     #if DEBUG
       case .developer:
         SettingsDeveloperView(store: store)
