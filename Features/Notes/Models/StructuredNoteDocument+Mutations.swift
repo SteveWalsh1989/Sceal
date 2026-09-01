@@ -51,6 +51,18 @@ extension StructuredNoteDocument {
     }
   }
 
+  // Replaces one section's Markdown without depending on its root or grouped location.
+  mutating func setSectionMarkdown(_ markdown: String, sectionID: UUID) throws {
+    try applyMutation { document in
+      guard let location = document.sectionLocation(for: sectionID) else {
+        throw StructuredNoteDocumentError.sectionNotFound(sectionID)
+      }
+      var section = try document.section(at: location)
+      section.markdown = markdown
+      try document.replaceSection(section, at: location)
+    }
+  }
+
   // Merges a section with an adjacent section in the same root or group container.
   @discardableResult
   mutating func mergeSection(id sectionID: UUID, direction: StructuredNoteMergeDirection) throws

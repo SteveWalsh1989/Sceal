@@ -120,6 +120,7 @@ final class NotesStore: ObservableObject {
   var hasLoadedStructuredNotes = false
   var cachedMonthSections: [NoteMonthSection]?
   private var pendingSaveTasks: [DayNote.ID: Task<Void, Never>] = [:]
+  var pendingStructuredNoteSaveTasks: [String: Task<Void, Never>] = [:]
   var pendingListNoteSaveTasks: [DayNote.ID: Task<Void, Never>] = [:]
   private var periodicFlushTask: Task<Void, Never>?
   var periodicBackupCheckTask: Task<Void, Never>?
@@ -347,6 +348,11 @@ final class NotesStore: ObservableObject {
       task.cancel()
     }
     pendingSaveTasks.removeAll()
+
+    for task in pendingStructuredNoteSaveTasks.values {
+      task.cancel()
+    }
+    pendingStructuredNoteSaveTasks.removeAll()
 
     for task in pendingListNoteSaveTasks.values {
       task.cancel()
@@ -759,6 +765,7 @@ final class NotesStore: ObservableObject {
       flushPendingSave(for: noteID)
     }
 
+    flushAllPendingStructuredNoteSaves()
     flushAllPendingListNoteSaves()
   }
 
@@ -1170,7 +1177,7 @@ final class NotesStore: ObservableObject {
   }
 
   // Splits, trims, and deduplicates a raw comma-separated tags string.
-  private func normalizedTags(from rawTags: String) -> [String] {
+  func normalizedTags(from rawTags: String) -> [String] {
     var seenTags = Set<String>()
     var normalizedTags: [String] = []
 

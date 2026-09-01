@@ -185,6 +185,28 @@ final class StructuredNoteDocumentTests: XCTestCase {
     )
   }
 
+  // Updates root and grouped section content without changing either section's identity.
+  func testSetSectionMarkdownTargetsRootAndGroupedSections() throws {
+    let rootSection = StructuredNoteSection(markdown: "Original root")
+    let groupedSection = StructuredNoteSection(markdown: "Original grouped")
+    let group = StructuredSectionGroup(title: "Feature", sections: [groupedSection])
+    var document = makeDocument(nodes: [.section(rootSection), .group(group)])
+
+    try document.setSectionMarkdown("Updated root", sectionID: rootSection.id)
+    try document.setSectionMarkdown("Updated grouped", sectionID: groupedSection.id)
+
+    XCTAssertEqual(self.rootSection(in: document, at: 0)?.markdown, "Updated root")
+    XCTAssertEqual(
+      self.group(in: document, id: group.id)?.sections.first?.markdown,
+      "Updated grouped"
+    )
+    XCTAssertEqual(self.rootSection(in: document, at: 0)?.id, rootSection.id)
+    XCTAssertEqual(
+      self.group(in: document, id: group.id)?.sections.first?.id,
+      groupedSection.id
+    )
+  }
+
   // Preserves explicit section overrides when moving a section between groups.
   func testMoveSectionBetweenGroupsPreservesOverrides() throws {
     let overrides = StructuredSectionStyleOverrides(headingColor: .colorName("pink"))

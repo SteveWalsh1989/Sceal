@@ -1,5 +1,7 @@
 import XCTest
 
+@testable import Sceal
+
 @MainActor
 final class MarkdownBlockPreservationTests: MarkdownPreservationTestCase {
   // Prevents blockquotes from flattening into normal paragraphs.
@@ -27,6 +29,31 @@ final class MarkdownBlockPreservationTests: MarkdownPreservationTestCase {
   // Prevents section divider markers from disappearing during editor conversion.
   func testSectionDivider() {
     XCTAssertEqual(preservedMarkdown("<!-- section -->"), "<!-- section -->")
+  }
+
+  // Treats a legacy divider marker as ordinary content inside a structured section editor.
+  func testStructuredSectionPreservesLiteralDividerMarkerAndFollowingBlankLine() {
+    let markdown = "Before\n<!-- section -->\n\nAfter"
+    let display = MarkdownEditorFormatter.formatForDisplay(
+      markdown,
+      appearance: appearance,
+      interpretsSectionDirectives: false
+    )
+
+    XCTAssertNil(
+      display.attribute(
+        .markdownSectionDivider,
+        at: (display.string as NSString).range(of: "<!-- section -->").location,
+        effectiveRange: nil
+      )
+    )
+    XCTAssertEqual(
+      MarkdownEditorFormatter.convertToMarkdown(
+        from: display,
+        normalizesSectionDirectives: false
+      ),
+      markdown
+    )
   }
 
   // Prevents prompt blocks from gaining code fences or losing plain prompt text.

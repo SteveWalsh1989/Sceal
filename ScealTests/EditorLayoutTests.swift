@@ -22,6 +22,24 @@ final class EditorLayoutTests: EditorTestCase {
     )
   }
 
+  // Keeps empty section editors usable while allowing longer content to grow to exact points.
+  func testContentSizedEditorHeightUsesMinimumAndRoundsContentUp() {
+    XCTAssertEqual(
+      MarkdownEditorView.targetContentSizedEditorHeight(
+        documentHeight: 42,
+        minimumHeight: 132
+      ),
+      132
+    )
+    XCTAssertEqual(
+      MarkdownEditorView.targetContentSizedEditorHeight(
+        documentHeight: 188.2,
+        minimumHeight: 132
+      ),
+      189
+    )
+  }
+
   // Keeps pasted prompt text below the action row and inside the prompt box.
   func testPromptBlockLongUnbrokenTextStaysInsidePromptContentArea() {
     let longToken = String(repeating: "abcdefghijklmnopqrstuvwxyz", count: 8)

@@ -179,6 +179,120 @@ final class NotesStoreStructuredModeTests: NotesStoreTestCase {
     XCTAssertTrue(store.userMessage?.text.contains("Stage 10") == true)
   }
 
+  // Creates and immediately persists a valid blank structured note for an empty day.
+  func testOpenStructuredDailyDateCreatesPersistedBlankDocument() throws {
+    let userDefaults = makeUserDefaults()
+    let libraryLocation = makeLibraryLocation()
+    SettingsRepository(userDefaults: userDefaults).saveDailyNoteStorageMode(
+      .structuredExperimental
+    )
+    let store = makeStore(userDefaults: userDefaults, libraryLocation: libraryLocation)
+    let targetDate = makeDate(year: 2026, month: 6, day: 4)
+    let expectedID = NoteDateFormatters.storageDate.string(
+      from: store.calendar.startOfDay(for: targetDate)
+    )
+
+    store.loadIfNeeded()
+    store.openDailyDate(targetDate)
+
+    let document = try XCTUnwrap(store.selectedStructuredNote)
+    XCTAssertEqual(document.id, expectedID)
+    XCTAssertEqual(document.nodes.count, 1)
+    XCTAssertEqual(sectionIDs(in: document).count, 1)
+    XCTAssertEqual(section(in: document, id: sectionIDs(in: document)[0])?.markdown, "")
+    XCTAssertTrue(
+      FileManager.default.fileExists(
+        atPath: store.structuredNoteRepository.fileURL(for: expectedID).path
+      )
+    )
+    XCTAssertFalse(FileManager.default.fileExists(atPath: store.legacyDailyNotesStorageURL.path))
+  }
+
+  // Persists title, normalized tags, and root/group section edits exactly across relaunch.
+  func testStructuredEditorBindingsSaveAndReloadStableSections() throws {
+    let userDefaults = makeUserDefaults()
+    let libraryLocation = makeLibraryLocation()
+    SettingsRepository(userDefaults: userDefaults).saveDailyNoteStorageMode(
+      .structuredExperimental
+    )
+    let rootSection = StructuredNoteSection(markdown: "Original root")
+    let groupedSection = StructuredNoteSection(markdown: "Original grouped")
+    let group = StructuredSectionGroup(title: "Feature", sections: [groupedSection])
+    let originalDocument = StructuredNoteDocument(
+      id: "2026-06-05",
+      date: makeDate(year: 2026, month: 6, day: 5),
+      title: "Original title",
+      tags: ["original"],
+      nodes: [.section(rootSection), .group(group)]
+    )
+    try StructuredNoteRepository(libraryLocation: libraryLocation).save(originalDocument)
+    let store = makeStore(userDefaults: userDefaults, libraryLocation: libraryLocation)
+    store.loadIfNeeded()
+
+    store.structuredTitleBinding(for: originalDocument.id).wrappedValue = "Edited title"
+    store.structuredTagsBinding(for: originalDocument.id).wrappedValue =
+      " planning, swift, planning "
+    store.structuredSectionMarkdownBinding(
+      documentID: originalDocument.id,
+      sectionID: rootSection.id
+    ).wrappedValue = "# Root\n- Edited item\n<!-- section -->\nLiteral marker"
+    store.structuredSectionMarkdownBinding(
+      documentID: originalDocument.id,
+      sectionID: groupedSection.id
+    ).wrappedValue = "```swift\nlet value = 2\n```"
+    store.flushPendingSaves()
+
+    let relaunchedStore = makeStore(
+      userDefaults: userDefaults,
+      libraryLocation: libraryLocation
+    )
+    relaunchedStore.loadIfNeeded()
+    let reloadedDocument = try XCTUnwrap(relaunchedStore.selectedStructuredNote)
+
+    XCTAssertEqual(reloadedDocument.title, "Edited title")
+    XCTAssertEqual(reloadedDocument.tags, ["planning", "swift"])
+    XCTAssertEqual(sectionIDs(in: reloadedDocument), [rootSection.id, groupedSection.id])
+    XCTAssertEqual(
+      section(in: reloadedDocument, id: rootSection.id)?.markdown,
+      "# Root\n- Edited item\n<!-- section -->\nLiteral marker"
+    )
+    XCTAssertEqual(
+      section(in: reloadedDocument, id: groupedSection.id)?.markdown,
+      "```swift\nlet value = 2\n```"
+    )
+  }
+
+  // Flushes an edited structured document before navigation changes the active note.
+  func testSelectingAnotherStructuredNoteFlushesPendingSave() throws {
+    let userDefaults = makeUserDefaults()
+    let libraryLocation = makeLibraryLocation()
+    SettingsRepository(userDefaults: userDefaults).saveDailyNoteStorageMode(
+      .structuredExperimental
+    )
+    let firstDocument = StructuredNoteDocument.empty(
+      id: "2026-06-06",
+      date: makeDate(year: 2026, month: 6, day: 6)
+    )
+    let secondDocument = StructuredNoteDocument.empty(
+      id: "2026-06-07",
+      date: makeDate(year: 2026, month: 6, day: 7)
+    )
+    let repository = StructuredNoteRepository(libraryLocation: libraryLocation)
+    try repository.save(firstDocument)
+    try repository.save(secondDocument)
+    let store = makeStore(userDefaults: userDefaults, libraryLocation: libraryLocation)
+    store.loadIfNeeded()
+    store.selectStructuredNote(firstDocument.id)
+
+    store.structuredTitleBinding(for: firstDocument.id).wrappedValue = "Saved before navigation"
+    store.selectStructuredNote(secondDocument.id)
+
+    let savedDocument = try StructuredNoteDocumentCodec.read(
+      from: repository.fileURL(for: firstDocument.id)
+    )
+    XCTAssertEqual(savedDocument.title, "Saved before navigation")
+  }
+
   // Collects stable section IDs from root and grouped structured nodes.
   private func sectionIDs(in document: StructuredNoteDocument) -> [UUID] {
     document.nodes.flatMap { node in
@@ -189,5 +303,25 @@ final class NotesStoreStructuredModeTests: NotesStoreTestCase {
         return group.sections.map(\.id)
       }
     }
+  }
+
+  // Finds a section fixture without assuming whether it is at the root or inside a group.
+  private func section(
+    in document: StructuredNoteDocument,
+    id sectionID: UUID
+  ) -> StructuredNoteSection? {
+    for node in document.nodes {
+      switch node {
+      case .section(let section) where section.id == sectionID:
+        return section
+      case .group(let group):
+        if let section = group.sections.first(where: { $0.id == sectionID }) {
+          return section
+        }
+      default:
+        continue
+      }
+    }
+    return nil
   }
 }

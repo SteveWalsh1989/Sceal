@@ -6,6 +6,7 @@
 
 import Foundation
 import OSLog
+import SwiftUI
 
 extension NotesStore {
   var isStructuredDailyNoteMode: Bool {
@@ -54,7 +55,7 @@ extension NotesStore {
     isStructuredDailyNoteMode ? structuredDailyNotesStorageURL : legacyDailyNotesStorageURL
   }
 
-  // Converts validated structured documents into read-only sidebar summaries for Stage 3.
+  // Converts validated structured documents into sidebar and calendar summaries.
   var structuredNoteSummaries: [DayNote] {
     structuredNotes.map { document in
       DayNote(
@@ -70,6 +71,8 @@ extension NotesStore {
   // Switches daily-note storage without resetting or rewriting either isolated library.
   func updateDailyNoteStorageMode(_ mode: DailyNoteStorageMode) {
     guard dailyNoteStorageMode != mode else { return }
+
+    flushPendingSaves()
 
     #if DEBUG
       if mode == .structuredExperimental, isDemoModeEnabled {
@@ -139,10 +142,71 @@ extension NotesStore {
   // Selects a structured note without changing the retained legacy selection.
   func selectStructuredNote(_ noteID: DayNote.ID?) {
     guard noteID == nil || structuredNotes.contains(where: { $0.id == noteID }) else { return }
+    if selectedStructuredNoteID != noteID, let selectedStructuredNoteID {
+      flushPendingStructuredNoteSave(for: selectedStructuredNoteID)
+    }
     selectedStructuredNoteID = noteID
     if let selectedStructuredNote {
       structuredCalendarBrowseYear = calendar.component(.year, from: selectedStructuredNote.date)
     }
+  }
+
+  // Returns the nearest older and newer structured notes for editor header navigation.
+  func adjacentStructuredNoteIDs(
+    for documentID: String
+  ) -> (previous: String?, next: String?) {
+    guard let currentIndex = structuredNotes.firstIndex(where: { $0.id == documentID }) else {
+      return (nil, nil)
+    }
+
+    let previousID =
+      structuredNotes.indices.contains(currentIndex + 1)
+      ? structuredNotes[currentIndex + 1].id
+      : nil
+    let nextID =
+      currentIndex > structuredNotes.startIndex ? structuredNotes[currentIndex - 1].id : nil
+    return (previousID, nextID)
+  }
+
+  // Two-way binding for an editable structured note title.
+  func structuredTitleBinding(for documentID: String) -> Binding<String> {
+    Binding(
+      get: { self.structuredDocument(withID: documentID)?.title ?? "" },
+      set: { title in
+        self.updateStructuredDocument(documentID) { document in
+          document.title = title
+        }
+      }
+    )
+  }
+
+  // Two-way binding for normalized structured note tags.
+  func structuredTagsBinding(for documentID: String) -> Binding<String> {
+    Binding(
+      get: { self.structuredDocument(withID: documentID)?.tags.joined(separator: ", ") ?? "" },
+      set: { rawTags in
+        self.updateStructuredDocument(documentID) { document in
+          document.tags = self.normalizedTags(from: rawTags)
+        }
+      }
+    )
+  }
+
+  // Two-way binding for one stable section's Markdown, regardless of group placement.
+  func structuredSectionMarkdownBinding(
+    documentID: String,
+    sectionID: UUID
+  ) -> Binding<String> {
+    Binding(
+      get: {
+        self.structuredSection(withID: sectionID, inDocumentID: documentID)?.markdown ?? ""
+      },
+      set: { markdown in
+        self.updateStructuredDocument(documentID) { document in
+          try document.setSectionMarkdown(markdown, sectionID: sectionID)
+        }
+      }
+    )
   }
 
   // Updates the isolated structured search query.
@@ -201,17 +265,125 @@ extension NotesStore {
     }
   }
 
-  // Selects an existing structured day while keeping creation deferred to the Stage 4 editor.
+  // Opens an existing structured day or creates a blank structured document for that date.
   func selectStructuredDailyDate(_ date: Date) {
-    let documentID = NoteDateFormatters.storageDate.string(from: calendar.startOfDay(for: date))
-    guard structuredNotes.contains(where: { $0.id == documentID }) else {
-      userMessage = (
-        text: "Creating and editing structured notes arrives in Stage 4.",
-        kind: .info
-      )
+    do {
+      let document = try ensureStructuredDailyNoteExists(for: date)
+      selectStructuredNote(document.id)
+      userMessage = nil
+    } catch {
+      report(error, context: "Creating structured note failed")
+    }
+  }
+
+  // Immediately persists every debounced structured document save.
+  func flushAllPendingStructuredNoteSaves() {
+    for documentID in Array(pendingStructuredNoteSaveTasks.keys) {
+      flushPendingStructuredNoteSave(for: documentID)
+    }
+  }
+
+  // Immediately persists one structured document when it has an outstanding save.
+  func flushPendingStructuredNoteSave(for documentID: String) {
+    let hadPendingSave = pendingStructuredNoteSaveTasks[documentID] != nil
+    pendingStructuredNoteSaveTasks[documentID]?.cancel()
+    pendingStructuredNoteSaveTasks[documentID] = nil
+
+    guard hadPendingSave, let document = structuredDocument(withID: documentID) else { return }
+
+    do {
+      try structuredNoteRepository.save(document)
+    } catch {
+      report(error, context: "Saving structured note before leaving failed")
+    }
+  }
+
+  // Looks up one structured document by its date-based storage ID.
+  private func structuredDocument(withID documentID: String) -> StructuredNoteDocument? {
+    structuredNotes.first(where: { $0.id == documentID })
+  }
+
+  // Finds a stable section without requiring callers to know whether it belongs to a group.
+  private func structuredSection(
+    withID sectionID: UUID,
+    inDocumentID documentID: String
+  ) -> StructuredNoteSection? {
+    guard let document = structuredDocument(withID: documentID) else { return nil }
+
+    for node in document.nodes {
+      switch node {
+      case .section(let section) where section.id == sectionID:
+        return section
+      case .group(let group):
+        if let section = group.sections.first(where: { $0.id == sectionID }) {
+          return section
+        }
+      default:
+        continue
+      }
+    }
+    return nil
+  }
+
+  // Applies and validates one in-memory document edit before scheduling an atomic save.
+  private func updateStructuredDocument(
+    _ documentID: String,
+    mutate: (inout StructuredNoteDocument) throws -> Void
+  ) {
+    guard let documentIndex = structuredNotes.firstIndex(where: { $0.id == documentID }) else {
       return
     }
-    selectStructuredNote(documentID)
+
+    var updatedDocument = structuredNotes[documentIndex]
+    do {
+      try mutate(&updatedDocument)
+      try updatedDocument.validate()
+    } catch {
+      report(error, context: "Updating structured note failed")
+      return
+    }
+
+    guard updatedDocument != structuredNotes[documentIndex] else { return }
+    var updatedDocuments = structuredNotes
+    updatedDocuments[documentIndex] = updatedDocument
+    structuredNotes = updatedDocuments
+    scheduleStructuredNoteSave(for: documentID)
+  }
+
+  // Debounces structured document writes using the same cadence as legacy notes.
+  private func scheduleStructuredNoteSave(for documentID: String) {
+    pendingStructuredNoteSaveTasks[documentID]?.cancel()
+    pendingStructuredNoteSaveTasks[documentID] = Task { [weak self] in
+      try? await Task.sleep(nanoseconds: 350_000_000)
+      guard !Task.isCancelled else { return }
+      self?.persistPendingStructuredNoteSave(for: documentID)
+    }
+  }
+
+  // Writes the latest validated structured document to its isolated repository.
+  private func persistPendingStructuredNoteSave(for documentID: String) {
+    pendingStructuredNoteSaveTasks[documentID] = nil
+    guard let document = structuredDocument(withID: documentID) else { return }
+
+    do {
+      try structuredNoteRepository.save(document)
+    } catch {
+      report(error, context: "Saving structured note failed")
+    }
+  }
+
+  // Creates one valid blank structured daily note and persists it before displaying it.
+  private func ensureStructuredDailyNoteExists(for date: Date) throws -> StructuredNoteDocument {
+    let startOfDay = calendar.startOfDay(for: date)
+    let documentID = NoteDateFormatters.storageDate.string(from: startOfDay)
+    if let existingDocument = structuredDocument(withID: documentID) {
+      return existingDocument
+    }
+
+    let document = StructuredNoteDocument.empty(id: documentID, date: startOfDay)
+    try structuredNoteRepository.save(document)
+    structuredNotes = (structuredNotes + [document]).sorted(by: { $0.date > $1.date })
+    return document
   }
 
   // Produces searchable sidebar text without invoking the throwing portable export boundary.

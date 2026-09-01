@@ -11,7 +11,10 @@ import AppKit
 extension MarkdownEditorFormatter {
 
   // Walks the attributed string line-by-line and reconstructs raw markdown.
-  static func convertToMarkdown(from attributedString: NSAttributedString) -> String {
+  static func convertToMarkdown(
+    from attributedString: NSAttributedString,
+    normalizesSectionDirectives: Bool = true
+  ) -> String {
     let nsString = attributedString.string as NSString
     guard nsString.length > 0 else { return "" }
 
@@ -84,6 +87,10 @@ extension MarkdownEditorFormatter {
 
     if let unmatchedPromptStartIndex {
       markdownLines.remove(at: unmatchedPromptStartIndex)
+    }
+
+    guard normalizesSectionDirectives else {
+      return markdownLines.joined(separator: "\n")
     }
 
     // Collapse blank lines immediately after section dividers so they don't accumulate on reload.

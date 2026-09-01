@@ -17,7 +17,8 @@ extension MarkdownEditorFormatter {
     _ rawLine: String,
     appearance: NoteAppearanceSettings,
     imageWidth: CGFloat? = nil,
-    libraryRootURL: URL? = nil
+    libraryRootURL: URL? = nil,
+    interpretsSectionDirectives: Bool = true
   )
     -> NSAttributedString
   {
@@ -42,7 +43,9 @@ extension MarkdownEditorFormatter {
     }
 
     // Section divider — Sceal card-gap marker
-    if let section = MarkdownEditorSectionDirectiveMarkdown.parse(trimmedLine) {
+    if interpretsSectionDirectives,
+      let section = MarkdownEditorSectionDirectiveMarkdown.parse(trimmedLine)
+    {
       return styledSectionDivider(
         appearance: appearance,
         headingColorName: section.headingColorName,

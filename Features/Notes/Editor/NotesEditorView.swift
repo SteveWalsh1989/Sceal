@@ -191,7 +191,7 @@ struct NotesEditorView: View {
 // Expandable search bar — shows as a magnifying glass icon, expands into a native NSSearchField on tap.
 // The icon always occupies its natural 28pt in the HStack so nothing around it ever shifts.
 // When expanded, the native search field appears as a trailing-aligned overlay growing leftward.
-private struct EditorSearchBar: View {
+struct EditorSearchBar: View {
   @Binding var searchText: String
   @Binding var isExpanded: Bool
   let controlColor: Color
@@ -291,7 +291,7 @@ private struct NativeSearchField: NSViewRepresentable {
 }
 
 // Keeps header note-jump actions compact and visually aligned with the date.
-private struct HeaderNavigationButton: View {
+struct HeaderNavigationButton: View {
   let systemImage: String
   let accessibilityLabel: String
   let controlColor: Color

@@ -32,7 +32,10 @@ struct AppRootView: View {
     } detail: {
       Group {
         if store.isStructuredDailyModeActive {
-          StructuredNotePlaceholderView(store: store)
+          StructuredNoteEditorView(
+            store: store,
+            sidebarCollapsed: columnVisibility == .detailOnly
+          )
         } else if let activeNoteID = store.activeSelectedNoteID {
           NotesEditorView(
             store: store,

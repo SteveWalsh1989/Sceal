@@ -210,7 +210,8 @@ enum MarkdownEditorFormatter {
     initialSectionHeadingColorName: String? = nil,
     initialSectionBulletColorName: String? = nil,
     initialSectionUseSectionColor: Bool = false,
-    libraryRootURL: URL? = nil
+    libraryRootURL: URL? = nil,
+    interpretsSectionDirectives: Bool = true
   )
     -> NSAttributedString
   {
@@ -343,7 +344,9 @@ enum MarkdownEditorFormatter {
       }
 
       // Section divider — Sceal-specific card-gap marker with optional per-section colors
-      if let section = MarkdownEditorSectionDirectiveMarkdown.parse(line) {
+      if interpretsSectionDirectives,
+        let section = MarkdownEditorSectionDirectiveMarkdown.parse(line)
+      {
         flushPendingHeadingColorMarker()
 
         // Update section tracking state for subsequent lines.
@@ -373,7 +376,8 @@ enum MarkdownEditorFormatter {
         line,
         appearance: appearance,
         imageWidth: pendingImageWidth,
-        libraryRootURL: libraryRootURL
+        libraryRootURL: libraryRootURL,
+        interpretsSectionDirectives: interpretsSectionDirectives
       )
       if parseMarkdownImage(line) != nil {
         pendingImageWidth = nil
@@ -456,7 +460,10 @@ enum MarkdownEditorFormatter {
   // Re-formats a single line in-place after Enter, returning the detected list type.
   @discardableResult
   static func formatCurrentLine(
-    in textStorage: NSTextStorage, lineRange: NSRange, appearance: NoteAppearanceSettings
+    in textStorage: NSTextStorage,
+    lineRange: NSRange,
+    appearance: NoteAppearanceSettings,
+    interpretsSectionDirectives: Bool = true
   ) -> MarkdownListType? {
     let nsString = textStorage.string as NSString
     let lineText = nsString.substring(with: lineRange)
@@ -501,7 +508,11 @@ enum MarkdownEditorFormatter {
       if lineContainsInlineFormatting(in: textStorage, range: lineRange) {
         let rawMarkdownLine = convertToMarkdown(
           from: textStorage.attributedSubstring(from: lineRange))
-        let displayLine = buildDisplayLine(rawMarkdownLine, appearance: appearance)
+        let displayLine = buildDisplayLine(
+          rawMarkdownLine,
+          appearance: appearance,
+          interpretsSectionDirectives: interpretsSectionDirectives
+        )
 
         textStorage.beginEditing()
         textStorage.replaceCharacters(in: lineRange, with: displayLine)
@@ -519,7 +530,11 @@ enum MarkdownEditorFormatter {
     }
 
     // Build formatted version of this raw markdown line
-    let displayLine = buildDisplayLine(lineText, appearance: appearance)
+    let displayLine = buildDisplayLine(
+      lineText,
+      appearance: appearance,
+      interpretsSectionDirectives: interpretsSectionDirectives
+    )
 
     textStorage.beginEditing()
     textStorage.replaceCharacters(in: lineRange, with: displayLine)

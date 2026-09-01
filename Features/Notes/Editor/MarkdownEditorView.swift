@@ -7,6 +7,15 @@
 import AppKit
 import SwiftUI
 
+enum MarkdownEditorViewportMode: Equatable {
+  case scrolling
+  case contentSized(minimumHeight: CGFloat)
+
+  var showsVerticalScroller: Bool {
+    self == .scrolling
+  }
+}
+
 struct MarkdownEditorView: NSViewRepresentable {
   static let minimumBottomOverscroll: CGFloat = 300
   static let preferredBottomOverscrollViewportRatio: CGFloat = 0.75
@@ -32,8 +41,14 @@ struct MarkdownEditorView: NSViewRepresentable {
   var imageAttachmentRootURL: URL? = nil
   var allowsImageAttachments: Bool = true
   var allowsSectionColorEditing: Bool = true
+  var allowsSlashCommands: Bool = true
+  var interpretsSectionDirectives: Bool = true
+  var viewportMode: MarkdownEditorViewportMode = .scrolling
+  var focusRequestID: UUID? = nil
   var appliesTemplateSectionColorOverride: Bool = false
   var templateSectionColorName: String? = nil
+  var onFocus: (() -> Void)? = nil
+  var onContentHeightChange: ((CGFloat) -> Void)? = nil
   var onPromptCopied: (() -> Void)? = nil
 
   func makeCoordinator() -> Coordinator {
@@ -46,15 +61,17 @@ struct MarkdownEditorView: NSViewRepresentable {
 
     let scrollView = EditorScrollView()
     scrollView.documentView = textView
-    scrollView.hasVerticalScroller = appearanceSettings.showEditorScrollbar
+    scrollView.hasVerticalScroller =
+      viewportMode.showsVerticalScroller && appearanceSettings.showEditorScrollbar
     scrollView.hasHorizontalScroller = false
     scrollView.drawsBackground = false
     scrollView.automaticallyAdjustsContentInsets = false
     scrollView.autohidesScrollers = true
     scrollView.contentInsets = .init()
+    scrollView.allowsDocumentScrolling = viewportMode == .scrolling
     scrollView.onViewportHeightChange = { [weak textView, weak scrollView] viewportHeight in
       guard let textView, let scrollView else { return }
-      Self.applyBottomOverscroll(to: textView, in: scrollView, viewportHeight: viewportHeight)
+      applyEditorSizing(to: textView, in: scrollView, viewportHeight: viewportHeight)
     }
 
     applyDisplayString(formatDisplayString(for: text), to: textView)
@@ -73,15 +90,26 @@ struct MarkdownEditorView: NSViewRepresentable {
     context.coordinator.lastAppliesTemplateSectionColorOverride =
       appliesTemplateSectionColorOverride
     context.coordinator.lastTemplateSectionColorName = templateSectionColorName
+    context.coordinator.lastFocusRequestID = focusRequestID
     context.coordinator.lastDividerCount = (textView as MarkdownEditorTextView).sectionDividerCount
     context.coordinator.toolbar.appearanceSettings = appearanceSettings
 
     Self.applySearchHighlights(
       to: textView, query: searchText.trimmingCharacters(in: .whitespacesAndNewlines),
       accentColor: appearanceSettings.accentColor)
-    Self.applyBottomOverscroll(to: textView, in: scrollView)
+    applyEditorSizing(to: textView, in: scrollView)
+    requestFocusIfNeeded(in: textView)
 
     return scrollView
+  }
+
+  static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
+    guard let textView = scrollView.documentView as? NSTextView,
+      let textStorage = textView.textStorage
+    else { return }
+
+    coordinator.flushPendingMarkdownPushIfNeeded(from: textStorage)
+    coordinator.toolbar.hide()
   }
 
   func updateNSView(_ scrollView: NSScrollView, context: Context) {
@@ -99,14 +127,16 @@ struct MarkdownEditorView: NSViewRepresentable {
     context.coordinator.parent = self
     configure(textView, coordinator: context.coordinator)
     context.coordinator.toolbar.appearanceSettings = appearanceSettings
-    scrollView.hasVerticalScroller = appearanceSettings.showEditorScrollbar
+    scrollView.hasVerticalScroller =
+      viewportMode.showsVerticalScroller && appearanceSettings.showEditorScrollbar
     if let editorScrollView = scrollView as? EditorScrollView {
+      editorScrollView.allowsDocumentScrolling = viewportMode == .scrolling
       editorScrollView.onViewportHeightChange = { [weak textView, weak scrollView] viewportHeight in
         guard let textView, let scrollView else { return }
-        Self.applyBottomOverscroll(to: textView, in: scrollView, viewportHeight: viewportHeight)
+        applyEditorSizing(to: textView, in: scrollView, viewportHeight: viewportHeight)
       }
     }
-    Self.applyBottomOverscroll(to: textView, in: scrollView)
+    applyEditorSizing(to: textView, in: scrollView)
 
     let noteChanged = noteID != context.coordinator.lastNoteID
     let textChanged = text != context.coordinator.lastPushedMarkdown
@@ -114,13 +144,16 @@ struct MarkdownEditorView: NSViewRepresentable {
     let spellCheckingChanged =
       continuousSpellCheckingEnabled != context.coordinator.lastContinuousSpellCheckingEnabled
     let searchChanged = searchText != context.coordinator.lastSearchText
+    let focusRequestChanged = focusRequestID != context.coordinator.lastFocusRequestID
     let templateSectionColorChanged =
       appliesTemplateSectionColorOverride
       != context.coordinator.lastAppliesTemplateSectionColorOverride
       || templateSectionColorName != context.coordinator.lastTemplateSectionColorName
     let contentChanged =
       noteChanged || textChanged || appearanceChanged || templateSectionColorChanged
-    guard contentChanged || searchChanged || spellCheckingChanged else { return }
+    guard contentChanged || searchChanged || spellCheckingChanged || focusRequestChanged else {
+      return
+    }
 
     if contentChanged {
       context.coordinator.isUpdating = true
@@ -177,6 +210,11 @@ struct MarkdownEditorView: NSViewRepresentable {
     Self.applySearchHighlights(
       to: textView, query: searchText.trimmingCharacters(in: .whitespacesAndNewlines),
       accentColor: appearanceSettings.accentColor)
+
+    if focusRequestChanged {
+      context.coordinator.lastFocusRequestID = focusRequestID
+      requestFocusIfNeeded(in: textView)
+    }
   }
 
   private func configure(_ textView: NSTextView, coordinator: Coordinator) {
@@ -216,7 +254,8 @@ struct MarkdownEditorView: NSViewRepresentable {
       initialSectionHeadingColorName: sectionColorName,
       initialSectionBulletColorName: sectionColorName,
       initialSectionUseSectionColor: sectionColorName != nil,
-      libraryRootURL: libraryRootURL
+      libraryRootURL: libraryRootURL,
+      interpretsSectionDirectives: interpretsSectionDirectives
     )
   }
 
@@ -279,7 +318,7 @@ struct MarkdownEditorView: NSViewRepresentable {
     textView.textStorage?.setAttributedString(displayString)
     textView.ensureEditorLayoutForEntireDocument()
     if let scrollView = textView.enclosingScrollView {
-      Self.applyBottomOverscroll(to: textView, in: scrollView)
+      applyEditorSizing(to: textView, in: scrollView)
     }
     if let editorTextView = textView as? MarkdownEditorTextView {
       editorTextView.syncTableBlockViews()
@@ -332,6 +371,60 @@ struct MarkdownEditorView: NSViewRepresentable {
     }
   }
 
+  // Computes a section editor height from content while retaining a useful empty target.
+  static func targetContentSizedEditorHeight(
+    documentHeight: CGFloat,
+    minimumHeight: CGFloat
+  ) -> CGFloat {
+    ceil(max(documentHeight, minimumHeight))
+  }
+
+  // Applies either legacy scroll-past-end sizing or content-sized section layout.
+  private func applyEditorSizing(
+    to textView: NSTextView,
+    in scrollView: NSScrollView,
+    viewportHeight: CGFloat? = nil
+  ) {
+    switch viewportMode {
+    case .scrolling:
+      Self.applyBottomOverscroll(
+        to: textView,
+        in: scrollView,
+        viewportHeight: viewportHeight
+      )
+
+    case .contentSized(let minimumHeight):
+      textView.ensureEditorLayoutForEntireDocument()
+      let targetHeight = Self.targetContentSizedEditorHeight(
+        documentHeight: textView.editorDocumentHeight(),
+        minimumHeight: minimumHeight
+      )
+
+      if textView.minSize.height != targetHeight {
+        textView.minSize = NSSize(width: 0, height: targetHeight)
+      }
+      if textView.frame.height != targetHeight {
+        var frame = textView.frame
+        frame.size.height = targetHeight
+        textView.frame = frame
+      }
+
+      guard let onContentHeightChange else { return }
+      DispatchQueue.main.async {
+        onContentHeightChange(targetHeight)
+      }
+    }
+  }
+
+  // Fulfils a shared coordinator request once the AppKit editor has joined a window.
+  private func requestFocusIfNeeded(in textView: NSTextView) {
+    guard focusRequestID != nil else { return }
+    DispatchQueue.main.async { [weak textView] in
+      guard let textView else { return }
+      textView.window?.makeFirstResponder(textView)
+    }
+  }
+
   private func clampedRange(_ range: NSRange, maxLength: Int) -> NSRange {
     let safeLocation = min(range.location, maxLength)
     let safeLength = min(range.length, max(maxLength - safeLocation, 0))
@@ -378,10 +471,19 @@ struct MarkdownEditorView: NSViewRepresentable {
 @MainActor
 private final class EditorScrollView: NSScrollView {
   var onViewportHeightChange: ((CGFloat) -> Void)?
+  var allowsDocumentScrolling = true
 
   override func tile() {
     super.tile()
     onViewportHeightChange?(contentSize.height)
+  }
+
+  override func scrollWheel(with event: NSEvent) {
+    guard allowsDocumentScrolling else {
+      nextResponder?.scrollWheel(with: event)
+      return
+    }
+    super.scrollWheel(with: event)
   }
 }
 
@@ -563,6 +665,7 @@ extension MarkdownEditorView {
     var lastDividerCount = 0
     var lastNoteID: DayNote.ID?
     var lastSearchText = ""
+    var lastFocusRequestID: UUID?
     var lastAppliesTemplateSectionColorOverride = false
     var lastTemplateSectionColorName: String?
     let toolbar = EditorFormattingToolbar()
@@ -618,6 +721,12 @@ extension MarkdownEditorView {
         replacementString: replacementString
       )
       return true
+    }
+
+    // Reports focus to the shared structured editor coordinator when configured.
+    func textDidBeginEditing(_ notification: Notification) {
+      guard notification.object is NSTextView else { return }
+      parent.onFocus?()
     }
 
     // Updates toolbar visibility and syncs typing attributes on selection change.
@@ -695,10 +804,16 @@ extension MarkdownEditorView {
         textView.setNeedsDisplay(textView.bounds)
       }
 
+      if let scrollView = textView.enclosingScrollView {
+        parent.applyEditorSizing(to: textView, in: scrollView)
+      }
+
       if isApplyingSlashCommand {
         dismissSlashPopup()
-      } else {
+      } else if parent.allowsSlashCommands {
         checkSlashCommandTrigger(in: textView)
+      } else {
+        dismissSlashPopup()
       }
     }
 
@@ -745,7 +860,10 @@ extension MarkdownEditorView {
     // Runs the conversion and pushes the result to the SwiftUI binding.
     private func executePushMarkdown(from textStorage: NSTextStorage) {
       pendingMarkdownTask = nil
-      let convertedMarkdown = MarkdownEditorFormatter.convertToMarkdown(from: textStorage)
+      let convertedMarkdown = MarkdownEditorFormatter.convertToMarkdown(
+        from: textStorage,
+        normalizesSectionDirectives: parent.interpretsSectionDirectives
+      )
       let markdown =
         parent.appliesTemplateSectionColorOverride
         ? NoteTemplateMarkdown.removingSectionColorMetadata(from: convertedMarkdown)
@@ -853,11 +971,14 @@ extension MarkdownEditorView {
       }
 
       // Slash command execution
-      let slashCommand = EditorSlashCommandHandler.matchedCommand(
-        in: textStorage,
-        lineRange: lineRange,
-        customTemplates: parent.customSlashTemplates
-      )
+      let slashCommand =
+        parent.allowsSlashCommands
+        ? EditorSlashCommandHandler.matchedCommand(
+          in: textStorage,
+          lineRange: lineRange,
+          customTemplates: parent.customSlashTemplates
+        )
+        : nil
       if let slashCommand {
         switch slashCommand.action {
         case .sectionDivider:
@@ -1065,7 +1186,8 @@ extension MarkdownEditorView {
         continuedListType = MarkdownEditorFormatter.formatCurrentLine(
           in: textStorage,
           lineRange: lineRange,
-          appearance: parent.appearanceSettings
+          appearance: parent.appearanceSettings,
+          interpretsSectionDirectives: parent.interpretsSectionDirectives
         )
 
         let formattedNS = textStorage.string as NSString
@@ -1540,7 +1662,8 @@ extension MarkdownEditorView {
           MarkdownEditorFormatter.formatCurrentLine(
             in: textStorage,
             lineRange: lineRange,
-            appearance: parent.appearanceSettings
+            appearance: parent.appearanceSettings,
+            interpretsSectionDirectives: parent.interpretsSectionDirectives
           ) != nil
 
         guard didFormat else { continue }
