@@ -63,6 +63,19 @@ extension StructuredNoteDocument {
     }
   }
 
+  // Deletes one section while preserving the invariant that every document stays editable.
+  mutating func deleteSection(id sectionID: UUID) throws {
+    try applyMutation { document in
+      guard let location = document.sectionLocation(for: sectionID) else {
+        throw StructuredNoteDocumentError.sectionNotFound(sectionID)
+      }
+      guard document.totalSectionCount > 1 else {
+        throw StructuredNoteDocumentError.cannotDeleteOnlySection
+      }
+      _ = try document.removeSectionWithoutValidation(at: location)
+    }
+  }
+
   // Merges a section with an adjacent section in the same root or group container.
   @discardableResult
   mutating func mergeSection(id sectionID: UUID, direction: StructuredNoteMergeDirection) throws
@@ -267,6 +280,18 @@ extension StructuredNoteDocument {
     nodes.firstIndex { node in
       guard case .group(let group) = node else { return false }
       return group.id == groupID
+    }
+  }
+
+  // Counts root and grouped sections without exposing the private location model.
+  private var totalSectionCount: Int {
+    nodes.reduce(into: 0) { count, node in
+      switch node {
+      case .section:
+        count += 1
+      case .group(let group):
+        count += group.sections.count
+      }
     }
   }
 

@@ -43,11 +43,20 @@ struct MarkdownEditorView: NSViewRepresentable {
   var allowsSectionColorEditing: Bool = true
   var allowsSlashCommands: Bool = true
   var interpretsSectionDirectives: Bool = true
+  var debouncesMarkdownUpdates: Bool = true
   var viewportMode: MarkdownEditorViewportMode = .scrolling
   var focusRequestID: UUID? = nil
+  var focusCaretPlacement: StructuredEditorCaretPlacement = .preserve
   var appliesTemplateSectionColorOverride: Bool = false
   var templateSectionColorName: String? = nil
+  var initialSectionHeadingColorName: String? = nil
+  var initialSectionBulletColorName: String? = nil
   var onFocus: (() -> Void)? = nil
+  var onTextChange: (() -> Void)? = nil
+  var onStructuredSectionSplit: ((String, Int) -> Void)? = nil
+  var onBoundaryNavigation: ((StructuredEditorBoundaryNavigation) -> Bool)? = nil
+  var onStructuredUndo: (() -> Bool)? = nil
+  var onStructuredRedo: (() -> Bool)? = nil
   var onContentHeightChange: ((CGFloat) -> Void)? = nil
   var onPromptCopied: (() -> Void)? = nil
 
@@ -74,7 +83,9 @@ struct MarkdownEditorView: NSViewRepresentable {
       applyEditorSizing(to: textView, in: scrollView, viewportHeight: viewportHeight)
     }
 
+    context.coordinator.isUpdating = true
     applyDisplayString(formatDisplayString(for: text), to: textView)
+    context.coordinator.isUpdating = false
     Self.applyContinuousSpellChecking(
       to: textView,
       enabled: continuousSpellCheckingEnabled,
@@ -90,6 +101,8 @@ struct MarkdownEditorView: NSViewRepresentable {
     context.coordinator.lastAppliesTemplateSectionColorOverride =
       appliesTemplateSectionColorOverride
     context.coordinator.lastTemplateSectionColorName = templateSectionColorName
+    context.coordinator.lastInitialSectionHeadingColorName = initialSectionHeadingColorName
+    context.coordinator.lastInitialSectionBulletColorName = initialSectionBulletColorName
     context.coordinator.lastFocusRequestID = focusRequestID
     context.coordinator.lastDividerCount = (textView as MarkdownEditorTextView).sectionDividerCount
     context.coordinator.toolbar.appearanceSettings = appearanceSettings
@@ -149,8 +162,14 @@ struct MarkdownEditorView: NSViewRepresentable {
       appliesTemplateSectionColorOverride
       != context.coordinator.lastAppliesTemplateSectionColorOverride
       || templateSectionColorName != context.coordinator.lastTemplateSectionColorName
+    let initialSectionColorsChanged =
+      initialSectionHeadingColorName
+      != context.coordinator.lastInitialSectionHeadingColorName
+      || initialSectionBulletColorName
+        != context.coordinator.lastInitialSectionBulletColorName
     let contentChanged =
       noteChanged || textChanged || appearanceChanged || templateSectionColorChanged
+      || initialSectionColorsChanged
     guard contentChanged || searchChanged || spellCheckingChanged || focusRequestChanged else {
       return
     }
@@ -172,6 +191,8 @@ struct MarkdownEditorView: NSViewRepresentable {
       context.coordinator.lastAppliesTemplateSectionColorOverride =
         appliesTemplateSectionColorOverride
       context.coordinator.lastTemplateSectionColorName = templateSectionColorName
+      context.coordinator.lastInitialSectionHeadingColorName = initialSectionHeadingColorName
+      context.coordinator.lastInitialSectionBulletColorName = initialSectionBulletColorName
       if let interactiveTV = textView as? MarkdownEditorTextView {
         context.coordinator.lastDividerCount = interactiveTV.sectionDividerCount
       }
@@ -231,6 +252,8 @@ struct MarkdownEditorView: NSViewRepresentable {
     )
     if let interactiveTextView = textView as? MarkdownEditorTextView {
       interactiveTextView.onPromptCopied = onPromptCopied
+      interactiveTextView.onStructuredUndo = onStructuredUndo
+      interactiveTextView.onStructuredRedo = onStructuredRedo
     }
   }
 
@@ -243,17 +266,20 @@ struct MarkdownEditorView: NSViewRepresentable {
   }
 
   private func formatDisplayString(for markdown: String) -> NSAttributedString {
-    let sectionColorName =
+    let templateColorName =
       appliesTemplateSectionColorOverride && templateSectionColorName?.isEmpty == false
       ? templateSectionColorName
       : nil
+    let headingColorName = initialSectionHeadingColorName ?? templateColorName
+    let bulletColorName = initialSectionBulletColorName ?? templateColorName
 
     return MarkdownEditorFormatter.formatForDisplay(
       displayMarkdownForEditor(markdown),
       appearance: appearanceSettings,
-      initialSectionHeadingColorName: sectionColorName,
-      initialSectionBulletColorName: sectionColorName,
-      initialSectionUseSectionColor: sectionColorName != nil,
+      initialSectionHeadingColorName: headingColorName,
+      initialSectionBulletColorName: bulletColorName,
+      initialSectionUseSectionColor:
+        headingColorName != nil && headingColorName == bulletColorName,
       libraryRootURL: libraryRootURL,
       interpretsSectionDirectives: interpretsSectionDirectives
     )
@@ -419,8 +445,17 @@ struct MarkdownEditorView: NSViewRepresentable {
   // Fulfils a shared coordinator request once the AppKit editor has joined a window.
   private func requestFocusIfNeeded(in textView: NSTextView) {
     guard focusRequestID != nil else { return }
+    let caretPlacement = focusCaretPlacement
     DispatchQueue.main.async { [weak textView] in
       guard let textView else { return }
+      switch caretPlacement {
+      case .preserve:
+        break
+      case .start:
+        textView.setSelectedRange(NSRange(location: 0, length: 0))
+      case .end:
+        textView.setSelectedRange(NSRange(location: textView.string.utf16.count, length: 0))
+      }
       textView.window?.makeFirstResponder(textView)
     }
   }
@@ -668,6 +703,8 @@ extension MarkdownEditorView {
     var lastFocusRequestID: UUID?
     var lastAppliesTemplateSectionColorOverride = false
     var lastTemplateSectionColorName: String?
+    var lastInitialSectionHeadingColorName: String?
+    var lastInitialSectionBulletColorName: String?
     let toolbar = EditorFormattingToolbar()
     let slashPopup = EditorSlashCommandPopup()
     private var slashTriggerLocation: Int?
@@ -780,10 +817,10 @@ extension MarkdownEditorView {
         autoformatEditedLinesIfNeeded(in: textView, textStorage: textStorage)
       }
       isUpdating = false
+      parent.onTextChange?()
 
-      // Slash command operations require immediate push — the binding must be current before
-      // the command handler returns. Regular typing is debounced for performance.
-      if isApplyingSlashCommand {
+      // Slash commands and structured sections push immediately; legacy typing remains debounced.
+      if isApplyingSlashCommand || !parent.debouncesMarkdownUpdates {
         executePushMarkdown(from: textStorage)
       } else {
         scheduleMarkdownPush(from: textStorage)
@@ -912,6 +949,10 @@ extension MarkdownEditorView {
         }
       }
 
+      if handleStructuredBoundaryCommand(commandSelector, in: textView) {
+        return true
+      }
+
       if commandSelector == #selector(NSResponder.insertTab(_:)) {
         return handleListIndent(textView: textView, increase: true)
       }
@@ -945,6 +986,14 @@ extension MarkdownEditorView {
       }
 
       let lineText = nsString.substring(with: lineRange)
+
+      if handleStructuredSectionSplitCommand(
+        textStorage: textStorage,
+        fullLineRange: fullLineRange,
+        lineRange: lineRange
+      ) {
+        return true
+      }
 
       // Empty list item → cancel continuation
       if isEmptyListItem(lineText) {
@@ -1278,6 +1327,117 @@ extension MarkdownEditorView {
         textView.setNeedsDisplay(textView.bounds)
       }
 
+      return true
+    }
+
+    // Transfers boundary arrow commands to the adjacent standalone section editor.
+    private func handleStructuredBoundaryCommand(
+      _ commandSelector: Selector,
+      in textView: NSTextView
+    ) -> Bool {
+      guard let navigate = parent.onBoundaryNavigation else { return false }
+      let selection = textView.selectedRange()
+      guard selection.length == 0 else { return false }
+      let textLength = textView.string.utf16.count
+
+      if commandSelector == #selector(NSResponder.deleteBackward(_:)), selection.location == 0 {
+        return true
+      }
+      if commandSelector == #selector(NSResponder.moveLeft(_:)), selection.location == 0 {
+        return navigate(.previousSectionEnd)
+      }
+      if commandSelector == #selector(NSResponder.moveRight(_:)),
+        selection.location == textLength
+      {
+        return navigate(.nextSectionStart)
+      }
+      if commandSelector == #selector(NSResponder.moveUp(_:)),
+        caretIsOnBoundaryVisualLine(
+          at: selection.location,
+          boundaryLocation: 0,
+          textView: textView
+        )
+      {
+        return navigate(.previousSectionEnd)
+      }
+      if commandSelector == #selector(NSResponder.moveDown(_:)),
+        caretIsOnBoundaryVisualLine(
+          at: selection.location,
+          boundaryLocation: textLength,
+          textView: textView
+        )
+      {
+        return navigate(.nextSectionStart)
+      }
+      return false
+    }
+
+    // Compares TextKit line fragments so wrapped first and final visual lines navigate correctly.
+    private func caretIsOnBoundaryVisualLine(
+      at caretLocation: Int,
+      boundaryLocation: Int,
+      textView: NSTextView
+    ) -> Bool {
+      let textLength = textView.string.utf16.count
+      guard textLength > 0 else { return true }
+      let caretProbe = min(caretLocation + 1, textLength)
+      let boundaryProbe = min(boundaryLocation + 1, textLength)
+      guard let caretRect = textView.editorLineFragmentRect(forCharacterLocation: caretProbe),
+        let boundaryRect = textView.editorLineFragmentRect(forCharacterLocation: boundaryProbe)
+      else {
+        return caretLocation == boundaryLocation
+      }
+      return abs(caretRect.midY - boundaryRect.midY) < 0.5
+    }
+
+    // Converts a standalone `/div` or `/section` row into a structural section split.
+    private func handleStructuredSectionSplitCommand(
+      textStorage: NSTextStorage,
+      fullLineRange: NSRange,
+      lineRange: NSRange
+    ) -> Bool {
+      guard let splitSection = parent.onStructuredSectionSplit,
+        let command = EditorSlashCommandHandler.matchedCommand(
+          in: textStorage,
+          lineRange: lineRange
+        ),
+        command.action == .sectionDivider
+      else { return false }
+
+      if lineRange.length > 0 {
+        let attributes = textStorage.attributes(at: lineRange.location, effectiveRange: nil)
+        guard attributes[.markdownCodeBlock] as? Bool != true,
+          attributes[.markdownPromptBlock] as? Bool != true
+        else { return false }
+      }
+
+      let nsString = textStorage.string as NSString
+      var removalRange = fullLineRange
+      var splitDisplayLocation = lineRange.location
+      if lineRange.location > 0, nsString.character(at: lineRange.location - 1) == 0x0A {
+        removalRange.location -= 1
+        removalRange.length += 1
+        splitDisplayLocation -= 1
+      }
+
+      let updatedDisplay = NSMutableAttributedString(attributedString: textStorage)
+      updatedDisplay.deleteCharacters(in: removalRange)
+      let prefix = updatedDisplay.attributedSubstring(
+        from: NSRange(location: 0, length: splitDisplayLocation)
+      )
+      let markdown = MarkdownEditorFormatter.convertToMarkdown(
+        from: updatedDisplay,
+        normalizesSectionDirectives: false
+      )
+      let splitOffset = MarkdownEditorFormatter.convertToMarkdown(
+        from: prefix,
+        normalizesSectionDirectives: false
+      ).utf16.count
+
+      dismissSlashPopup()
+      DispatchQueue.main.async {
+        splitSection(markdown, splitOffset)
+      }
       return true
     }
 

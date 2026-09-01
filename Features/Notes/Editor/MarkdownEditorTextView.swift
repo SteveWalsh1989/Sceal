@@ -51,6 +51,8 @@ final class MarkdownEditorTextView: NSTextView {
   var allowsImageAttachments = true
   var allowsSectionColorEditing = true
   var onPromptCopied: (() -> Void)?
+  var onStructuredUndo: (() -> Bool)?
+  var onStructuredRedo: (() -> Bool)?
 
   // Section card rendering constants.
   private let sectionCardBaseGapOffset: CGFloat = 4
@@ -97,6 +99,26 @@ final class MarkdownEditorTextView: NSTextView {
   private var sectionIconTrackingAreas: [NSTrackingArea] = []
 
   override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+  // Routes structural undo shortcuts only when the structured coordinator claims them.
+  override func keyDown(with event: NSEvent) {
+    let modifiers = event.modifierFlags.intersection([.command, .shift, .option, .control])
+    let isUndoShortcut =
+      event.charactersIgnoringModifiers?.lowercased() == "z"
+      && modifiers.contains(.command)
+      && !modifiers.contains(.option)
+      && !modifiers.contains(.control)
+
+    if isUndoShortcut {
+      if modifiers.contains(.shift) {
+        if onStructuredRedo?() == true { return }
+      } else if onStructuredUndo?() == true {
+        return
+      }
+    }
+
+    super.keyDown(with: event)
+  }
 
   private var isDarkAppearance: Bool {
     effectiveAppearance.bestMatch(from: [.darkAqua, .vibrantDark]) != nil

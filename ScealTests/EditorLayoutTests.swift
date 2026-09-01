@@ -1,3 +1,4 @@
+import SwiftUI
 import XCTest
 
 @testable import Sceal
@@ -38,6 +39,90 @@ final class EditorLayoutTests: EditorTestCase {
       ),
       189
     )
+  }
+
+  // Transfers left, right, up, and down only when the caret reaches a section edge.
+  func testStructuredBoundaryCommandsNavigateAdjacentSections() {
+    let markdown = MarkdownBox("First\nSecond")
+    var navigations: [StructuredEditorBoundaryNavigation] = []
+    let editor = MarkdownEditorView(
+      noteID: "2026-09-01#section",
+      text: Binding(
+        get: { markdown.value },
+        set: { markdown.value = $0 }
+      ),
+      appearanceSettings: appearance,
+      onBoundaryNavigation: { direction in
+        navigations.append(direction)
+        return true
+      }
+    )
+    let coordinator = editor.makeCoordinator()
+    let fixture = makeRawEditorFixture(string: markdown.value)
+    let textView = fixture.textView
+    textView.delegate = coordinator
+
+    textView.setSelectedRange(NSRange(location: 0, length: 0))
+    XCTAssertTrue(coordinator.textView(textView, doCommandBy: #selector(NSResponder.moveLeft(_:))))
+    XCTAssertTrue(coordinator.textView(textView, doCommandBy: #selector(NSResponder.moveUp(_:))))
+
+    textView.setSelectedRange(NSRange(location: textView.string.utf16.count, length: 0))
+    XCTAssertTrue(
+      coordinator.textView(textView, doCommandBy: #selector(NSResponder.moveRight(_:))))
+    XCTAssertTrue(
+      coordinator.textView(textView, doCommandBy: #selector(NSResponder.moveDown(_:))))
+
+    XCTAssertEqual(
+      navigations,
+      [.previousSectionEnd, .previousSectionEnd, .nextSectionStart, .nextSectionStart]
+    )
+  }
+
+  // Keeps Backspace at offset zero from deleting or merging a structural section boundary.
+  func testStructuredBackspaceAtSectionStartIsConsumed() {
+    let markdown = MarkdownBox("Content")
+    let editor = MarkdownEditorView(
+      noteID: "2026-09-01#section",
+      text: Binding(
+        get: { markdown.value },
+        set: { markdown.value = $0 }
+      ),
+      appearanceSettings: appearance,
+      onBoundaryNavigation: { _ in false }
+    )
+    let coordinator = editor.makeCoordinator()
+    let fixture = makeRawEditorFixture(string: markdown.value)
+    let textView = fixture.textView
+    textView.delegate = coordinator
+    textView.setSelectedRange(NSRange(location: 0, length: 0))
+
+    XCTAssertTrue(
+      coordinator.textView(textView, doCommandBy: #selector(NSResponder.deleteBackward(_:))))
+    XCTAssertEqual(textView.string, "Content")
+  }
+
+  // Routes structural Command-Z shortcuts before NSTextView's local undo handling.
+  func testStructuredUndoShortcutsUseConfiguredHandlers() throws {
+    let fixture = makeRawEditorFixture(string: "Content")
+    let textView = fixture.textView
+    var undoCount = 0
+    var redoCount = 0
+    textView.onStructuredUndo = {
+      undoCount += 1
+      return true
+    }
+    textView.onStructuredRedo = {
+      redoCount += 1
+      return true
+    }
+
+    let undoEvent = try XCTUnwrap(keyEvent(modifiers: [.command]))
+    let redoEvent = try XCTUnwrap(keyEvent(modifiers: [.command, .shift]))
+    textView.keyDown(with: undoEvent)
+    textView.keyDown(with: redoEvent)
+
+    XCTAssertEqual(undoCount, 1)
+    XCTAssertEqual(redoCount, 1)
   }
 
   // Keeps pasted prompt text below the action row and inside the prompt box.
@@ -112,6 +197,21 @@ final class EditorLayoutTests: EditorTestCase {
       return NSRange(location: 0, length: 0)
     }
     return match
+  }
+
+  private func keyEvent(modifiers: NSEvent.ModifierFlags) -> NSEvent? {
+    NSEvent.keyEvent(
+      with: .keyDown,
+      location: .zero,
+      modifierFlags: modifiers,
+      timestamp: 0,
+      windowNumber: 0,
+      context: nil,
+      characters: "z",
+      charactersIgnoringModifiers: "z",
+      isARepeat: false,
+      keyCode: 6
+    )
   }
 
   private func firstPromptStartBoundaryRange(

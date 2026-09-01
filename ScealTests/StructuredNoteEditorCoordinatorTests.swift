@@ -43,7 +43,9 @@ final class StructuredNoteEditorCoordinatorTests: XCTestCase {
     coordinator.commitStructuralChange(
       from: previousDocument,
       to: updatedDocument,
-      actionName: "Edit Structure"
+      actionName: "Edit Structure",
+      undoFocusTarget: .init(sectionID: section.id, caretPlacement: .start),
+      redoFocusTarget: .init(sectionID: section.id, caretPlacement: .end)
     ) { document in
       appliedDocument = document
     }
@@ -54,8 +56,60 @@ final class StructuredNoteEditorCoordinatorTests: XCTestCase {
     coordinator.structuralUndoManager.undo()
     XCTAssertEqual(appliedDocument, previousDocument)
     XCTAssertTrue(coordinator.structuralUndoManager.canRedo)
+    XCTAssertEqual(coordinator.focusRequest?.caretPlacement, .start)
 
     coordinator.structuralUndoManager.redo()
+    XCTAssertEqual(appliedDocument, updatedDocument)
+    XCTAssertEqual(coordinator.focusRequest?.caretPlacement, .end)
+  }
+
+  // Traverses the flattened section order and requests the correct caret edge.
+  func testBoundaryNavigationTargetsAdjacentSectionEdges() throws {
+    let coordinator = StructuredNoteEditorCoordinator()
+    let firstSectionID = UUID()
+    let secondSectionID = UUID()
+    let thirdSectionID = UUID()
+    coordinator.activate(documentID: "2026-06-11", initialSectionID: firstSectionID)
+    coordinator.updateSectionOrder([firstSectionID, secondSectionID, thirdSectionID])
+
+    XCTAssertTrue(
+      coordinator.navigate(from: secondSectionID, direction: .previousSectionEnd)
+    )
+    XCTAssertEqual(coordinator.focusRequest?.sectionID, firstSectionID)
+    XCTAssertEqual(coordinator.focusRequest?.caretPlacement, .end)
+
+    XCTAssertTrue(coordinator.navigate(from: secondSectionID, direction: .nextSectionStart))
+    XCTAssertEqual(coordinator.focusRequest?.sectionID, thirdSectionID)
+    XCTAssertEqual(coordinator.focusRequest?.caretPlacement, .start)
+    XCTAssertFalse(coordinator.navigate(from: firstSectionID, direction: .previousSectionEnd))
+    XCTAssertFalse(coordinator.navigate(from: thirdSectionID, direction: .nextSectionStart))
+  }
+
+  // Keeps structural Command-Z priority until the user resumes ordinary text editing.
+  func testStructuralUndoPriorityEndsAfterTextEdit() {
+    let coordinator = StructuredNoteEditorCoordinator()
+    let previousDocument = StructuredNoteDocument.empty(
+      id: "2026-06-12",
+      date: Date(timeIntervalSince1970: 1_781_222_400)
+    )
+    var updatedDocument = previousDocument
+    updatedDocument.title = "Updated"
+    var appliedDocument = previousDocument
+
+    coordinator.commitStructuralChange(
+      from: previousDocument,
+      to: updatedDocument,
+      actionName: "Edit Structure"
+    ) { appliedDocument = $0 }
+
+    XCTAssertTrue(coordinator.undoStructuralChangeIfPreferred())
+    XCTAssertEqual(appliedDocument, previousDocument)
+    XCTAssertTrue(coordinator.redoStructuralChangeIfPreferred())
+    XCTAssertEqual(appliedDocument, updatedDocument)
+
+    coordinator.didEditText()
+    XCTAssertFalse(coordinator.undoStructuralChangeIfPreferred())
+    XCTAssertFalse(coordinator.structuralUndoManager.canUndo)
     XCTAssertEqual(appliedDocument, updatedDocument)
   }
 }

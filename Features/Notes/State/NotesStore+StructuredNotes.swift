@@ -209,6 +209,13 @@ extension NotesStore {
     )
   }
 
+  // Replaces one validated document snapshot for structural edits and undo/redo.
+  func replaceStructuredDocument(_ document: StructuredNoteDocument) {
+    updateStructuredDocument(document.id) { storedDocument in
+      storedDocument = document
+    }
+  }
+
   // Updates the isolated structured search query.
   func updateStructuredSearchText(_ text: String) {
     structuredSearchText = text

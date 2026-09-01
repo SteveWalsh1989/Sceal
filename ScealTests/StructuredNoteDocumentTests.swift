@@ -146,6 +146,31 @@ final class StructuredNoteDocumentTests: XCTestCase {
     XCTAssertEqual(document, originalDocument)
   }
 
+  // Deletes the final child and removes its now-empty group when other sections remain.
+  func testDeleteFinalGroupedSectionRemovesEmptyGroup() throws {
+    let rootSection = StructuredNoteSection(markdown: "Root")
+    let groupedSection = StructuredNoteSection(markdown: "Grouped")
+    let group = StructuredSectionGroup(title: "Feature", sections: [groupedSection])
+    var document = makeDocument(nodes: [.section(rootSection), .group(group)])
+
+    try document.deleteSection(id: groupedSection.id)
+
+    XCTAssertEqual(document.nodes.map(\.id), [rootSection.id])
+    XCTAssertNil(self.group(in: document, id: group.id))
+  }
+
+  // Prevents deletion from leaving a daily note without an editable section.
+  func testDeleteOnlySectionIsRejectedTransactionally() {
+    let section = StructuredNoteSection(markdown: "Keep")
+    var document = makeDocument(nodes: [.section(section)])
+    let originalDocument = document
+
+    XCTAssertThrowsError(try document.deleteSection(id: section.id)) { error in
+      XCTAssertEqual(error as? StructuredNoteDocumentError, .cannotDeleteOnlySection)
+    }
+    XCTAssertEqual(document, originalDocument)
+  }
+
   // Removes an empty source group when its final section is detached to the root.
   func testDetachFinalGroupedSectionRemovesEmptyGroup() throws {
     let rootSection = StructuredNoteSection(markdown: "Root")

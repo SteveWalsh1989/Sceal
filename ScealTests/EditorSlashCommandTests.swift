@@ -1,10 +1,76 @@
 import AppKit
+import SwiftUI
 import XCTest
 
 @testable import Sceal
 
 @MainActor
 final class EditorSlashCommandTests: EditorTestCase {
+  // Routes `/div` to a structural split and removes the command row from both section bodies.
+  func testStructuredDividerCommandReturnsMarkdownAndSplitOffset() async throws {
+    let rawMarkdown = "# Before\n/div\nAfter"
+    let markdown = MarkdownBox(rawMarkdown)
+    var splitMarkdown: String?
+    var splitOffset: Int?
+    let splitExpectation = expectation(description: "Structured split callback")
+    let editor = MarkdownEditorView(
+      noteID: "2026-09-01#section",
+      text: Binding(
+        get: { markdown.value },
+        set: { markdown.value = $0 }
+      ),
+      appearanceSettings: appearance,
+      allowsSlashCommands: false,
+      interpretsSectionDirectives: false,
+      onStructuredSectionSplit: { returnedMarkdown, returnedOffset in
+        splitMarkdown = returnedMarkdown
+        splitOffset = returnedOffset
+        splitExpectation.fulfill()
+      }
+    )
+    let coordinator = editor.makeCoordinator()
+    let fixture = makeEditorFixture(
+      displayString: MarkdownEditorFormatter.formatForDisplay(
+        rawMarkdown,
+        appearance: appearance,
+        interpretsSectionDirectives: false
+      )
+    )
+    let textView = fixture.textView
+    textView.delegate = coordinator
+    let commandRange = (textView.string as NSString).range(of: "/div")
+    textView.setSelectedRange(NSRange(location: NSMaxRange(commandRange), length: 0))
+
+    XCTAssertTrue(
+      coordinator.textView(textView, doCommandBy: #selector(NSResponder.insertNewline(_:)))
+    )
+    await fulfillment(of: [splitExpectation], timeout: 1)
+
+    XCTAssertEqual(splitMarkdown, "# BeforeAfter")
+    XCTAssertEqual(splitOffset, "# Before".utf16.count)
+    let resolvedMarkdown = try XCTUnwrap(splitMarkdown)
+    let resolvedOffset = try XCTUnwrap(splitOffset)
+
+    var document = StructuredNoteDocument(
+      id: "2026-09-01",
+      date: Date(timeIntervalSince1970: 1_788_220_800),
+      title: "",
+      tags: [],
+      nodes: [.section(StructuredNoteSection(markdown: resolvedMarkdown))]
+    )
+    guard case .section(let section) = document.nodes[0] else {
+      return XCTFail("Expected root section")
+    }
+    _ = try document.splitSection(id: section.id, atUTF16Offset: resolvedOffset)
+    XCTAssertEqual(document.nodes.compactMap(sectionMarkdown), ["# Before", "After"])
+  }
+
+  // Reads Markdown only from section nodes for the structured split assertion.
+  private func sectionMarkdown(_ node: StructuredNoteNode) -> String? {
+    guard case .section(let section) = node else { return nil }
+    return section.markdown
+  }
+
   // Finds a rendered prompt boundary by kind for interaction assertions.
   private func firstPromptBoundaryRange(
     in textStorage: NSTextStorage,

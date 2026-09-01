@@ -262,6 +262,50 @@ final class NotesStoreStructuredModeTests: NotesStoreTestCase {
     )
   }
 
+  // Persists complete structural snapshots with order, IDs, content, and appearance intact.
+  func testStructuredSnapshotReplacementSavesExactDocument() throws {
+    let userDefaults = makeUserDefaults()
+    let libraryLocation = makeLibraryLocation()
+    SettingsRepository(userDefaults: userDefaults).saveDailyNoteStorageMode(
+      .structuredExperimental
+    )
+    let firstSection = StructuredNoteSection(markdown: "AlphaBeta")
+    let secondSection = StructuredNoteSection(markdown: "Second")
+    let originalDocument = StructuredNoteDocument(
+      id: "2026-06-08",
+      date: makeDate(year: 2026, month: 6, day: 8),
+      title: "Structural save",
+      tags: ["v2"],
+      nodes: [.section(firstSection), .section(secondSection)]
+    )
+    let repository = StructuredNoteRepository(libraryLocation: libraryLocation)
+    try repository.save(originalDocument)
+    let store = makeStore(userDefaults: userDefaults, libraryLocation: libraryLocation)
+    store.loadIfNeeded()
+    var updatedDocument = try XCTUnwrap(store.selectedStructuredNote)
+
+    let splitSectionID = try updatedDocument.splitSection(
+      id: firstSection.id,
+      atUTF16Offset: 5
+    )
+    try updatedDocument.setStyleOverrides(
+      StructuredSectionStyleOverrides(
+        backgroundColor: .colorName("purple"),
+        headingColor: .themeDefault
+      ),
+      sectionID: splitSectionID
+    )
+    try updatedDocument.moveRootNode(id: splitSectionID, to: 2)
+
+    store.replaceStructuredDocument(updatedDocument)
+    store.flushPendingSaves()
+
+    XCTAssertEqual(
+      try StructuredNoteDocumentCodec.read(from: repository.fileURL(for: updatedDocument.id)),
+      updatedDocument
+    )
+  }
+
   // Flushes an edited structured document before navigation changes the active note.
   func testSelectingAnotherStructuredNoteFlushesPendingSave() throws {
     let userDefaults = makeUserDefaults()
