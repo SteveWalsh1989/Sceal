@@ -6,7 +6,7 @@
 
 import Foundation
 
-struct MarkdownEditorSectionDirective: Equatable, Sendable {
+nonisolated struct MarkdownEditorSectionDirective: Equatable, Sendable {
   let headingColorName: String?
   let bulletColorName: String?
   let usesSectionColor: Bool
@@ -26,7 +26,7 @@ struct MarkdownEditorSectionDirective: Equatable, Sendable {
   }
 }
 
-enum MarkdownEditorSectionDirectiveMarkdown {
+nonisolated enum MarkdownEditorSectionDirectiveMarkdown {
   private static let sectionRegex = try! NSRegularExpression(
     pattern:
       #"^<!-- section(?:\s+heading:(\w+))?(?:\s+bullet:(\w+))?(?:\s+usesectioncolor:(true|false))? -->$"#

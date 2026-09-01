@@ -166,19 +166,19 @@ enum EditorTableAction: Hashable {
 }
 
 enum MarkdownEditorTableMarkdown {
-  static let startPrefix = "<!-- sceal-table"
-  static let endMarker = "<!-- /sceal-table -->"
+  nonisolated static let startPrefix = "<!-- sceal-table"
+  nonisolated static let endMarker = "<!-- /sceal-table -->"
 
   private static let cellStartRegex = try! NSRegularExpression(
     pattern: #"^<!-- cell r:([0-9]+) c:([0-9]+) -->$"#
   )
   private static let cellEndRegex = try! NSRegularExpression(pattern: #"^<!-- /cell -->$"#)
 
-  static func isStartLine(_ line: String) -> Bool {
+  nonisolated static func isStartLine(_ line: String) -> Bool {
     line.hasPrefix(startPrefix) && line.hasSuffix("-->")
   }
 
-  static func isEndLine(_ line: String) -> Bool {
+  nonisolated static func isEndLine(_ line: String) -> Bool {
     line.trimmingCharacters(in: .whitespacesAndNewlines) == endMarker
   }
 

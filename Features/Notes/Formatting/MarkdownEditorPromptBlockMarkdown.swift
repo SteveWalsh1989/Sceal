@@ -6,7 +6,7 @@
 
 import AppKit
 
-enum MarkdownEditorPromptBlockMarkdown {
+nonisolated enum MarkdownEditorPromptBlockMarkdown {
   static let startMarker = "<!-- prompt -->"
   static let endMarker = "<!-- /prompt -->"
   static let startBoundaryKind = "start"

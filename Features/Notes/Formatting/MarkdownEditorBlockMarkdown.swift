@@ -46,7 +46,7 @@ enum MarkdownEditorBlockMarkdown {
   }
 
   // Detects code fences using the editor's existing permissive prefix rule.
-  static func isCodeFence(_ line: String) -> Bool {
+  nonisolated static func isCodeFence(_ line: String) -> Bool {
     line.hasPrefix("```")
   }
 
