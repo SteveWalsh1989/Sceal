@@ -15,6 +15,8 @@ struct StructuredNoteEditorView: View {
   @StateObject private var editorCoordinator = StructuredNoteEditorCoordinator()
   @State private var activeDragPayload: StructuredNoteDragPayload?
   @State private var activeDropTarget: StructuredNoteDropTarget?
+  @State private var hoveredSectionID: UUID?
+  @State private var sectionOptionsID: UUID?
   @State private var isShowingAppearancePopover = false
   @State private var fontPanelController = FontPanelController()
 
@@ -114,6 +116,8 @@ struct StructuredNoteEditorView: View {
     .onDisappear {
       activeDragPayload = nil
       activeDropTarget = nil
+      hoveredSectionID = nil
+      sectionOptionsID = nil
     }
   }
 
@@ -236,7 +240,9 @@ struct StructuredNoteEditorView: View {
           editorCoordinator: editorCoordinator,
           documentID: documentID,
           item: item,
-          dragContext: dragContext
+          dragContext: dragContext,
+          hoveredSectionID: $hoveredSectionID,
+          sectionOptionsID: $sectionOptionsID
         )
         .id(item.id)
       }
@@ -250,7 +256,9 @@ struct StructuredNoteEditorView: View {
         rootNodeIndex: rootNodeIndex,
         sectionItems: group.sections.compactMap { itemsByID[$0.id] },
         dragContext: dragContext,
-        accentColor: accentColor
+        accentColor: accentColor,
+        hoveredSectionID: $hoveredSectionID,
+        sectionOptionsID: $sectionOptionsID
       )
       .id(group.id)
     }
@@ -442,6 +450,8 @@ struct StructuredNoteEditorView: View {
   }
 
   private func activateEditor(for document: StructuredNoteDocument) {
+    hoveredSectionID = nil
+    sectionOptionsID = nil
     var visibleDocument = document
     let searchMatch = StructuredNoteCollapse.revealFirstSearchMatch(
       for: store.activeStructuredSearchText,
@@ -728,6 +738,17 @@ private struct StructuredEditorSectionItem: Identifiable {
   }
 }
 
+nonisolated enum StructuredSectionGutterSelection {
+  // Resolves one visible gutter across hover, open options, and editor focus states.
+  static func activeSectionID(
+    hoveredSectionID: UUID?,
+    optionsSectionID: UUID?,
+    focusedSectionID: UUID?
+  ) -> UUID? {
+    hoveredSectionID ?? optionsSectionID ?? focusedSectionID
+  }
+}
+
 private struct StructuredSectionGroupContainer: View {
   @ObservedObject var store: NotesStore
   @ObservedObject var editorCoordinator: StructuredNoteEditorCoordinator
@@ -737,6 +758,8 @@ private struct StructuredSectionGroupContainer: View {
   let sectionItems: [StructuredEditorSectionItem]
   let dragContext: StructuredEditorDragContext
   let accentColor: Color
+  @Binding var hoveredSectionID: UUID?
+  @Binding var sectionOptionsID: UUID?
   @State private var isHovering = false
   @State private var isRenaming = false
   @State private var isConfirmingDeletion = false
@@ -763,7 +786,9 @@ private struct StructuredSectionGroupContainer: View {
               editorCoordinator: editorCoordinator,
               documentID: documentID,
               item: item,
-              dragContext: dragContext
+              dragContext: dragContext,
+              hoveredSectionID: $hoveredSectionID,
+              sectionOptionsID: $sectionOptionsID
             )
             .id(item.id)
 
@@ -1161,26 +1186,35 @@ private struct StructuredSectionEditorCard: View {
   let documentID: String
   let item: StructuredEditorSectionItem
   let dragContext: StructuredEditorDragContext
+  @Binding var hoveredSectionID: UUID?
+  @Binding var sectionOptionsID: UUID?
   @State private var editorHeight: CGFloat = 132
-  @State private var isHovering = false
   @State private var isConfirmingClear = false
   @State private var isConfirmingDeletion = false
   @State private var isCreatingGroup = false
-  @State private var isShowingOptionsPopover = false
   @State private var groupTitleDraft = "New Group"
 
   var body: some View {
-    HStack(alignment: .top, spacing: 8) {
-      sectionGutter
-        .frame(width: sectionGutterWidth)
-
-      sectionCard
-
+    HStack(alignment: .top, spacing: 0) {
       Color.clear
         .frame(width: sectionGutterWidth)
         .accessibilityHidden(true)
+
+      sectionCard
+
+      sectionGutter
+        .frame(width: sectionGutterWidth)
     }
-    .onHover { isHovering = $0 }
+    .contentShape(Rectangle())
+    .onHover(perform: updateHoverState)
+    .onDisappear {
+      if hoveredSectionID == item.id {
+        hoveredSectionID = nil
+      }
+      if sectionOptionsID == item.id {
+        sectionOptionsID = nil
+      }
+    }
     .alert("Clear this section?", isPresented: $isConfirmingClear) {
       Button("Clear", role: .destructive) {
         clearSection()
@@ -1334,7 +1368,7 @@ private struct StructuredSectionEditorCard: View {
       }
     }
     .padding(.vertical, 3)
-    .padding(.horizontal, 2)
+    .padding(.horizontal, 1)
     .background(
       themeColors.controlBackground.color.opacity(0.94),
       in: RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -1372,19 +1406,19 @@ private struct StructuredSectionEditorCard: View {
 
   private var sectionOptionsMenu: some View {
     Button {
-      isShowingOptionsPopover.toggle()
+      sectionOptionsID = sectionOptionsID == item.id ? nil : item.id
     } label: {
       Image(systemName: "ellipsis")
         .font(.system(size: 13, weight: .semibold))
         .foregroundStyle(.secondary)
-        .frame(width: 28, height: 24)
+        .frame(width: 24, height: 24)
         .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
     .fixedSize()
     .accessibilityLabel("Section \(item.position) options")
     .help("Section options")
-    .popover(isPresented: $isShowingOptionsPopover, arrowEdge: .leading) {
+    .popover(isPresented: isShowingOptionsPopover, arrowEdge: .trailing) {
       sectionOptionsPopover
     }
   }
@@ -1520,8 +1554,17 @@ private struct StructuredSectionEditorCard: View {
   }
 
   private func performOptionAction(_ action: () -> Void) {
-    isShowingOptionsPopover = false
+    sectionOptionsID = nil
     action()
+  }
+
+  // Keeps the shared hover winner stable while crossing from the card into its gutter.
+  private func updateHoverState(_ isHovering: Bool) {
+    if isHovering {
+      hoveredSectionID = item.id
+    } else if hoveredSectionID == item.id {
+      hoveredSectionID = nil
+    }
   }
 
   private var focusRequest: StructuredNoteEditorCoordinator.FocusRequest? {
@@ -1529,19 +1572,36 @@ private struct StructuredSectionEditorCard: View {
     return editorCoordinator.focusRequest
   }
 
+  private var isShowingOptionsPopover: Binding<Bool> {
+    Binding(
+      get: { sectionOptionsID == item.id },
+      set: { isPresented in
+        if isPresented {
+          sectionOptionsID = item.id
+        } else if sectionOptionsID == item.id {
+          sectionOptionsID = nil
+        }
+      }
+    )
+  }
+
   private var isFocused: Bool {
     editorCoordinator.focusedSectionID == item.id
   }
 
   private var showsSectionGutter: Bool {
-    isHovering || isFocused || isShowingOptionsPopover
+    StructuredSectionGutterSelection.activeSectionID(
+      hoveredSectionID: hoveredSectionID,
+      optionsSectionID: sectionOptionsID,
+      focusedSectionID: editorCoordinator.focusedSectionID
+    ) == item.id
   }
 
   private var sectionIsEmpty: Bool {
     item.section.markdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 
-  private var sectionGutterWidth: CGFloat { 32 }
+  private var sectionGutterWidth: CGFloat { 30 }
 
   private var themeColors: ThemeColorSet {
     store.effectiveAppearanceSettings.resolvedColors

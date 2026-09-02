@@ -25,6 +25,38 @@ final class StructuredNoteEditorCoordinatorTests: XCTestCase {
     XCTAssertNotEqual(coordinator.focusRequest?.id, firstRequest.id)
   }
 
+  // Keeps the hover gutter singular while allowing focus to resume when the pointer leaves.
+  func testSectionGutterSelectionUsesOnePrioritizedSection() {
+    let focusedSectionID = UUID()
+    let optionsSectionID = UUID()
+    let hoveredSectionID = UUID()
+
+    XCTAssertEqual(
+      StructuredSectionGutterSelection.activeSectionID(
+        hoveredSectionID: nil,
+        optionsSectionID: nil,
+        focusedSectionID: focusedSectionID
+      ),
+      focusedSectionID
+    )
+    XCTAssertEqual(
+      StructuredSectionGutterSelection.activeSectionID(
+        hoveredSectionID: nil,
+        optionsSectionID: optionsSectionID,
+        focusedSectionID: focusedSectionID
+      ),
+      optionsSectionID
+    )
+    XCTAssertEqual(
+      StructuredSectionGutterSelection.activeSectionID(
+        hoveredSectionID: hoveredSectionID,
+        optionsSectionID: optionsSectionID,
+        focusedSectionID: focusedSectionID
+      ),
+      hoveredSectionID
+    )
+  }
+
   // Restores complete structural snapshots in both undo and redo directions.
   func testStructuralChangeSupportsUndoAndRedo() {
     let coordinator = StructuredNoteEditorCoordinator()
