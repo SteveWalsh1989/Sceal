@@ -78,6 +78,9 @@ final class StructuredNoteEditorCoordinator: ObservableObject {
   // Keeps boundary navigation aligned with the currently visible document order.
   func updateSectionOrder(_ sectionIDs: [UUID]) {
     orderedSectionIDs = sectionIDs
+    guard let focusedSectionID, !sectionIDs.contains(focusedSectionID) else { return }
+    self.focusedSectionID = nil
+    focusRequest = nil
   }
 
   // Moves focus across a section boundary and places the caret at the matching edge.

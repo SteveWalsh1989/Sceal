@@ -137,6 +137,23 @@ final class StructuredNoteEditorCoordinatorTests: XCTestCase {
     XCTAssertFalse(coordinator.navigate(from: thirdSectionID, direction: .nextSectionStart))
   }
 
+  // Clears stale AppKit focus when collapse removes the active editor from visible order.
+  func testVisibleOrderClearsFocusForCollapsedSection() {
+    let coordinator = StructuredNoteEditorCoordinator()
+    let firstSectionID = UUID()
+    let secondSectionID = UUID()
+    coordinator.activate(documentID: "2026-06-14", initialSectionID: firstSectionID)
+    coordinator.updateSectionOrder([firstSectionID, secondSectionID])
+
+    coordinator.updateSectionOrder([secondSectionID])
+
+    XCTAssertNil(coordinator.focusedSectionID)
+    XCTAssertNil(coordinator.focusRequest)
+    XCTAssertFalse(
+      coordinator.navigate(from: firstSectionID, direction: .nextSectionStart)
+    )
+  }
+
   // Keeps structural Command-Z priority until the user resumes ordinary text editing.
   func testStructuralUndoPriorityEndsAfterTextEdit() {
     let coordinator = StructuredNoteEditorCoordinator()

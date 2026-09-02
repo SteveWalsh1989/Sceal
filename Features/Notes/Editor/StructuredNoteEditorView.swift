@@ -37,6 +37,7 @@ struct StructuredNoteEditorView: View {
 
   private func editor(_ document: StructuredNoteDocument) -> some View {
     let items = sectionItems(in: document)
+    let editableSectionIDs = items.filter(\.isEditable).map(\.id)
     let itemsByID = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
     let dragContext = dragContext(for: document.id)
 
@@ -94,10 +95,14 @@ struct StructuredNoteEditorView: View {
     .padding(.bottom, 24)
     .padding(.top, 12)
     .onAppear {
-      editorCoordinator.updateSectionOrder(items.map(\.id))
+      editorCoordinator.updateSectionOrder(editableSectionIDs)
     }
-    .onChange(of: items.map(\.id)) { _, sectionIDs in
+    .onChange(of: editableSectionIDs) { _, sectionIDs in
       editorCoordinator.updateSectionOrder(sectionIDs)
+    }
+    .onChange(of: store.structuredSearchText) { _, _ in
+      guard let selectedDocument = store.selectedStructuredNote else { return }
+      revealFirstSearchMatch(in: selectedDocument, requestsFocus: false)
     }
     .onChange(of: document.title) { _, _ in
       editorCoordinator.invalidateStructuralUndo()
@@ -410,7 +415,8 @@ struct StructuredNoteEditorView: View {
                 group.sections.indices.contains(sectionIndex + 1)
                 ? group.sections[sectionIndex + 1].id
                 : nil,
-              availableGroups: groupDestinations.filter { $0.id != group.id }
+              availableGroups: groupDestinations.filter { $0.id != group.id },
+              isHiddenByCollapsedGroup: group.isCollapsed
             )
           )
         }
@@ -420,16 +426,58 @@ struct StructuredNoteEditorView: View {
     return items.enumerated().map { index, item in
       var item = item
       item.position = index + 1
-      item.previousVisibleSectionID = index > items.startIndex ? items[index - 1].id : nil
-      item.nextVisibleSectionID = items.indices.contains(index + 1) ? items[index + 1].id : nil
+      item.previousVisibleSectionID = items[..<index].last(where: \.isEditable)?.id
+      if items.indices.contains(index + 1) {
+        item.nextVisibleSectionID = items[(index + 1)...].first(where: \.isEditable)?.id
+      }
       return item
     }
   }
 
   private func activateEditor(for document: StructuredNoteDocument) {
-    let sectionIDs = sectionItems(in: document).map(\.id)
-    editorCoordinator.activate(documentID: document.id, initialSectionID: sectionIDs.first)
+    var visibleDocument = document
+    let searchMatch = StructuredNoteCollapse.revealFirstSearchMatch(
+      for: store.structuredSearchText,
+      in: &visibleDocument
+    )
+    if visibleDocument != document {
+      editorCoordinator.invalidateStructuralUndo()
+      store.replaceStructuredDocument(visibleDocument)
+    }
+    let sectionIDs = StructuredNoteCollapse.editableSectionIDs(in: visibleDocument)
+    editorCoordinator.activate(
+      documentID: visibleDocument.id,
+      initialSectionID: searchMatch?.sectionID ?? sectionIDs.first
+    )
     editorCoordinator.updateSectionOrder(sectionIDs)
+    if let searchMatch, editorCoordinator.focusedSectionID != searchMatch.sectionID {
+      editorCoordinator.requestFocus(sectionID: searchMatch.sectionID)
+    }
+  }
+
+  // Reveals hidden matching content while leaving search-field focus intact during typing.
+  private func revealFirstSearchMatch(
+    in document: StructuredNoteDocument,
+    requestsFocus: Bool
+  ) {
+    var visibleDocument = document
+    guard
+      let searchMatch = StructuredNoteCollapse.revealFirstSearchMatch(
+        for: store.structuredSearchText,
+        in: &visibleDocument
+      )
+    else { return }
+
+    if visibleDocument != document {
+      editorCoordinator.invalidateStructuralUndo()
+      store.replaceStructuredDocument(visibleDocument)
+    }
+    editorCoordinator.updateSectionOrder(
+      StructuredNoteCollapse.editableSectionIDs(in: visibleDocument)
+    )
+    if requestsFocus {
+      editorCoordinator.requestFocus(sectionID: searchMatch.sectionID)
+    }
   }
 }
 
@@ -592,6 +640,7 @@ private struct StructuredEditorSectionItem: Identifiable {
   var position = 1
   var previousVisibleSectionID: UUID?
   var nextVisibleSectionID: UUID?
+  let isHiddenByCollapsedGroup: Bool
 
   init(
     section: StructuredNoteSection,
@@ -605,7 +654,8 @@ private struct StructuredEditorSectionItem: Identifiable {
     availableGroups: [StructuredEditorGroupDestination],
     position: Int = 1,
     previousVisibleSectionID: UUID? = nil,
-    nextVisibleSectionID: UUID? = nil
+    nextVisibleSectionID: UUID? = nil,
+    isHiddenByCollapsedGroup: Bool = false
   ) {
     self.section = section
     self.parent = parent
@@ -619,12 +669,14 @@ private struct StructuredEditorSectionItem: Identifiable {
     self.position = position
     self.previousVisibleSectionID = previousVisibleSectionID
     self.nextVisibleSectionID = nextVisibleSectionID
+    self.isHiddenByCollapsedGroup = isHiddenByCollapsedGroup
   }
 
   var id: UUID { section.id }
   var canMoveUp: Bool { indexInContainer > 0 }
   var canMoveDown: Bool { indexInContainer + 1 < containerCount }
   var canDelete: Bool { totalSectionCount > 1 }
+  var isEditable: Bool { !section.isCollapsed && !isHiddenByCollapsedGroup }
   var isGrouped: Bool {
     guard case .group = parent else { return false }
     return true
@@ -648,30 +700,34 @@ private struct StructuredSectionGroupContainer: View {
     VStack(alignment: .leading, spacing: 10) {
       groupHeader
 
-      VStack(spacing: 0) {
-        StructuredEditorDropZone(
-          context: dragContext,
-          target: .group(groupID: group.id, insertionIndex: 0),
-          label: "Move into \(group.title)",
-          accentColor: accentColor
-        )
-
-        ForEach(Array(sectionItems.enumerated()), id: \.element.id) { index, item in
-          StructuredSectionEditorCard(
-            store: store,
-            editorCoordinator: editorCoordinator,
-            documentID: documentID,
-            item: item,
-            dragContext: dragContext
-          )
-          .id(item.id)
-
+      if group.isCollapsed {
+        collapsedGroupSummary
+      } else {
+        VStack(spacing: 0) {
           StructuredEditorDropZone(
             context: dragContext,
-            target: .group(groupID: group.id, insertionIndex: index + 1),
+            target: .group(groupID: group.id, insertionIndex: 0),
             label: "Move into \(group.title)",
             accentColor: accentColor
           )
+
+          ForEach(Array(sectionItems.enumerated()), id: \.element.id) { index, item in
+            StructuredSectionEditorCard(
+              store: store,
+              editorCoordinator: editorCoordinator,
+              documentID: documentID,
+              item: item,
+              dragContext: dragContext
+            )
+            .id(item.id)
+
+            StructuredEditorDropZone(
+              context: dragContext,
+              target: .group(groupID: group.id, insertionIndex: index + 1),
+              label: "Move into \(group.title)",
+              accentColor: accentColor
+            )
+          }
         }
       }
     }
@@ -698,6 +754,17 @@ private struct StructuredSectionGroupContainer: View {
 
   private var groupHeader: some View {
     HStack(spacing: 10) {
+      Button(action: toggleGroupCollapsed) {
+        Image(systemName: group.isCollapsed ? "chevron.right" : "chevron.down")
+          .font(.system(size: 11, weight: .semibold))
+          .foregroundStyle(.secondary)
+          .frame(width: 18, height: 24)
+          .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .accessibilityLabel(group.isCollapsed ? "Expand \(group.title)" : "Collapse \(group.title)")
+      .help(group.isCollapsed ? "Expand group" : "Collapse group")
+
       Image(systemName: "square.stack.3d.up.fill")
         .font(.system(size: 13, weight: .semibold))
         .foregroundStyle(groupBorderColor)
@@ -742,6 +809,13 @@ private struct StructuredSectionGroupContainer: View {
 
   private var groupOptionsMenu: some View {
     Menu {
+      Button(
+        group.isCollapsed ? "Expand Group" : "Collapse Group",
+        systemImage: group.isCollapsed ? "chevron.down" : "chevron.right"
+      ) {
+        toggleGroupCollapsed()
+      }
+
       Button("Rename Group", systemImage: "pencil") {
         titleDraft = group.title
         isRenaming = true
@@ -796,6 +870,29 @@ private struct StructuredSectionGroupContainer: View {
     .accessibilityLabel("\(group.title) group options")
   }
 
+  private var collapsedGroupSummary: some View {
+    Button(action: toggleGroupCollapsed) {
+      HStack(spacing: 8) {
+        Image(systemName: "text.alignleft")
+          .font(.system(size: 11, weight: .medium))
+          .foregroundStyle(.tertiary)
+
+        Text(collapsedGroupPreview)
+          .font(.system(size: 13))
+          .foregroundStyle(.secondary)
+          .lineLimit(1)
+
+        Spacer(minLength: 0)
+      }
+      .padding(.leading, 38)
+      .padding(.trailing, 8)
+      .padding(.bottom, 4)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel("Expand \(group.title). Preview: \(collapsedGroupPreview)")
+  }
+
   private var normalizedTitleDraft: String {
     titleDraft.split(whereSeparator: \.isWhitespace).joined(separator: " ")
   }
@@ -807,6 +904,15 @@ private struct StructuredSectionGroupContainer: View {
   private var containsFocusedSection: Bool {
     guard let focusedSectionID = editorCoordinator.focusedSectionID else { return false }
     return sectionItems.contains(where: { $0.id == focusedSectionID })
+  }
+
+  private var collapsedGroupPreview: String {
+    let section =
+      group.sections.first(where: {
+        !$0.markdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      }) ?? group.sections.first
+    return section.map { StructuredNoteCollapse.previewText(for: $0.markdown) }
+      ?? StructuredNoteCollapse.emptySectionPreview
   }
 
   private var themeColors: ThemeColorSet {
@@ -871,6 +977,33 @@ private struct StructuredSectionGroupContainer: View {
     }
   }
 
+  // Collapses children as one unit without changing their independent collapse preferences.
+  private func toggleGroupCollapsed() {
+    let willCollapse = !group.isCollapsed
+    let childIDs = Set(sectionItems.map(\.id))
+    let focusedSectionID = editorCoordinator.focusedSectionID
+    let focusIsInsideGroup = focusedSectionID.map(childIDs.contains) ?? false
+    let adjacentVisibleSectionID =
+      sectionItems.last?.nextVisibleSectionID
+      ?? sectionItems.first?.previousVisibleSectionID
+    let undoFocusTarget = focusedSectionID.map {
+      StructuredNoteEditorCoordinator.FocusTarget(sectionID: $0)
+    }
+    let redoFocusSectionID =
+      willCollapse && focusIsInsideGroup ? adjacentVisibleSectionID : focusedSectionID
+    let redoFocusTarget = redoFocusSectionID.map {
+      StructuredNoteEditorCoordinator.FocusTarget(sectionID: $0)
+    }
+
+    performStructuralChange(
+      actionName: willCollapse ? "Collapse Group" : "Expand Group",
+      undoFocusTarget: undoFocusTarget,
+      redoFocusTarget: redoFocusTarget
+    ) { document in
+      try document.setGroupCollapsed(willCollapse, groupID: group.id)
+    }
+  }
+
   // Lifts every child into the group's root position without changing child state.
   private func ungroupSections() {
     performStructuralChange(actionName: "Ungroup Sections") { document in
@@ -883,31 +1016,50 @@ private struct StructuredSectionGroupContainer: View {
     actionName: String,
     mutate: (inout StructuredNoteDocument) throws -> Void
   ) {
-    guard store.selectedStructuredNote?.id == documentID,
-      let previousDocument = store.selectedStructuredNote
-    else { return }
-    var updatedDocument = previousDocument
     let focusSectionID =
       editorCoordinator.focusedSectionID.flatMap { focusedSectionID in
         sectionItems.contains(where: { $0.id == focusedSectionID }) ? focusedSectionID : nil
       } ?? sectionItems.first?.id
 
+    let focusTarget = focusSectionID.map {
+      StructuredNoteEditorCoordinator.FocusTarget(sectionID: $0)
+    }
+    performStructuralChange(
+      actionName: actionName,
+      undoFocusTarget: focusTarget,
+      redoFocusTarget: focusTarget,
+      mutate: mutate
+    )
+  }
+
+  // Applies a group mutation with explicit focus targets for hidden-content transitions.
+  private func performStructuralChange(
+    actionName: String,
+    undoFocusTarget: StructuredNoteEditorCoordinator.FocusTarget?,
+    redoFocusTarget: StructuredNoteEditorCoordinator.FocusTarget?,
+    mutate: (inout StructuredNoteDocument) throws -> Void
+  ) {
+    guard store.selectedStructuredNote?.id == documentID,
+      let previousDocument = store.selectedStructuredNote
+    else { return }
+    var updatedDocument = previousDocument
+
     do {
       try mutate(&updatedDocument)
-      let focusTarget = focusSectionID.map {
-        StructuredNoteEditorCoordinator.FocusTarget(sectionID: $0)
-      }
       editorCoordinator.commitStructuralChange(
         from: previousDocument,
         to: updatedDocument,
         actionName: actionName,
-        undoFocusTarget: focusTarget,
-        redoFocusTarget: focusTarget
+        undoFocusTarget: undoFocusTarget,
+        redoFocusTarget: redoFocusTarget
       ) { [weak store] document in
         store?.replaceStructuredDocument(document)
       }
-      if let focusSectionID {
-        editorCoordinator.requestFocus(sectionID: focusSectionID)
+      if let redoFocusTarget {
+        editorCoordinator.requestFocus(
+          sectionID: redoFocusTarget.sectionID,
+          caretPlacement: redoFocusTarget.caretPlacement
+        )
       }
     } catch {
       store.showTransientMessage(error.localizedDescription, kind: .error)
@@ -934,60 +1086,64 @@ private struct StructuredSectionEditorCard: View {
     VStack(alignment: .leading, spacing: 0) {
       sectionHeader
 
-      ZStack(alignment: .topLeading) {
-        if item.section.markdown.isEmpty {
-          Text("Start writing in this section.")
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 28)
-            .padding(.vertical, 24)
-            .allowsHitTesting(false)
-        }
-
-        MarkdownEditorView(
-          noteID: "\(documentID)#\(item.id.uuidString)",
-          text: store.structuredSectionMarkdownBinding(
-            documentID: documentID,
-            sectionID: item.id
-          ),
-          appearanceSettings: store.effectiveAppearanceSettings,
-          continuousSpellCheckingEnabled: store.continuousSpellCheckingEnabled,
-          searchText: store.structuredSearchText,
-          libraryRootURL: store.libraryLocation.rootURL,
-          imageAttachmentRootURL: store.libraryRepository.attachmentsRootURL,
-          allowsImageAttachments: false,
-          allowsSectionColorEditing: false,
-          allowsSlashCommands: false,
-          interpretsSectionDirectives: false,
-          debouncesMarkdownUpdates: false,
-          viewportMode: .contentSized(minimumHeight: 132),
-          focusRequestID: focusRequest?.id,
-          focusCaretPlacement: focusRequest?.caretPlacement ?? .preserve,
-          initialSectionHeadingColorName: resolvedStyle.headingColorName,
-          initialSectionBulletColorName: resolvedStyle.bulletColorName,
-          onFocus: {
-            editorCoordinator.didFocus(sectionID: item.id)
-          },
-          onTextChange: {
-            editorCoordinator.didEditText()
-          },
-          onStructuredSectionSplit: { markdown, splitOffset in
-            splitSection(markdown: markdown, atUTF16Offset: splitOffset)
-          },
-          onBoundaryNavigation: { direction in
-            editorCoordinator.navigate(from: item.id, direction: direction)
-          },
-          onStructuredUndo: {
-            editorCoordinator.undoStructuralChangeIfPreferred()
-          },
-          onStructuredRedo: {
-            editorCoordinator.redoStructuralChangeIfPreferred()
-          },
-          onContentHeightChange: { contentHeight in
-            guard abs(editorHeight - contentHeight) > 0.5 else { return }
-            editorHeight = contentHeight
+      if item.section.isCollapsed {
+        collapsedSectionSummary
+      } else {
+        ZStack(alignment: .topLeading) {
+          if item.section.markdown.isEmpty {
+            Text("Start writing in this section.")
+              .foregroundStyle(.secondary)
+              .padding(.horizontal, 28)
+              .padding(.vertical, 24)
+              .allowsHitTesting(false)
           }
-        )
-        .frame(height: editorHeight)
+
+          MarkdownEditorView(
+            noteID: "\(documentID)#\(item.id.uuidString)",
+            text: store.structuredSectionMarkdownBinding(
+              documentID: documentID,
+              sectionID: item.id
+            ),
+            appearanceSettings: store.effectiveAppearanceSettings,
+            continuousSpellCheckingEnabled: store.continuousSpellCheckingEnabled,
+            searchText: store.structuredSearchText,
+            libraryRootURL: store.libraryLocation.rootURL,
+            imageAttachmentRootURL: store.libraryRepository.attachmentsRootURL,
+            allowsImageAttachments: false,
+            allowsSectionColorEditing: false,
+            allowsSlashCommands: false,
+            interpretsSectionDirectives: false,
+            debouncesMarkdownUpdates: false,
+            viewportMode: .contentSized(minimumHeight: 132),
+            focusRequestID: focusRequest?.id,
+            focusCaretPlacement: focusRequest?.caretPlacement ?? .preserve,
+            initialSectionHeadingColorName: resolvedStyle.headingColorName,
+            initialSectionBulletColorName: resolvedStyle.bulletColorName,
+            onFocus: {
+              editorCoordinator.didFocus(sectionID: item.id)
+            },
+            onTextChange: {
+              editorCoordinator.didEditText()
+            },
+            onStructuredSectionSplit: { markdown, splitOffset in
+              splitSection(markdown: markdown, atUTF16Offset: splitOffset)
+            },
+            onBoundaryNavigation: { direction in
+              editorCoordinator.navigate(from: item.id, direction: direction)
+            },
+            onStructuredUndo: {
+              editorCoordinator.undoStructuralChangeIfPreferred()
+            },
+            onStructuredRedo: {
+              editorCoordinator.redoStructuralChangeIfPreferred()
+            },
+            onContentHeightChange: { contentHeight in
+              guard abs(editorHeight - contentHeight) > 0.5 else { return }
+              editorHeight = contentHeight
+            }
+          )
+          .frame(height: editorHeight)
+        }
       }
     }
     .background(sectionBackground)
@@ -1020,6 +1176,22 @@ private struct StructuredSectionEditorCard: View {
 
   private var sectionHeader: some View {
     HStack(spacing: 8) {
+      Button {
+        setSectionCollapsed(!item.section.isCollapsed)
+      } label: {
+        Image(systemName: item.section.isCollapsed ? "chevron.right" : "chevron.down")
+          .font(.system(size: 11, weight: .semibold))
+          .foregroundStyle(.secondary)
+          .frame(width: 18, height: 24)
+          .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .accessibilityLabel(
+        item.section.isCollapsed
+          ? "Expand section \(item.position)" : "Collapse section \(item.position)"
+      )
+      .help(item.section.isCollapsed ? "Expand section" : "Collapse section")
+
       Spacer()
 
       StructuredEditorDragHandle(accessibilityLabel: "Move section \(item.position)") {
@@ -1035,6 +1207,31 @@ private struct StructuredSectionEditorCard: View {
     .padding(.horizontal, 18)
     .padding(.top, 9)
     .frame(minHeight: 28)
+  }
+
+  private var collapsedSectionSummary: some View {
+    Button {
+      setSectionCollapsed(false)
+    } label: {
+      HStack(spacing: 8) {
+        Image(systemName: "text.alignleft")
+          .font(.system(size: 11, weight: .medium))
+          .foregroundStyle(.tertiary)
+
+        Text(collapsedSectionPreview)
+          .font(.system(size: 15, weight: .medium))
+          .foregroundStyle(.primary)
+          .lineLimit(1)
+
+        Spacer(minLength: 0)
+      }
+      .padding(.horizontal, 28)
+      .padding(.top, 4)
+      .padding(.bottom, 18)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel("Expand section. Preview: \(collapsedSectionPreview)")
   }
 
   private var sectionOptionsMenu: some View {
@@ -1059,6 +1256,15 @@ private struct StructuredSectionEditorCard: View {
     VStack(alignment: .leading, spacing: 10) {
       Text("Section options")
         .font(.system(size: 14, weight: .semibold))
+
+      StructuredOptionsActionButton(
+        title: item.section.isCollapsed ? "Expand Section" : "Collapse Section",
+        systemImage: item.section.isCollapsed ? "chevron.down" : "chevron.right"
+      ) {
+        performOptionAction {
+          setSectionCollapsed(!item.section.isCollapsed)
+        }
+      }
 
       StructuredOptionsActionButton(title: "Add Section Below", systemImage: "plus") {
         performOptionAction {
@@ -1220,8 +1426,37 @@ private struct StructuredSectionEditorCard: View {
     isFocused && store.effectiveAppearanceSettings.highlightsFocusedSectionBorder ? 2 : 1.25
   }
 
+  private var collapsedSectionPreview: String {
+    StructuredNoteCollapse.previewText(for: item.section.markdown)
+  }
+
   private var normalizedGroupTitleDraft: String {
     groupTitleDraft.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+  }
+
+  // Persists collapse through structural undo while moving focus only to editable neighbors.
+  private func setSectionCollapsed(_ isCollapsed: Bool) {
+    guard item.section.isCollapsed != isCollapsed, let previousDocument = currentDocument else {
+      return
+    }
+    var updatedDocument = previousDocument
+    let collapsedFocusSectionID = item.nextVisibleSectionID ?? item.previousVisibleSectionID
+    let undoFocusSectionID = item.section.isCollapsed ? collapsedFocusSectionID : item.id
+    let redoFocusSectionID = isCollapsed ? collapsedFocusSectionID : item.id
+
+    do {
+      try updatedDocument.setSectionCollapsed(isCollapsed, sectionID: item.id)
+      commitStructuralChange(
+        from: previousDocument,
+        to: updatedDocument,
+        actionName: isCollapsed ? "Collapse Section" : "Expand Section",
+        undoFocusSectionID: undoFocusSectionID,
+        focusSectionID: redoFocusSectionID,
+        caretPlacement: .preserve
+      )
+    } catch {
+      reportStructuralError(error)
+    }
   }
 
   // Splits current Markdown and focuses the newly inserted section at its beginning.

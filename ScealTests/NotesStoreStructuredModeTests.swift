@@ -436,6 +436,53 @@ final class NotesStoreStructuredModeTests: NotesStoreTestCase {
     )
   }
 
+  // Keeps collapsed content searchable and persists exact section/group state across relaunch.
+  func testStructuredCollapseStateRemainsSearchableAndSurvivesRelaunch() throws {
+    let userDefaults = makeUserDefaults()
+    let libraryLocation = makeLibraryLocation()
+    SettingsRepository(userDefaults: userDefaults).saveDailyNoteStorageMode(
+      .structuredExperimental
+    )
+    let rootSection = StructuredNoteSection(markdown: "Root content")
+    let groupedSection = StructuredNoteSection(markdown: "Hidden needle content")
+    let group = StructuredSectionGroup(title: "Feature", sections: [groupedSection])
+    let originalDocument = StructuredNoteDocument(
+      id: "2026-06-14",
+      date: makeDate(year: 2026, month: 6, day: 14),
+      title: "Collapse persistence",
+      tags: ["v2"],
+      nodes: [.section(rootSection), .group(group)]
+    )
+    let repository = StructuredNoteRepository(libraryLocation: libraryLocation)
+    try repository.save(originalDocument)
+    let store = makeStore(userDefaults: userDefaults, libraryLocation: libraryLocation)
+    store.loadIfNeeded()
+    var updatedDocument = try XCTUnwrap(store.selectedStructuredNote)
+
+    try updatedDocument.setSectionCollapsed(true, sectionID: rootSection.id)
+    try updatedDocument.setSectionCollapsed(true, sectionID: groupedSection.id)
+    try updatedDocument.setGroupCollapsed(true, groupID: group.id)
+    store.replaceStructuredDocument(updatedDocument)
+    store.activeSearchTextBinding.wrappedValue = "needle"
+
+    XCTAssertTrue(store.filteredDailyNoteIDs.contains(updatedDocument.id))
+    store.flushPendingSaves()
+
+    let relaunchedStore = makeStore(
+      userDefaults: userDefaults,
+      libraryLocation: libraryLocation
+    )
+    relaunchedStore.loadIfNeeded()
+    relaunchedStore.activeSearchTextBinding.wrappedValue = "needle"
+
+    XCTAssertEqual(relaunchedStore.selectedStructuredNote, updatedDocument)
+    XCTAssertTrue(relaunchedStore.filteredDailyNoteIDs.contains(updatedDocument.id))
+    XCTAssertEqual(
+      try StructuredNoteDocumentCodec.read(from: repository.fileURL(for: updatedDocument.id)),
+      updatedDocument
+    )
+  }
+
   // Flushes an edited structured document before navigation changes the active note.
   func testSelectingAnotherStructuredNoteFlushesPendingSave() throws {
     let userDefaults = makeUserDefaults()
