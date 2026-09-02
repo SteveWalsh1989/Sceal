@@ -115,6 +115,60 @@ final class StructuredNoteEditorCoordinatorTests: XCTestCase {
     XCTAssertEqual(coordinator.focusRequest?.sectionID, rootSection.id)
   }
 
+  // Restores exact content and complete deleted-section state for both gutter actions.
+  func testClearAndDeleteSnapshotsSupportUndoAndRedo() throws {
+    let retainedSection = StructuredNoteSection(markdown: "Keep")
+    let changedSection = StructuredNoteSection(
+      markdown: "Restore this content",
+      styleOverrides: StructuredSectionStyleOverrides(
+        primaryColor: .colorName("purple"),
+        headingFollowsPrimaryColor: true,
+        borderFollowsPrimaryColor: false,
+        bulletFollowsPrimaryColor: true
+      ),
+      isCollapsed: true
+    )
+    let originalDocument = StructuredNoteDocument(
+      id: "2026-09-02",
+      date: Date(timeIntervalSince1970: 1_788_307_200),
+      title: "Gutter undo",
+      tags: [],
+      nodes: [.section(retainedSection), .section(changedSection)]
+    )
+    var clearedDocument = originalDocument
+    try clearedDocument.setSectionMarkdown("", sectionID: changedSection.id)
+    var deletedDocument = originalDocument
+    try deletedDocument.deleteSection(id: changedSection.id)
+    var appliedClearDocument = originalDocument
+    let clearCoordinator = StructuredNoteEditorCoordinator()
+
+    clearCoordinator.commitStructuralChange(
+      from: originalDocument,
+      to: clearedDocument,
+      actionName: "Clear Section"
+    ) { appliedClearDocument = $0 }
+
+    XCTAssertEqual(appliedClearDocument, clearedDocument)
+    clearCoordinator.structuralUndoManager.undo()
+    XCTAssertEqual(appliedClearDocument, originalDocument)
+    clearCoordinator.structuralUndoManager.redo()
+    XCTAssertEqual(appliedClearDocument, clearedDocument)
+
+    var appliedDeleteDocument = originalDocument
+    let deleteCoordinator = StructuredNoteEditorCoordinator()
+    deleteCoordinator.commitStructuralChange(
+      from: originalDocument,
+      to: deletedDocument,
+      actionName: "Delete Section"
+    ) { appliedDeleteDocument = $0 }
+
+    XCTAssertEqual(appliedDeleteDocument, deletedDocument)
+    deleteCoordinator.structuralUndoManager.undo()
+    XCTAssertEqual(appliedDeleteDocument, originalDocument)
+    deleteCoordinator.structuralUndoManager.redo()
+    XCTAssertEqual(appliedDeleteDocument, deletedDocument)
+  }
+
   // Traverses the flattened section order and requests the correct caret edge.
   func testBoundaryNavigationTargetsAdjacentSectionEdges() throws {
     let coordinator = StructuredNoteEditorCoordinator()

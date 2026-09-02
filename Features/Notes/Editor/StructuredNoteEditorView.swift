@@ -511,16 +511,12 @@ private struct StructuredEditorDropZone: View {
         Text(label)
           .font(.system(size: 11, weight: .semibold))
           .fixedSize()
-      } else if isAvailable {
-        Capsule()
-          .fill(accentColor.opacity(0.5))
-          .frame(width: 54, height: 2)
       }
     }
     .foregroundStyle(accentColor)
     .padding(.horizontal, 12)
     .frame(maxWidth: .infinity)
-    .frame(height: isActive ? 40 : (isAvailable ? 28 : 14))
+    .frame(height: isActive ? 40 : 16)
     .background {
       if isActive {
         RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -532,9 +528,6 @@ private struct StructuredEditorDropZone: View {
                 style: StrokeStyle(lineWidth: 1.5, dash: [5, 4])
               )
           }
-      } else if isAvailable {
-        RoundedRectangle(cornerRadius: 9, style: .continuous)
-          .fill(accentColor.opacity(0.04))
       }
     }
     .contentShape(Rectangle())
@@ -551,10 +544,6 @@ private struct StructuredEditorDropZone: View {
     context.activeTarget.wrappedValue == target
   }
 
-  private var isAvailable: Bool {
-    guard let payload = context.activePayload.wrappedValue else { return false }
-    return context.canDrop(payload, target)
-  }
 }
 
 private struct StructuredEditorDropDelegate: DropDelegate {
@@ -612,8 +601,9 @@ private struct StructuredEditorDropDelegate: DropDelegate {
   }
 }
 
-private struct StructuredEditorDragHandle: View {
+private struct StructuredEditorDragHandle<Preview: View>: View {
   let accessibilityLabel: String
+  @ViewBuilder let preview: () -> Preview
   let itemProvider: () -> NSItemProvider
 
   var body: some View {
@@ -622,9 +612,57 @@ private struct StructuredEditorDragHandle: View {
       .foregroundStyle(.tertiary)
       .frame(width: 24, height: 24)
       .contentShape(Rectangle())
-      .onDrag(itemProvider)
+      .onDrag(itemProvider, preview: preview)
       .help("Drag to move")
       .accessibilityLabel(accessibilityLabel)
+  }
+}
+
+private struct StructuredSectionGutterButton: View {
+  let systemImage: String
+  let helpText: String
+  var role: ButtonRole? = nil
+  var isDisabled = false
+  let action: () -> Void
+
+  var body: some View {
+    Button(role: role, action: action) {
+      Image(systemName: systemImage)
+        .font(.system(size: 12, weight: .semibold))
+        .frame(width: 20, height: 20)
+        .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .foregroundStyle(role == .destructive ? Color.red.opacity(0.85) : Color.secondary)
+    .disabled(isDisabled)
+    .opacity(isDisabled ? 0.35 : 1)
+    .help(helpText)
+    .accessibilityLabel(helpText)
+  }
+}
+
+private struct StructuredEditorDragPreview: View {
+  let title: String
+  let detail: String
+  let borderColor: Color
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 5) {
+      Text(title)
+        .font(.system(size: 14, weight: .semibold))
+        .lineLimit(2)
+
+      Text(detail)
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+    .frame(width: 230, alignment: .leading)
+    .padding(14)
+    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    .overlay {
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .strokeBorder(borderColor.opacity(0.85), lineWidth: 1.5)
+    }
   }
 }
 
@@ -758,15 +796,14 @@ private struct StructuredSectionGroupContainer: View {
     } message: {
       Text("The group name is exported as a Markdown heading.")
     }
-    .confirmationDialog(
-      "Delete \(group.title)?",
-      isPresented: $isConfirmingDeletion,
-      titleVisibility: .visible
-    ) {
+    .alert("Delete \(group.title)?", isPresented: $isConfirmingDeletion) {
       Button("Delete Group and Sections", role: .destructive) {
         deleteGroup()
       }
+      .keyboardShortcut(.defaultAction)
+
       Button("Cancel", role: .cancel) {}
+        .keyboardShortcut(.cancelAction)
     } message: {
       Text(
         "This deletes \(sectionCountLabel) from the note. You can undo it from another section's options menu."
@@ -806,6 +843,12 @@ private struct StructuredSectionGroupContainer: View {
       Spacer()
 
       StructuredEditorDragHandle(accessibilityLabel: "Move \(group.title) group") {
+        StructuredEditorDragPreview(
+          title: group.title,
+          detail: sectionCountLabel,
+          borderColor: groupBorderColor
+        )
+      } itemProvider: {
         dragContext.beginDrag(.group(group.id))
       }
       .opacity(isHovering || containsFocusedSection ? 1 : 0)
@@ -1120,17 +1163,63 @@ private struct StructuredSectionEditorCard: View {
   let dragContext: StructuredEditorDragContext
   @State private var editorHeight: CGFloat = 132
   @State private var isHovering = false
+  @State private var isConfirmingClear = false
   @State private var isConfirmingDeletion = false
   @State private var isCreatingGroup = false
   @State private var isShowingOptionsPopover = false
-  @State private var isAppearanceExpanded = false
-  @State private var isIndividualColorsExpanded = false
   @State private var groupTitleDraft = "New Group"
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 0) {
-      sectionHeader
+    HStack(alignment: .top, spacing: 8) {
+      sectionGutter
+        .frame(width: sectionGutterWidth)
 
+      sectionCard
+
+      Color.clear
+        .frame(width: sectionGutterWidth)
+        .accessibilityHidden(true)
+    }
+    .onHover { isHovering = $0 }
+    .alert("Clear this section?", isPresented: $isConfirmingClear) {
+      Button("Clear", role: .destructive) {
+        clearSection()
+      }
+      .keyboardShortcut(.defaultAction)
+
+      Button("Cancel", role: .cancel) {}
+        .keyboardShortcut(.cancelAction)
+    } message: {
+      Text(
+        "This removes all content from the section. You can undo the change from its options menu.")
+    }
+    .alert("Delete this section?", isPresented: $isConfirmingDeletion) {
+      Button("Delete", role: .destructive) {
+        deleteSection()
+      }
+      .keyboardShortcut(.defaultAction)
+
+      Button("Cancel", role: .cancel) {}
+        .keyboardShortcut(.cancelAction)
+    } message: {
+      Text(
+        "This removes the complete section. You can undo the deletion from another section's options menu."
+      )
+    }
+    .alert("Create Group", isPresented: $isCreatingGroup) {
+      TextField("Group name", text: $groupTitleDraft)
+      Button("Create") {
+        createGroup()
+      }
+      .disabled(normalizedGroupTitleDraft.isEmpty)
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text("This section becomes the first item in the new group without changing its content.")
+    }
+  }
+
+  private var sectionCard: some View {
+    VStack(alignment: .leading, spacing: 0) {
       if item.section.isCollapsed {
         collapsedSectionSummary
       } else {
@@ -1202,46 +1291,58 @@ private struct StructuredSectionEditorCard: View {
       RoundedRectangle(cornerRadius: 22, style: .continuous)
         .strokeBorder(sectionBorderColor, lineWidth: sectionBorderLineWidth)
     }
-    .onHover { isHovering = $0 }
-    .alert("Delete this section?", isPresented: $isConfirmingDeletion) {
-      Button("Delete", role: .destructive) {
-        deleteSection()
-      }
-      Button("Cancel", role: .cancel) {}
-    } message: {
-      Text(
-        "This section contains content. You can undo the deletion from another section's options menu."
-      )
-    }
-    .alert("Create Group", isPresented: $isCreatingGroup) {
-      TextField("Group name", text: $groupTitleDraft)
-      Button("Create") {
-        createGroup()
-      }
-      .disabled(normalizedGroupTitleDraft.isEmpty)
-      Button("Cancel", role: .cancel) {}
-    } message: {
-      Text("This section becomes the first item in the new group without changing its content.")
-    }
+    .frame(maxWidth: .infinity)
   }
 
-  private var sectionHeader: some View {
-    HStack(spacing: 8) {
-      Spacer()
-
+  private var sectionGutter: some View {
+    VStack(spacing: 2) {
       StructuredEditorDragHandle(accessibilityLabel: "Move section \(item.position)") {
+        StructuredEditorDragPreview(
+          title: collapsedSectionPreview,
+          detail: "Section \(item.position)",
+          borderColor: sectionBorderColor
+        )
+      } itemProvider: {
         dragContext.beginDrag(.section(item.id))
       }
-      .opacity(isHovering || isFocused ? 1 : 0)
-      .allowsHitTesting(isHovering || isFocused)
 
       sectionOptionsMenu
-        .opacity(isHovering || isFocused ? 1 : 0)
-        .allowsHitTesting(isHovering || isFocused)
+
+      StructuredSectionGutterButton(
+        systemImage: "plus",
+        helpText: "Add section below"
+      ) {
+        addSectionBelow()
+      }
+
+      StructuredSectionGutterButton(
+        systemImage: "eraser",
+        helpText: "Clear section",
+        role: .destructive,
+        isDisabled: sectionIsEmpty
+      ) {
+        isConfirmingClear = true
+      }
+
+      StructuredSectionGutterButton(
+        systemImage: "trash",
+        helpText: "Delete section",
+        role: .destructive,
+        isDisabled: !item.canDelete
+      ) {
+        requestSectionDeletion()
+      }
     }
-    .padding(.horizontal, 18)
-    .padding(.top, 9)
-    .frame(minHeight: 28)
+    .padding(.vertical, 3)
+    .padding(.horizontal, 2)
+    .background(
+      themeColors.controlBackground.color.opacity(0.94),
+      in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+    )
+    .padding(.top, 8)
+    .opacity(showsSectionGutter ? 1 : 0)
+    .allowsHitTesting(showsSectionGutter)
+    .animation(.easeOut(duration: 0.12), value: showsSectionGutter)
   }
 
   private var collapsedSectionSummary: some View {
@@ -1282,7 +1383,8 @@ private struct StructuredSectionEditorCard: View {
     .buttonStyle(.plain)
     .fixedSize()
     .accessibilityLabel("Section \(item.position) options")
-    .popover(isPresented: $isShowingOptionsPopover, arrowEdge: .trailing) {
+    .help("Section options")
+    .popover(isPresented: $isShowingOptionsPopover, arrowEdge: .leading) {
       sectionOptionsPopover
     }
   }
@@ -1376,18 +1478,14 @@ private struct StructuredSectionEditorCard: View {
 
       Divider()
 
-      DisclosureGroup(isExpanded: $isAppearanceExpanded) {
-        StructuredSectionAppearanceControls(
-          styleOverrides: item.section.styleOverrides,
-          inheritanceLabel: item.isGrouped ? "Inherit from Group" : "Inherit from Theme",
-          showsIndividualColors: $isIndividualColorsExpanded,
-          onChange: updateStyleOverrides
-        )
-        .padding(.top, 10)
-      } label: {
-        Label("Appearance", systemImage: "paintpalette")
-          .font(.system(size: 12, weight: .semibold))
-      }
+      Label("Appearance", systemImage: "paintpalette")
+        .font(.system(size: 12, weight: .semibold))
+
+      StructuredSectionAppearanceControls(
+        styleOverrides: item.section.styleOverrides,
+        inheritanceLabel: item.isGrouped ? "Inherit from Group" : "Inherit from Theme",
+        onChange: updateStyleOverrides
+      )
 
       Divider()
 
@@ -1418,7 +1516,7 @@ private struct StructuredSectionEditorCard: View {
       }
     }
     .padding(14)
-    .frame(width: 380)
+    .frame(width: 300)
   }
 
   private func performOptionAction(_ action: () -> Void) {
@@ -1434,6 +1532,16 @@ private struct StructuredSectionEditorCard: View {
   private var isFocused: Bool {
     editorCoordinator.focusedSectionID == item.id
   }
+
+  private var showsSectionGutter: Bool {
+    isHovering || isFocused || isShowingOptionsPopover
+  }
+
+  private var sectionIsEmpty: Bool {
+    item.section.markdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  }
+
+  private var sectionGutterWidth: CGFloat { 32 }
 
   private var themeColors: ThemeColorSet {
     store.effectiveAppearanceSettings.resolvedColors
@@ -1515,6 +1623,14 @@ private struct StructuredSectionEditorCard: View {
     } catch {
       reportStructuralError(error)
     }
+  }
+
+  // Adds a blank sibling after this section and keeps the operation structurally undoable.
+  private func addSectionBelow() {
+    splitSection(
+      markdown: item.section.markdown,
+      atUTF16Offset: item.section.markdown.utf16.count
+    )
   }
 
   // Replaces a slash row with template content and converts template-owned dividers to sections.
@@ -1616,13 +1732,21 @@ private struct StructuredSectionEditorCard: View {
     }
   }
 
-  // Deletes empty sections directly and requires confirmation for content-bearing sections.
+  // Requires confirmation before the complete section snapshot is removed.
   private func requestSectionDeletion() {
     guard item.canDelete else { return }
-    if item.section.markdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-      deleteSection()
-    } else {
-      isConfirmingDeletion = true
+    isConfirmingDeletion = true
+  }
+
+  // Clears Markdown through structural history so undo restores the exact section content.
+  private func clearSection() {
+    guard !sectionIsEmpty else { return }
+    performStructuralChange(
+      actionName: "Clear Section",
+      focusSectionID: item.id,
+      caretPlacement: .start
+    ) { document in
+      try document.setSectionMarkdown("", sectionID: item.id)
     }
   }
 
@@ -1718,7 +1842,6 @@ private struct StructuredSectionEditorCard: View {
 private struct StructuredSectionAppearanceControls: View {
   let styleOverrides: StructuredSectionStyleOverrides
   let inheritanceLabel: String
-  @Binding var showsIndividualColors: Bool
   let onChange: (StructuredSectionStyleOverrides) -> Void
 
   var body: some View {
@@ -1742,22 +1865,20 @@ private struct StructuredSectionAppearanceControls: View {
         }
       }
 
-      DisclosureGroup("Individual colors", isExpanded: $showsIndividualColors) {
+      if !allRolesFollowPrimaryColor {
         VStack(alignment: .leading, spacing: 14) {
-          if allRolesFollowPrimaryColor {
-            Text("Turn off a main-color option to set its individual color.")
-              .font(.caption)
-              .foregroundStyle(.secondary)
-          } else {
-            individualColorControl(.heading, title: "Heading")
-            individualColorControl(.border, title: "Border")
-            individualColorControl(.bullet, title: "Bullet points and checkboxes")
-          }
+          Text("Individual colors")
+            .font(.system(size: 12, weight: .medium))
+
+          individualColorControl(.heading, title: "Heading")
+          individualColorControl(.border, title: "Border")
+          individualColorControl(.bullet, title: "Bullet points and checkboxes")
         }
-        .padding(.top, 9)
+        .transition(.opacity)
       }
-      .font(.system(size: 12, weight: .medium))
     }
+    .fixedSize(horizontal: false, vertical: true)
+    .animation(.easeOut(duration: 0.14), value: allRolesFollowPrimaryColor)
   }
 
   private var displayedPrimaryColor: StructuredColorOverride {
