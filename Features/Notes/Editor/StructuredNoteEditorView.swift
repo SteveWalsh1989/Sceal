@@ -701,6 +701,7 @@ private struct StructuredSectionGroupContainer: View {
   let accentColor: Color
   @State private var isHovering = false
   @State private var isRenaming = false
+  @State private var isConfirmingDeletion = false
   @State private var titleDraft = ""
 
   var body: some View {
@@ -757,21 +758,24 @@ private struct StructuredSectionGroupContainer: View {
     } message: {
       Text("The group name is exported as a Markdown heading.")
     }
+    .confirmationDialog(
+      "Delete \(group.title)?",
+      isPresented: $isConfirmingDeletion,
+      titleVisibility: .visible
+    ) {
+      Button("Delete Group and Sections", role: .destructive) {
+        deleteGroup()
+      }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text(
+        "This deletes \(sectionCountLabel) from the note. You can undo it from another section's options menu."
+      )
+    }
   }
 
   private var groupHeader: some View {
     HStack(spacing: 10) {
-      Button(action: toggleGroupCollapsed) {
-        Image(systemName: group.isCollapsed ? "chevron.right" : "chevron.down")
-          .font(.system(size: 11, weight: .semibold))
-          .foregroundStyle(.secondary)
-          .frame(width: 18, height: 24)
-          .contentShape(Rectangle())
-      }
-      .buttonStyle(.plain)
-      .accessibilityLabel(group.isCollapsed ? "Expand \(group.title)" : "Collapse \(group.title)")
-      .help(group.isCollapsed ? "Expand group" : "Collapse group")
-
       Image(systemName: "square.stack.3d.up.fill")
         .font(.system(size: 13, weight: .semibold))
         .foregroundStyle(groupBorderColor)
@@ -864,6 +868,11 @@ private struct StructuredSectionGroupContainer: View {
       Button("Ungroup Sections", systemImage: "square.stack.3d.up.slash") {
         ungroupSections()
       }
+
+      Button("Delete Group...", systemImage: "trash", role: .destructive) {
+        isConfirmingDeletion = true
+      }
+      .disabled(!canDeleteGroup)
     } label: {
       Image(systemName: "ellipsis")
         .font(.system(size: 13, weight: .semibold))
@@ -911,6 +920,11 @@ private struct StructuredSectionGroupContainer: View {
   private var containsFocusedSection: Bool {
     guard let focusedSectionID = editorCoordinator.focusedSectionID else { return false }
     return sectionItems.contains(where: { $0.id == focusedSectionID })
+  }
+
+  private var canDeleteGroup: Bool {
+    guard let totalSectionCount = sectionItems.first?.totalSectionCount else { return false }
+    return totalSectionCount > group.sections.count
   }
 
   private var collapsedGroupPreview: String {
@@ -1015,6 +1029,30 @@ private struct StructuredSectionGroupContainer: View {
   private func ungroupSections() {
     performStructuralChange(actionName: "Ungroup Sections") { document in
       try document.ungroup(id: group.id)
+    }
+  }
+
+  // Removes the group and its children while moving focus to the nearest surviving section.
+  private func deleteGroup() {
+    let focusedSectionID = editorCoordinator.focusedSectionID
+    let focusIsInsideGroup =
+      focusedSectionID.map { focusedSectionID in
+        sectionItems.contains(where: { $0.id == focusedSectionID })
+      } ?? false
+    let undoFocusSectionID = focusIsInsideGroup ? focusedSectionID : sectionItems.first?.id
+    let redoFocusSectionID =
+      sectionItems.last?.nextVisibleSectionID ?? sectionItems.first?.previousVisibleSectionID
+
+    performStructuralChange(
+      actionName: "Delete Group",
+      undoFocusTarget: undoFocusSectionID.map {
+        StructuredNoteEditorCoordinator.FocusTarget(sectionID: $0)
+      },
+      redoFocusTarget: redoFocusSectionID.map {
+        StructuredNoteEditorCoordinator.FocusTarget(sectionID: $0)
+      }
+    ) { document in
+      try document.deleteGroup(id: group.id)
     }
   }
 
@@ -1189,22 +1227,6 @@ private struct StructuredSectionEditorCard: View {
 
   private var sectionHeader: some View {
     HStack(spacing: 8) {
-      Button {
-        setSectionCollapsed(!item.section.isCollapsed)
-      } label: {
-        Image(systemName: item.section.isCollapsed ? "chevron.right" : "chevron.down")
-          .font(.system(size: 11, weight: .semibold))
-          .foregroundStyle(.secondary)
-          .frame(width: 18, height: 24)
-          .contentShape(Rectangle())
-      }
-      .buttonStyle(.plain)
-      .accessibilityLabel(
-        item.section.isCollapsed
-          ? "Expand section \(item.position)" : "Collapse section \(item.position)"
-      )
-      .help(item.section.isCollapsed ? "Expand section" : "Collapse section")
-
       Spacer()
 
       StructuredEditorDragHandle(accessibilityLabel: "Move section \(item.position)") {

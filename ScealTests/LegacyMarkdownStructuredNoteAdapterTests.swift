@@ -15,11 +15,9 @@ final class LegacyMarkdownStructuredNoteAdapterTests: XCTestCase {
     XCTAssertEqual(document.id, "2026-05-10")
     XCTAssertEqual(document.title, #"Daily "Migration": fixture, sample"#)
     XCTAssertEqual(document.tags, ["migration", "round trip", "storage"])
-    XCTAssertEqual(document.nodes.count, 2)
+    XCTAssertEqual(document.nodes.count, 1)
 
-    let leadingSection = try rootSection(in: document, at: 0)
-    let contentSection = try rootSection(in: document, at: 1)
-    XCTAssertEqual(leadingSection.markdown, "")
+    let contentSection = try rootSection(in: document, at: 0)
     XCTAssertEqual(contentSection.styleOverrides.headingColor, .colorName("blue"))
     XCTAssertEqual(contentSection.styleOverrides.bulletColor, .colorName("blue"))
     XCTAssertFalse(contentSection.markdown.contains("<!-- section"))
@@ -96,7 +94,7 @@ final class LegacyMarkdownStructuredNoteAdapterTests: XCTestCase {
       "<!-- section heading:orange -->\n## Heading\n\n- Item"
     )
 
-    let section = try rootSection(in: document, at: 1)
+    let section = try rootSection(in: document, at: 0)
     XCTAssertEqual(section.styleOverrides.headingColor, .colorName("orange"))
     XCTAssertEqual(section.styleOverrides.bulletColor, .colorName("orange"))
   }
@@ -110,6 +108,16 @@ final class LegacyMarkdownStructuredNoteAdapterTests: XCTestCase {
     let secondSection = try rootSection(in: document, at: 1)
     XCTAssertEqual(secondSection.markdown, "Second")
     XCTAssertEqual(secondSection.styleOverrides, .inherited)
+  }
+
+  // Treats a leading divider as metadata for the first visible section, not an empty card.
+  func testLeadingSectionDirectiveDoesNotCreateEmptySection() throws {
+    let document = try importBody("\n<!-- section heading:orange -->\nVisible content")
+
+    XCTAssertEqual(document.nodes.count, 1)
+    let section = try rootSection(in: document, at: 0)
+    XCTAssertEqual(section.markdown, "Visible content")
+    XCTAssertEqual(section.styleOverrides.headingColor, .colorName("orange"))
   }
 
   // Keeps an empty legacy daily note as one editable structured section.

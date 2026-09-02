@@ -125,6 +125,7 @@ struct MarkdownEditorView: NSViewRepresentable {
 
     coordinator.flushPendingMarkdownPushIfNeeded(from: textStorage)
     coordinator.toolbar.hide()
+    coordinator.dismissSlashPopup()
   }
 
   func updateNSView(_ scrollView: NSScrollView, context: Context) {
@@ -1789,7 +1790,7 @@ extension MarkdownEditorView {
       }
     }
 
-    private func dismissSlashPopup() {
+    func dismissSlashPopup() {
       slashPopup.hide()
       slashTriggerLocation = nil
     }

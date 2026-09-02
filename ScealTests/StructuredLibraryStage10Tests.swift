@@ -206,6 +206,45 @@ final class StructuredLibraryStage10Tests: NotesStoreTestCase {
     )
   }
 
+  // Treats Markdown whitespace as content so migration validation cannot hide hard line breaks.
+  func testMigrationReportRejectsTrailingWhitespaceDifferences() throws {
+    let location = makeLibraryLocation()
+    let date = makeDate(year: 2026, month: 9, day: 2)
+    let source = StructuredNoteDocument(
+      id: "2026-09-02",
+      date: date,
+      title: "Exact",
+      tags: [],
+      nodes: [.section(StructuredNoteSection(markdown: "Line  \n"))]
+    )
+    let target = StructuredNoteDocument(
+      id: source.id,
+      date: date,
+      title: source.title,
+      tags: source.tags,
+      nodes: [.section(StructuredNoteSection(markdown: "Line\n"))]
+    )
+    let store = makeStore(userDefaults: makeUserDefaults(), libraryLocation: location)
+
+    let report = try StructuredLibraryMigrationReporter.makeReport(
+      createdAt: .now,
+      safetyArchiveURL: location.rootURL.appendingPathComponent("safety.zip"),
+      sourceDailyDocuments: [source],
+      sourceListDocuments: [],
+      sourceListManifest: .empty,
+      structuredDailyDocuments: [target],
+      structuredListDocuments: [],
+      structuredListManifest: .empty,
+      attachmentsRootURL: location.rootURL.appendingPathComponent("Attachments"),
+      templates: [],
+      settings: try store.makeArchiveSettings(),
+      legacyLibraryPreserved: true
+    )
+
+    XCTAssertFalse(report.passedContentValidation)
+    XCTAssertEqual(report.mismatchedDailyNoteIDs, [source.id])
+  }
+
   func testVersionTwoArchiveRestoresExactStructuredDocumentsSettingsAndAttachments() throws {
     let sourceLocation = makeLibraryLocation()
     var customColors = AppTheme.defaultLight.colors

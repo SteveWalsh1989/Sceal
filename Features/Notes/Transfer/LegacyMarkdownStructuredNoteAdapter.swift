@@ -37,7 +37,10 @@ nonisolated enum LegacyMarkdownStructuredNoteAdapter {
   }
 
   // Splits only active section directives while preserving protected Markdown blocks verbatim.
-  static func sections(from body: String) -> [StructuredNoteSection] {
+  static func sections(
+    from body: String,
+    preservesLeadingEmptySection: Bool = false
+  ) -> [StructuredNoteSection] {
     let lines = body.components(separatedBy: "\n")
     var sections: [StructuredNoteSection] = []
     var sectionLines: [String] = []
@@ -45,6 +48,7 @@ nonisolated enum LegacyMarkdownStructuredNoteAdapter {
     var insideCodeBlock = false
     var insidePromptBlock = false
     var protectedTableEndIndex: Int?
+    var hasSeenSectionDirective = false
 
     for (lineIndex, line) in lines.enumerated() {
       if let tableEndIndex = protectedTableEndIndex {
@@ -92,14 +96,21 @@ nonisolated enum LegacyMarkdownStructuredNoteAdapter {
       }
 
       if let directive = MarkdownEditorSectionDirectiveMarkdown.parse(line) {
-        sections.append(
-          StructuredNoteSection(
-            markdown: sectionLines.joined(separator: "\n"),
-            styleOverrides: currentStyleOverrides
+        let hasContentBeforeFirstDirective = sectionLines.contains {
+          !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        if preservesLeadingEmptySection || hasSeenSectionDirective || hasContentBeforeFirstDirective
+        {
+          sections.append(
+            StructuredNoteSection(
+              markdown: sectionLines.joined(separator: "\n"),
+              styleOverrides: currentStyleOverrides
+            )
           )
-        )
+        }
         sectionLines.removeAll(keepingCapacity: true)
         currentStyleOverrides = styleOverrides(for: directive)
+        hasSeenSectionDirective = true
         continue
       }
 

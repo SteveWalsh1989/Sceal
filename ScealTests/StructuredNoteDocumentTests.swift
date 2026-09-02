@@ -204,6 +204,36 @@ final class StructuredNoteDocumentTests: XCTestCase {
     XCTAssertNil(self.group(in: document, id: group.id))
   }
 
+  // Deletes a group and all of its sections when another editable section remains.
+  func testDeleteGroupRemovesContainedSections() throws {
+    let rootSection = StructuredNoteSection(markdown: "Keep")
+    let groupedSections = [
+      StructuredNoteSection(markdown: "Delete one"),
+      StructuredNoteSection(markdown: "Delete two"),
+    ]
+    let group = StructuredSectionGroup(title: "Delete", sections: groupedSections)
+    var document = makeDocument(nodes: [.section(rootSection), .group(group)])
+
+    try document.deleteGroup(id: group.id)
+
+    XCTAssertEqual(document.nodes.map(\.id), [rootSection.id])
+  }
+
+  // Prevents deleting a group when it contains every section in the note.
+  func testDeleteOnlyGroupIsRejectedTransactionally() {
+    let group = StructuredSectionGroup(
+      title: "Keep",
+      sections: [StructuredNoteSection(markdown: "Only section")]
+    )
+    var document = makeDocument(nodes: [.group(group)])
+    let originalDocument = document
+
+    XCTAssertThrowsError(try document.deleteGroup(id: group.id)) { error in
+      XCTAssertEqual(error as? StructuredNoteDocumentError, .cannotDeleteOnlySection)
+    }
+    XCTAssertEqual(document, originalDocument)
+  }
+
   // Prevents deletion from leaving a daily note without an editable section.
   func testDeleteOnlySectionIsRejectedTransactionally() {
     let section = StructuredNoteSection(markdown: "Keep")

@@ -91,8 +91,7 @@ struct DailyCalendarSidebarContent: View {
                         )
                         .contextMenu {
                           if let note,
-                            !store.isDemoModeEnabled,
-                            !store.isStructuredDailyNoteMode
+                            !store.isDemoModeEnabled
                           {
                             Button {
                               requestChangeDate(note.id)

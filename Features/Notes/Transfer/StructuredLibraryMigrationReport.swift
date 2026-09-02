@@ -41,7 +41,7 @@ nonisolated struct StructuredLibraryMigrationReport: Codable, Equatable, Sendabl
 }
 
 nonisolated enum StructuredLibraryMigrationReporter {
-  // Compares converted source documents with persisted targets while ignoring generated UUIDs.
+  // Compares converted source documents exactly while ignoring only generated node UUIDs.
   static func makeReport(
     createdAt: Date,
     safetyArchiveURL: URL,
@@ -160,20 +160,10 @@ nonisolated enum StructuredLibraryMigrationReporter {
 
   private static func sectionSignature(for section: StructuredNoteSection) -> SectionSignature {
     SectionSignature(
-      markdown: normalizedMarkdown(section.markdown),
+      markdown: section.markdown,
       styleOverrides: section.styleOverrides,
       isCollapsed: section.isCollapsed
     )
-  }
-
-  private static func normalizedMarkdown(_ markdown: String) -> String {
-    markdown
-      .replacingOccurrences(of: "\r\n", with: "\n")
-      .replacingOccurrences(of: "\r", with: "\n")
-      .split(separator: "\n", omittingEmptySubsequences: false)
-      .map { $0.replacingOccurrences(of: #"\s+$"#, with: "", options: .regularExpression) }
-      .joined(separator: "\n")
-      .trimmingCharacters(in: .newlines)
   }
 
   private static func countAttachments(

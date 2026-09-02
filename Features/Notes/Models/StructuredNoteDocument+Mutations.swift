@@ -219,6 +219,22 @@ extension StructuredNoteDocument {
     }
   }
 
+  // Deletes a group and its sections while preserving the document's final editable section.
+  mutating func deleteGroup(id groupID: UUID) throws {
+    try applyMutation { document in
+      guard let groupIndex = document.groupNodeIndex(for: groupID),
+        case .group(let group) = document.nodes[groupIndex]
+      else {
+        throw StructuredNoteDocumentError.groupNotFound(groupID)
+      }
+      guard document.totalSectionCount > group.sections.count else {
+        throw StructuredNoteDocumentError.cannotDeleteOnlySection
+      }
+
+      document.nodes.remove(at: groupIndex)
+    }
+  }
+
   // Reorders a root section or group as one top-level item.
   mutating func moveRootNode(id nodeID: UUID, to index: Int) throws {
     try applyMutation { document in

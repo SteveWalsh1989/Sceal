@@ -11,7 +11,8 @@ import AppKit
 @MainActor class EditorSlashCommandPopup: NSView {
   var onSelect: ((SlashCommandEntry) -> Void)?
 
-  private let stackView = NSStackView()
+  private let scrollView = NSScrollView()
+  private let stackView = SlashCommandStackView()
   private var filteredCommands: [SlashCommandEntry] = []
   private var selectedIndex = 0
   private var rowViews: [SlashCommandRowView] = []
@@ -42,17 +43,23 @@ import AppKit
     layer?.shadowRadius = 8
     layer?.shadowOffset = CGSize(width: 0, height: -2)
 
+    scrollView.drawsBackground = false
+    scrollView.borderType = .noBorder
+    scrollView.hasVerticalScroller = true
+    scrollView.autohidesScrollers = true
+    addSubview(scrollView)
+    scrollView.translatesAutoresizingMaskIntoConstraints = false
+    NSLayoutConstraint.activate([
+      scrollView.topAnchor.constraint(equalTo: topAnchor),
+      scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+      scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
+      scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
+    ])
+
     stackView.orientation = .vertical
     stackView.spacing = 0
     stackView.edgeInsets = NSEdgeInsets(top: 4, left: 0, bottom: 4, right: 0)
-    addSubview(stackView)
-    stackView.translatesAutoresizingMaskIntoConstraints = false
-    NSLayoutConstraint.activate([
-      stackView.topAnchor.constraint(equalTo: topAnchor),
-      stackView.bottomAnchor.constraint(equalTo: bottomAnchor),
-      stackView.leadingAnchor.constraint(equalTo: leadingAnchor),
-      stackView.trailingAnchor.constraint(equalTo: trailingAnchor),
-    ])
+    scrollView.documentView = stackView
   }
 
   // MARK: - Public API
@@ -77,30 +84,43 @@ import AppKit
     let popupWidth: CGFloat = 210
     let rowHeight: CGFloat = 36
     let verticalPadding: CGFloat = 8
-    let popupHeight = CGFloat(filteredCommands.count) * rowHeight + verticalPadding
+    let contentHeight = CGFloat(filteredCommands.count) * rowHeight + verticalPadding
     let gap: CGFloat = 4
 
-    // In flipped coordinates: minY is top, maxY is bottom.
-    // Prefer the space above the active line, matching the formatting toolbar.
-    var origin = NSPoint(
-      x: cursorRect.minX,
-      y: cursorRect.minY - popupHeight - gap
+    let edgeInset: CGFloat = 4
+    let clippedVisibleBounds = parentView.visibleRect.intersection(parentView.bounds)
+    let visibleBounds = clippedVisibleBounds.isEmpty ? parentView.bounds : clippedVisibleBounds
+    let popupHeight = min(
+      contentHeight, max(rowHeight + verticalPadding, visibleBounds.height - 2 * edgeInset))
+    let minimumX = visibleBounds.minX + edgeInset
+    let maximumX = max(minimumX, visibleBounds.maxX - popupWidth - edgeInset)
+    let minimumY = visibleBounds.minY + edgeInset
+    let maximumY = max(minimumY, visibleBounds.maxY - popupHeight - edgeInset)
+
+    let preferredY: CGFloat
+    if parentView.isFlipped {
+      let aboveY = cursorRect.minY - popupHeight - gap
+      preferredY = aboveY >= minimumY ? aboveY : cursorRect.maxY + gap
+    } else {
+      let aboveY = cursorRect.maxY + gap
+      preferredY =
+        aboveY + popupHeight <= visibleBounds.maxY - edgeInset
+        ? aboveY : cursorRect.minY - popupHeight - gap
+    }
+
+    let origin = NSPoint(
+      x: min(max(cursorRect.minX, minimumX), maximumX),
+      y: min(max(preferredY, minimumY), maximumY)
     )
 
-    // Keep within parent bounds
-    let parentBounds = parentView.bounds
-    origin.x = max(4, min(origin.x, parentBounds.maxX - popupWidth - 4))
-    // If popup would go above the visible area, flip to below.
-    if origin.y < 4 {
-      origin.y = cursorRect.maxY + gap
-    }
-
-    frame = NSRect(x: origin.x, y: origin.y, width: popupWidth, height: popupHeight)
-
     if superview == nil {
-      parentView.addSubview(self)
+      parentView.addSubview(self, positioned: .above, relativeTo: nil)
     }
 
+    translatesAutoresizingMaskIntoConstraints = true
+    autoresizingMask = []
+    frame = NSRect(x: origin.x, y: origin.y, width: popupWidth, height: popupHeight)
+    stackView.frame = NSRect(x: 0, y: 0, width: popupWidth, height: contentHeight)
     isHidden = false
     alphaValue = 1
   }
@@ -160,7 +180,13 @@ import AppKit
     for (index, row) in rowViews.enumerated() {
       row.setSelected(index == selectedIndex)
     }
+    rowViews[selectedIndex].scrollToVisible(rowViews[selectedIndex].bounds)
   }
+}
+
+// Keeps the command order top-to-bottom while the stack acts as a scroll view document.
+private final class SlashCommandStackView: NSStackView {
+  override var isFlipped: Bool { true }
 }
 
 // MARK: - Row View

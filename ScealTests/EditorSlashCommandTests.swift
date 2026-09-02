@@ -186,6 +186,31 @@ final class EditorSlashCommandTests: EditorTestCase {
     XCTAssertFalse(markdown.value.contains("<!-- section"))
   }
 
+  // Keeps the popup visible in either AppKit coordinate orientation and supports arrow selection.
+  func testSlashPopupPlacementAndKeyboardSelection() {
+    for hostView in [
+      NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 300)),
+      FlippedSlashPopupHostView(frame: NSRect(x: 0, y: 0, width: 320, height: 300)),
+    ] {
+      let popup = EditorSlashCommandPopup()
+      var selectedCommand: String?
+      popup.onSelect = { selectedCommand = $0.command }
+      popup.updateFilter("/")
+      popup.show(relativeTo: NSRect(x: 300, y: 8, width: 2, height: 18), in: hostView)
+
+      XCTAssertTrue(popup.isVisible)
+      XCTAssertGreaterThanOrEqual(popup.frame.minX, hostView.bounds.minX)
+      XCTAssertLessThanOrEqual(popup.frame.maxX, hostView.bounds.maxX)
+      XCTAssertGreaterThanOrEqual(popup.frame.minY, hostView.bounds.minY)
+      XCTAssertLessThanOrEqual(popup.frame.maxY, hostView.bounds.maxY)
+
+      popup.moveSelectionDown()
+      popup.confirmSelection()
+      XCTAssertEqual(selectedCommand, "/heading-1")
+      popup.hide()
+    }
+  }
+
   // Reads Markdown only from section nodes for the structured split assertion.
   private func sectionMarkdown(_ node: StructuredNoteNode) -> String? {
     guard case .section(let section) = node else { return nil }
@@ -905,4 +930,8 @@ final class EditorSlashCommandTests: EditorTestCase {
       """
     )
   }
+}
+
+private final class FlippedSlashPopupHostView: NSView {
+  override var isFlipped: Bool { true }
 }

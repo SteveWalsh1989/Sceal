@@ -116,7 +116,7 @@ struct NotesSidebarView: View {
               }
               .buttonStyle(.plain)
               .contextMenu {
-                if !store.isDemoModeEnabled, !store.isStructuredDailyNoteMode {
+                if !store.isDemoModeEnabled {
                   Button {
                     requestChangeDate(note.id)
                   } label: {

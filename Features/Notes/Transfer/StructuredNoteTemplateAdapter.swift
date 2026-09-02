@@ -37,7 +37,10 @@ enum StructuredNoteTemplateAdapter {
     )
     let combinedMarkdown =
       protectedLeading.markdown + templateMarkdown + protectedTrailing.markdown
-    var sections = LegacyMarkdownStructuredNoteAdapter.sections(from: combinedMarkdown)
+    var sections = LegacyMarkdownStructuredNoteAdapter.sections(
+      from: combinedMarkdown,
+      preservesLeadingEmptySection: request.template.startsWithDivider
+    )
     let focusSectionIndex =
       request.template.cursorPlacement == .end
       ? sections.indices.last
