@@ -20,7 +20,7 @@ struct ListNotesSidebarContent: View {
   @State private var renamingGroupID: String?
 
   var body: some View {
-    let manifest = store.listNoteManifest
+    let manifest = store.activeListNoteManifest
     let isSearching = store.isListSearchActive
     let filteredIDs = Set(store.filteredListNotes.map(\.id))
 
@@ -184,7 +184,7 @@ struct ListNotesSidebarContent: View {
         guard !trimmed.isEmpty else { return }
         if let groupID = renamingGroupID {
           store.renameGroup(groupID: groupID, name: trimmed)
-        } else if !store.listNoteManifest.groups.contains(where: { $0.name == trimmed }) {
+        } else if !store.activeListNoteManifest.groups.contains(where: { $0.name == trimmed }) {
           store.createGroup(name: trimmed)
         }
         renamingGroupID = nil
@@ -195,12 +195,12 @@ struct ListNotesSidebarContent: View {
   @ViewBuilder
   private func listNoteButton(note: DayNote) -> some View {
     Button {
-      store.selectedListNoteID = note.id
+      store.activeListSelectedNoteID = note.id
     } label: {
       ListNoteCardView(
         note: note,
         appearanceSettings: store.effectiveAppearanceSettings,
-        isSelected: store.selectedListNoteID == note.id,
+        isSelected: store.activeListSelectedNoteID == note.id,
         accentColor: sidebarAccentColor,
         selectedCardColor: themeColors.selectedCard.color,
         unselectedCardColor: themeColors.unselectedCard.color,
@@ -214,10 +214,10 @@ struct ListNotesSidebarContent: View {
           store.moveNoteToUngrouped(noteID: note.id)
         }
 
-        if !store.listNoteManifest.groups.isEmpty {
+        if !store.activeListNoteManifest.groups.isEmpty {
           Divider()
 
-          ForEach(store.listNoteManifest.groups) { group in
+          ForEach(store.activeListNoteManifest.groups) { group in
             Button(group.name) {
               store.moveNoteToGroup(noteID: note.id, groupID: group.id)
             }

@@ -16,6 +16,9 @@ struct SettingsRepository {
     static let noteTemplates = "sceal.noteTemplates"
     static let noteTemplatesSeeded = "sceal.noteTemplatesSeeded"
     static let dailyNoteStorageMode = "sceal.dailyNoteStorageMode"
+    static let settingsSidebarWidth = "settings.sidebarWidth"
+    static let templatesListWidth = "settings.templates.listWidth"
+    static let templatesListCollapsed = "settings.templates.isListCollapsed"
   }
 
   let userDefaults: UserDefaults
@@ -84,6 +87,24 @@ struct SettingsRepository {
   // Persists the explicit experimental selection between isolated daily-note stores.
   func saveDailyNoteStorageMode(_ mode: DailyNoteStorageMode) {
     userDefaults.set(mode.rawValue, forKey: Keys.dailyNoteStorageMode)
+  }
+
+  // Captures safe settings-window layout preferences for full-library archives.
+  func loadArchiveLayoutSettings() -> ScealArchiveLayoutSettings {
+    ScealArchiveLayoutSettings(
+      settingsSidebarWidth: userDefaults.object(forKey: Keys.settingsSidebarWidth) == nil
+        ? 180 : userDefaults.double(forKey: Keys.settingsSidebarWidth),
+      templatesListWidth: userDefaults.object(forKey: Keys.templatesListWidth) == nil
+        ? 180 : userDefaults.double(forKey: Keys.templatesListWidth),
+      templatesListCollapsed: userDefaults.bool(forKey: Keys.templatesListCollapsed)
+    )
+  }
+
+  // Restores safe settings-window layout preferences without copying machine permissions.
+  func saveArchiveLayoutSettings(_ settings: ScealArchiveLayoutSettings) {
+    userDefaults.set(settings.settingsSidebarWidth, forKey: Keys.settingsSidebarWidth)
+    userDefaults.set(settings.templatesListWidth, forKey: Keys.templatesListWidth)
+    userDefaults.set(settings.templatesListCollapsed, forKey: Keys.templatesListCollapsed)
   }
 
   // Loads the active plan, defaulting to paid so existing builds keep full feature parity.

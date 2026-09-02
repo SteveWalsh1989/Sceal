@@ -12,7 +12,9 @@ struct ScealLibraryLocation: Equatable, Sendable {
   nonisolated static let notesFolderName = "Notes"
   nonisolated static let structuredNotesFolderName = "StructuredNotes"
   nonisolated static let listNotesFolderName = "ListNotes"
+  nonisolated static let structuredListNotesFolderName = "StructuredListNotes"
   nonisolated static let restoreSafetyBackupsFolderName = "Restore Safety Backups"
+  nonisolated static let migrationReportsFolderName = "Migration Reports"
 
   let rootURL: URL
 
@@ -56,6 +58,11 @@ struct ScealLibraryLocation: Equatable, Sendable {
     try createdDirectory(named: Self.listNotesFolderName, fileManager: fileManager)
   }
 
+  // Resolves the isolated structured list-note folder without creating or changing it.
+  nonisolated var structuredListNotesDirectoryURL: URL {
+    rootURL.appendingPathComponent(Self.structuredListNotesFolderName, isDirectory: true)
+  }
+
   nonisolated func attachmentsRootURL(fileManager: FileManager = .default) throws -> URL {
     try createdDirectory(
       named: NoteImageAttachmentStore.attachmentsFolderName, fileManager: fileManager)
@@ -65,6 +72,10 @@ struct ScealLibraryLocation: Equatable, Sendable {
     -> URL
   {
     try createdDirectory(named: Self.restoreSafetyBackupsFolderName, fileManager: fileManager)
+  }
+
+  nonisolated func migrationReportsDirectoryURL(fileManager: FileManager = .default) throws -> URL {
+    try createdDirectory(named: Self.migrationReportsFolderName, fileManager: fileManager)
   }
 
   private nonisolated static func applicationSupportLocation(

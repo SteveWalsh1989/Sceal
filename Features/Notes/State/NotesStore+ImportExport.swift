@@ -182,14 +182,6 @@ extension NotesStore {
 
   // Exports the whole library, including list notes, groups, metadata, and attachments.
   func exportFullLibrary() {
-    guard !isStructuredDailyNoteMode else {
-      userMessage = (
-        text: "Lossless Structured Notes V2 library export arrives in Stage 10.",
-        kind: .info
-      )
-      return
-    }
-
     #if DEBUG
       if isDemoModeEnabled {
         userMessage = (
@@ -204,13 +196,17 @@ extension NotesStore {
       return
     }
 
-    flushPendingSaves()
-
-    let dailyNotesSnapshot = notes
-    let listNotesSnapshot = listNotes
-    let manifestSnapshot = listNoteManifest
-    let templatesSnapshot = noteTemplates
-    guard !dailyNotesSnapshot.isEmpty || !listNotesSnapshot.isEmpty else {
+    let snapshot: ScealLibrarySnapshot
+    do {
+      snapshot = try makeLibrarySnapshot()
+    } catch {
+      report(error, context: "Preparing full-library export failed")
+      return
+    }
+    guard
+      !snapshot.legacyDailyNotes.isEmpty || !snapshot.legacyListNotes.isEmpty
+        || !snapshot.structuredDailyNotes.isEmpty || !snapshot.structuredListNotes.isEmpty
+    else {
       userMessage = (text: "There are no notes to export.", kind: .info)
       return
     }
@@ -222,15 +218,7 @@ extension NotesStore {
 
     guard panel.runModal() == .OK, let saveURL = panel.url else { return }
 
-    let attachmentsRootURL: URL?
-    do {
-      attachmentsRootURL = try libraryRepository.attachmentsRootDirectoryURL(
-        createIfNeeded: false
-      )
-    } catch {
-      report(error, context: "Preparing full-library export failed")
-      return
-    }
+    let attachmentsRootURL = libraryRepository.attachmentsRootURL
 
     isPerformingFileOperation = true
     progressMessage = "Exporting library..."
@@ -240,10 +228,14 @@ extension NotesStore {
     Task.detached { [weak self] in
       do {
         let zipURL = try service.exportBackup(
-          dailyNotes: dailyNotesSnapshot,
-          listNotes: listNotesSnapshot,
-          manifest: manifestSnapshot,
-          templates: templatesSnapshot,
+          dailyNotes: snapshot.legacyDailyNotes,
+          listNotes: snapshot.legacyListNotes,
+          manifest: snapshot.legacyListManifest,
+          templates: snapshot.templates,
+          structuredDailyNotes: snapshot.structuredDailyNotes,
+          structuredListNotes: snapshot.structuredListNotes,
+          structuredListManifest: snapshot.structuredListManifest,
+          settings: snapshot.settings,
           kind: .manual,
           attachmentsRootURL: attachmentsRootURL
         )
@@ -258,7 +250,7 @@ extension NotesStore {
         await MainActor.run { [weak self] in
           self?.userMessage = (
             text:
-              "Exported \(dailyNotesSnapshot.count) daily notes and \(listNotesSnapshot.count) list notes.",
+              "Exported \(snapshot.legacyDailyNotes.count + snapshot.structuredDailyNotes.count) daily snapshots and \(snapshot.legacyListNotes.count + snapshot.structuredListNotes.count) list snapshots.",
             kind: .info
           )
           self?.isPerformingFileOperation = false
@@ -301,14 +293,6 @@ extension NotesStore {
 
   // Restores a full-library archive after confirmation, replacing current note storage.
   func restoreFullLibraryFromArchive() {
-    guard !isStructuredDailyNoteMode else {
-      userMessage = (
-        text: "Lossless Structured Notes V2 restore arrives in Stage 10.",
-        kind: .info
-      )
-      return
-    }
-
     #if DEBUG
       if isDemoModeEnabled {
         userMessage = (
@@ -342,11 +326,11 @@ extension NotesStore {
       return
     }
 
-    flushPendingSaves()
-
     let storageURLs: ScealLibraryStorageURLs
     let safetyArchiveDirectoryURL: URL
+    let currentSnapshot: ScealLibrarySnapshot
     do {
+      currentSnapshot = try makeLibrarySnapshot()
       storageURLs = try libraryStorageURLs()
       safetyArchiveDirectoryURL = try restoreSafetyArchiveDirectoryURL()
     } catch {
@@ -354,10 +338,6 @@ extension NotesStore {
       return
     }
 
-    let currentDailyNotes = notes
-    let currentListNotes = listNotes
-    let currentManifest = listNoteManifest
-    let currentTemplates = noteTemplates
     let service = archiveService
     let didStartAccessing = archiveURL.startAccessingSecurityScopedResource()
 
@@ -374,30 +354,61 @@ extension NotesStore {
       do {
         let result = try service.restoreLibrary(
           from: archiveURL,
-          currentDailyNotes: currentDailyNotes,
-          currentListNotes: currentListNotes,
-          currentManifest: currentManifest,
-          currentTemplates: currentTemplates,
+          currentDailyNotes: currentSnapshot.legacyDailyNotes,
+          currentListNotes: currentSnapshot.legacyListNotes,
+          currentManifest: currentSnapshot.legacyListManifest,
+          currentTemplates: currentSnapshot.templates,
+          currentStructuredDailyNotes: currentSnapshot.structuredDailyNotes,
+          currentStructuredListNotes: currentSnapshot.structuredListNotes,
+          currentStructuredListManifest: currentSnapshot.structuredListManifest,
+          currentSettings: currentSnapshot.settings,
           destinationURLs: storageURLs,
           safetyArchiveDirectoryURL: safetyArchiveDirectoryURL
         )
 
         await MainActor.run { [weak self] in
           guard let self else { return }
+          if let settings = result.settings {
+            do {
+              try self.applyArchiveSettings(settings)
+            } catch {
+              self.report(error, context: "Applying restored settings failed")
+              self.isPerformingFileOperation = false
+              self.progressMessage = nil
+              return
+            }
+          }
           self.notes = result.dailyNotes
           self.listNotes = result.listNotes
           self.listNoteManifest = result.manifest
+          if result.metadata.backupFormatVersion >= 2 {
+            self.structuredNotes = result.structuredDailyNotes
+            self.structuredListNotes = result.structuredListNotes
+            self.structuredListNoteManifest = result.structuredListManifest
+          } else {
+            self.structuredNotes = currentSnapshot.structuredDailyNotes
+            self.structuredListNotes = currentSnapshot.structuredListNotes
+            self.structuredListNoteManifest = currentSnapshot.structuredListManifest
+          }
           self.replaceNoteTemplates(result.templates)
           self.rebuildNoteIndex()
           self.rebuildListNoteIndex()
+          self.hasLoadedLegacyNotes = true
+          self.hasLoadedStructuredNotes = true
+          self.hasLoadedStructuredListNotes = true
           self.selectedNoteID = result.dailyNotes.first?.id
           self.selectedListNoteID = result.listNotes.first?.id
+          self.selectedStructuredNoteID = self.structuredNotes.first?.id
+          self.selectedStructuredListNoteID =
+            self.structuredListNoteManifest.ungroupedNoteIDs.first
+            ?? self.structuredListNotes.first?.id
           self.searchText = ""
           self.listSearchText = ""
 
-          if self.sidebarMode == .list, result.listNotes.isEmpty {
+          if self.sidebarMode == .list, self.activeListNoteSummaries.isEmpty {
             self.sidebarMode = .daily
-          } else if self.sidebarMode != .list, result.dailyNotes.isEmpty, !result.listNotes.isEmpty
+          } else if self.sidebarMode != .list, self.dailyNotesForDisplay.isEmpty,
+            !self.activeListNoteSummaries.isEmpty
           {
             self.sidebarMode = .list
           }

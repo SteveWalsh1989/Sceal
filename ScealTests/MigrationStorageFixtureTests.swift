@@ -68,7 +68,7 @@ final class MigrationStorageFixtureTests: MarkdownPreservationTestCase {
     let data = try Data(contentsOf: try fixtureURL("ListNotes/groups.json"))
     let manifest = try JSONDecoder().decode(ListNotesManifest.self, from: data)
 
-    XCTAssertEqual(manifest.ungroupedNoteIDs, ["project-alpha"])
+    XCTAssertEqual(manifest.ungroupedNoteIDs, [])
     XCTAssertEqual(manifest.groups.count, 1)
     XCTAssertEqual(manifest.groups.first?.id, "group-active")
     XCTAssertEqual(manifest.groups.first?.noteIDs, ["project-alpha"])

@@ -32,4 +32,15 @@ final class EditorPreferencesStore: ObservableObject {
     continuousSpellCheckingEnabled = value
     settingsRepository.saveContinuousSpellCheckingEnabled(value)
   }
+
+  // Restores portable editor behavior without introducing a second persistence path.
+  func restoreSettings(
+    continuousSpellCheckingEnabled: Bool,
+    newNoteDefault: NewNoteDefault
+  ) {
+    self.continuousSpellCheckingEnabled = continuousSpellCheckingEnabled
+    self.newNoteDefault = newNoteDefault
+    settingsRepository.saveContinuousSpellCheckingEnabled(continuousSpellCheckingEnabled)
+    settingsRepository.saveNewNoteDefault(newNoteDefault)
+  }
 }

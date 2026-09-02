@@ -24,7 +24,7 @@ struct StructuredNoteEditorView: View {
         .onAppear {
           activateEditor(for: document)
         }
-        .onChange(of: store.selectedStructuredNoteID) { _, _ in
+        .onChange(of: store.activeStructuredSelectedNoteID) { _, _ in
           guard let selectedDocument = store.selectedStructuredNote else { return }
           activateEditor(for: selectedDocument)
         }
@@ -101,7 +101,7 @@ struct StructuredNoteEditorView: View {
     .onChange(of: editableSectionIDs) { _, sectionIDs in
       editorCoordinator.updateSectionOrder(sectionIDs)
     }
-    .onChange(of: store.structuredSearchText) { _, _ in
+    .onChange(of: store.activeStructuredSearchText) { _, _ in
       guard let selectedDocument = store.selectedStructuredNote else { return }
       revealFirstSearchMatch(in: selectedDocument, requestsFocus: false)
     }
@@ -119,6 +119,7 @@ struct StructuredNoteEditorView: View {
 
   private func editorHeader(_ document: StructuredNoteDocument) -> some View {
     let adjacentNoteIDs = store.adjacentStructuredNoteIDs(for: document.id)
+    let isListMode = store.sidebarMode == .list
     let controlColor = themeColors.controlBackground.color
 
     return HStack(alignment: .center, spacing: 12) {
@@ -127,7 +128,7 @@ struct StructuredNoteEditorView: View {
           .font(.callout)
           .foregroundStyle(.secondary)
 
-        if let previousID = adjacentNoteIDs.previous {
+        if !isListMode, let previousID = adjacentNoteIDs.previous {
           HeaderNavigationButton(
             systemImage: "chevron.left",
             accessibilityLabel: "Open older note",
@@ -137,7 +138,7 @@ struct StructuredNoteEditorView: View {
           }
         }
 
-        if let nextID = adjacentNoteIDs.next {
+        if !isListMode, let nextID = adjacentNoteIDs.next {
           HeaderNavigationButton(
             systemImage: "chevron.right",
             accessibilityLabel: "Open newer note",
@@ -161,13 +162,15 @@ struct StructuredNoteEditorView: View {
         controlColor: controlColor
       )
 
-      Button {
-        store.selectToday()
-      } label: {
-        Label("Today", systemImage: "calendar")
+      if !isListMode {
+        Button {
+          store.selectToday()
+        } label: {
+          Label("Today", systemImage: "calendar")
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
       }
-      .buttonStyle(.bordered)
-      .controlSize(.small)
 
       Button {
         isShowingAppearancePopover.toggle()
@@ -441,7 +444,7 @@ struct StructuredNoteEditorView: View {
   private func activateEditor(for document: StructuredNoteDocument) {
     var visibleDocument = document
     let searchMatch = StructuredNoteCollapse.revealFirstSearchMatch(
-      for: store.structuredSearchText,
+      for: store.activeStructuredSearchText,
       in: &visibleDocument
     )
     if visibleDocument != document {
@@ -467,7 +470,7 @@ struct StructuredNoteEditorView: View {
     var visibleDocument = document
     guard
       let searchMatch = StructuredNoteCollapse.revealFirstSearchMatch(
-        for: store.structuredSearchText,
+        for: store.activeStructuredSearchText,
         in: &visibleDocument
       )
     else { return }
@@ -1111,7 +1114,7 @@ private struct StructuredSectionEditorCard: View {
             ),
             appearanceSettings: store.effectiveAppearanceSettings,
             continuousSpellCheckingEnabled: store.continuousSpellCheckingEnabled,
-            searchText: store.structuredSearchText,
+            searchText: store.activeStructuredSearchText,
             customSlashTemplates: store.enabledSlashCommandTemplates(),
             libraryRootURL: store.libraryLocation.rootURL,
             imageAttachmentRootURL: store.libraryRepository.attachmentsRootURL,

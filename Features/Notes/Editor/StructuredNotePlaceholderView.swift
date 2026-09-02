@@ -34,17 +34,32 @@ struct StructuredNotePlaceholderView: View {
         Label("No structured notes yet", systemImage: "square.stack.3d.up.slash")
       } description: {
         Text(
-          "Create a blank note for today or make structured copies of your legacy daily notes."
+          store.sidebarMode == .list
+            ? "Create a blank list note or upgrade your legacy list-note library."
+            : "Create a blank note for today or make structured copies of your legacy daily notes."
         )
       } actions: {
         HStack {
-          Button("Create today's note") {
-            store.selectToday()
+          Button(store.sidebarMode == .list ? "Create list note" : "Create today's note") {
+            if store.sidebarMode == .list {
+              store.createListNote()
+            } else {
+              store.selectToday()
+            }
           }
           .buttonStyle(.borderedProminent)
 
-          Button("Copy legacy daily notes") {
-            store.copyLegacyDailyNotesToStructuredLibrary()
+          Button(store.sidebarMode == .list ? "Copy legacy list notes" : "Copy legacy daily notes")
+          {
+            if store.sidebarMode == .list {
+              do {
+                _ = try store.copyLegacyListNotesToStructuredLibrary()
+              } catch {
+                store.showTransientMessage(error.localizedDescription, kind: .error)
+              }
+            } else {
+              store.copyLegacyDailyNotesToStructuredLibrary()
+            }
           }
           .buttonStyle(.bordered)
         }

@@ -8,9 +8,17 @@ import Foundation
 
 nonisolated enum LegacyMarkdownStructuredNoteAdapter {
   // Decodes one legacy note and adds source-specific context to any import failure.
-  static func importDocument(contents: String, sourceURL: URL) throws -> StructuredNoteDocument {
+  static func importDocument(
+    contents: String,
+    sourceURL: URL,
+    idOverride: String? = nil
+  ) throws -> StructuredNoteDocument {
     do {
-      let note = try MarkdownNoteCodec.decode(contents: contents, sourceURL: sourceURL)
+      let note = try MarkdownNoteCodec.decode(
+        contents: contents,
+        sourceURL: sourceURL,
+        idOverride: idOverride
+      )
       let document = StructuredNoteDocument(
         id: note.id,
         date: note.date,

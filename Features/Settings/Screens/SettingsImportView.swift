@@ -57,9 +57,11 @@ struct SettingsImportView: View {
           VStack(alignment: .leading, spacing: 4) {
             Text("Restore full library")
               .font(.body)
-            Text("Replaces the current library from a full-library Scéal zip archive.")
-              .font(.caption)
-              .foregroundStyle(.secondary)
+            Text(
+              "Validates and restores a full-library Scéal archive after creating a safety backup."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
           }
 
           Spacer()

@@ -6,8 +6,12 @@ nonisolated enum ScealBackupArchiveExporter {
   nonisolated private static let metadataFileName = "backup-metadata.json"
   nonisolated private static let dailyNotesFolderName = "Notes"
   nonisolated private static let listNotesFolderName = "ListNotes"
+  nonisolated private static let structuredDailyNotesFolderName = "StructuredNotes"
+  nonisolated private static let structuredListNotesFolderName = "StructuredListNotes"
   nonisolated private static let manifestFileName = "groups.json"
-  nonisolated private static let metadataVersion = 1
+  nonisolated private static let settingsFileName = "settings.json"
+  nonisolated private static let legacyMetadataVersion = 1
+  nonisolated private static let structuredMetadataVersion = 2
 
   // Creates a backup zip in a temporary directory and returns the archive URL.
   nonisolated static func exportBackup(
@@ -15,10 +19,29 @@ nonisolated enum ScealBackupArchiveExporter {
     listNotes: [DayNote],
     manifest: ListNotesManifest,
     templates: [NoteTemplate] = [],
+    structuredDailyNotes: [StructuredNoteDocument] = [],
+    structuredListNotes: [StructuredNoteDocument] = [],
+    structuredListManifest: ListNotesManifest? = nil,
+    settings: ScealArchiveSettings? = nil,
     kind: BackupArchiveKind,
     createdAt: Date = .now,
     attachmentsRootURL: URL? = nil
   ) throws -> URL {
+    let isStructuredArchive =
+      settings != nil || structuredListManifest != nil || !structuredDailyNotes.isEmpty
+      || !structuredListNotes.isEmpty
+    if isStructuredArchive {
+      guard let settings else {
+        throw ScealBackupArchiveExporterError.missingStructuredSettings
+      }
+      try settings.validate()
+      try validateStructuredArchive(
+        dailyDocuments: structuredDailyNotes,
+        listDocuments: structuredListNotes,
+        listManifest: structuredListManifest ?? .empty
+      )
+    }
+
     let temporaryDirectories = try ZipArchiveWriter.makeTemporaryStagingDirectory(
       prefix: "sceal-backup",
       rootFolderName: managedFolderName
@@ -57,6 +80,29 @@ nonisolated enum ScealBackupArchiveExporter {
     try encoder.encode(manifest).write(to: manifestURL, options: .atomic)
     try NoteTemplateArchive.write(templates, to: stagingDirectoryURL)
 
+    if isStructuredArchive {
+      let structuredDailyDirectoryURL = stagingDirectoryURL.appendingPathComponent(
+        structuredDailyNotesFolderName,
+        isDirectory: true
+      )
+      let structuredListDirectoryURL = stagingDirectoryURL.appendingPathComponent(
+        structuredListNotesFolderName,
+        isDirectory: true
+      )
+      try writeStructuredNotes(structuredDailyNotes, to: structuredDailyDirectoryURL)
+      try writeStructuredNotes(structuredListNotes, to: structuredListDirectoryURL)
+      try encoder.encode(structuredListManifest ?? .empty).write(
+        to: structuredListDirectoryURL.appendingPathComponent(manifestFileName),
+        options: .atomic
+      )
+      if let settings {
+        try encoder.encode(settings).write(
+          to: stagingDirectoryURL.appendingPathComponent(settingsFileName),
+          options: .atomic
+        )
+      }
+    }
+
     if let sourceAttachmentRootURL = try? NoteImageAttachmentStore.attachmentRootDirectoryURL(
       rootURL: attachmentsRootURL,
       createIfNeeded: false
@@ -66,7 +112,11 @@ nonisolated enum ScealBackupArchiveExporter {
         isDirectory: true
       )
       try NoteImageAttachmentStore.copyAttachmentFolders(
-        for: Set((dailyNotes + listNotes).map(\.id)),
+        for: Set(
+          (dailyNotes + listNotes).map(\.id)
+            + structuredDailyNotes.map(\.id)
+            + structuredListNotes.map(\.id)
+        ),
         from: sourceAttachmentRootURL,
         to: targetAttachmentRootURL
       )
@@ -74,14 +124,19 @@ nonisolated enum ScealBackupArchiveExporter {
 
     let metadata = BackupArchiveMetadata(
       appVersion: appVersionDescription(),
-      backupFormatVersion: metadataVersion,
+      backupFormatVersion: isStructuredArchive
+        ? structuredMetadataVersion : legacyMetadataVersion,
       backupKind: kind,
       createdAt: createdAt,
       sourceStoreDescription: "~/Library/Application Support/Sceal",
       dailyNoteCount: dailyNotes.count,
       listNoteCount: listNotes.count,
       templateCount: templates.count,
-      includesManifest: true
+      includesManifest: true,
+      structuredDailyNoteCount: structuredDailyNotes.count,
+      structuredListNoteCount: structuredListNotes.count,
+      includesStructuredManifest: isStructuredArchive,
+      includesSettings: settings != nil
     )
     try encoder.encode(metadata).write(to: metadataURL, options: .atomic)
 
@@ -112,6 +167,87 @@ nonisolated enum ScealBackupArchiveExporter {
     let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
     return version ?? "unknown"
   }
+
+  // Writes validated structured documents using their canonical stable-ID filenames.
+  nonisolated private static func writeStructuredNotes(
+    _ documents: [StructuredNoteDocument],
+    to directoryURL: URL
+  ) throws {
+    try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+    for document in documents {
+      try document.validate()
+      let fileURL =
+        directoryURL
+        .appendingPathComponent(document.id)
+        .appendingPathExtension(StructuredNoteRepository.fileExtension)
+      try StructuredNoteDocumentCodec.write(document, to: fileURL)
+    }
+  }
+
+  // Rejects duplicate, unsafe, or mismatched structured entries before staging archive files.
+  nonisolated private static func validateStructuredArchive(
+    dailyDocuments: [StructuredNoteDocument],
+    listDocuments: [StructuredNoteDocument],
+    listManifest: ListNotesManifest
+  ) throws {
+    let dailyIDs = dailyDocuments.map(\.id)
+    let listIDs = listDocuments.map(\.id)
+    guard Set(dailyIDs).count == dailyIDs.count,
+      Set(listIDs).count == listIDs.count
+    else {
+      throw ScealBackupArchiveExporterError.duplicateStructuredNoteID
+    }
+    guard listManifest.allNoteIDs == Set(listIDs) else {
+      throw ScealBackupArchiveExporterError.structuredManifestMismatch
+    }
+    let orderedListIDs = listManifest.ungroupedNoteIDs + listManifest.groups.flatMap(\.noteIDs)
+    guard orderedListIDs.count == Set(orderedListIDs).count,
+      Set(listManifest.groups.map(\.id)).count == listManifest.groups.count
+    else {
+      throw ScealBackupArchiveExporterError.structuredManifestMismatch
+    }
+
+    for document in dailyDocuments + listDocuments {
+      try document.validate()
+      guard !document.id.isEmpty,
+        !document.id.contains("/"),
+        !document.id.contains(":"),
+        document.id != ".",
+        document.id != ".."
+      else {
+        throw ScealBackupArchiveExporterError.unsafeStructuredNoteID(document.id)
+      }
+    }
+    for document in dailyDocuments {
+      let expectedID = NoteDateFormatters.storageDate.string(from: document.date)
+      guard document.id == expectedID else {
+        throw ScealBackupArchiveExporterError.invalidDailyStructuredNoteID(document.id)
+      }
+    }
+  }
+}
+
+nonisolated enum ScealBackupArchiveExporterError: LocalizedError, Equatable, Sendable {
+  case duplicateStructuredNoteID
+  case missingStructuredSettings
+  case structuredManifestMismatch
+  case unsafeStructuredNoteID(String)
+  case invalidDailyStructuredNoteID(String)
+
+  var errorDescription: String? {
+    switch self {
+    case .duplicateStructuredNoteID:
+      return "The structured archive contains duplicate note IDs."
+    case .missingStructuredSettings:
+      return "A version 2 archive must include portable settings."
+    case .structuredManifestMismatch:
+      return "The structured list-note manifest does not match its documents."
+    case .unsafeStructuredNoteID(let noteID):
+      return "Structured note ID \(noteID) is unsafe for archive storage."
+    case .invalidDailyStructuredNoteID(let noteID):
+      return "Structured daily note \(noteID) does not use its date-based storage ID."
+    }
+  }
 }
 
 nonisolated struct BackupArchiveMetadata: Codable, Equatable, Sendable {
@@ -124,6 +260,10 @@ nonisolated struct BackupArchiveMetadata: Codable, Equatable, Sendable {
   let listNoteCount: Int
   let templateCount: Int
   let includesManifest: Bool
+  let structuredDailyNoteCount: Int
+  let structuredListNoteCount: Int
+  let includesStructuredManifest: Bool
+  let includesSettings: Bool
 
   init(
     appVersion: String,
@@ -134,7 +274,11 @@ nonisolated struct BackupArchiveMetadata: Codable, Equatable, Sendable {
     dailyNoteCount: Int,
     listNoteCount: Int,
     templateCount: Int = 0,
-    includesManifest: Bool
+    includesManifest: Bool,
+    structuredDailyNoteCount: Int = 0,
+    structuredListNoteCount: Int = 0,
+    includesStructuredManifest: Bool = false,
+    includesSettings: Bool = false
   ) {
     self.appVersion = appVersion
     self.backupFormatVersion = backupFormatVersion
@@ -145,6 +289,10 @@ nonisolated struct BackupArchiveMetadata: Codable, Equatable, Sendable {
     self.listNoteCount = listNoteCount
     self.templateCount = templateCount
     self.includesManifest = includesManifest
+    self.structuredDailyNoteCount = structuredDailyNoteCount
+    self.structuredListNoteCount = structuredListNoteCount
+    self.includesStructuredManifest = includesStructuredManifest
+    self.includesSettings = includesSettings
   }
 
   private enum CodingKeys: String, CodingKey {
@@ -157,6 +305,10 @@ nonisolated struct BackupArchiveMetadata: Codable, Equatable, Sendable {
     case listNoteCount
     case templateCount
     case includesManifest
+    case structuredDailyNoteCount
+    case structuredListNoteCount
+    case includesStructuredManifest
+    case includesSettings
   }
 
   init(from decoder: Decoder) throws {
@@ -170,7 +322,20 @@ nonisolated struct BackupArchiveMetadata: Codable, Equatable, Sendable {
       dailyNoteCount: try container.decode(Int.self, forKey: .dailyNoteCount),
       listNoteCount: try container.decode(Int.self, forKey: .listNoteCount),
       templateCount: try container.decodeIfPresent(Int.self, forKey: .templateCount) ?? 0,
-      includesManifest: try container.decode(Bool.self, forKey: .includesManifest)
+      includesManifest: try container.decode(Bool.self, forKey: .includesManifest),
+      structuredDailyNoteCount: try container.decodeIfPresent(
+        Int.self,
+        forKey: .structuredDailyNoteCount
+      ) ?? 0,
+      structuredListNoteCount: try container.decodeIfPresent(
+        Int.self,
+        forKey: .structuredListNoteCount
+      ) ?? 0,
+      includesStructuredManifest: try container.decodeIfPresent(
+        Bool.self,
+        forKey: .includesStructuredManifest
+      ) ?? false,
+      includesSettings: try container.decodeIfPresent(Bool.self, forKey: .includesSettings) ?? false
     )
   }
 }

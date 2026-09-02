@@ -23,9 +23,11 @@ struct SettingsExportView: View {
           VStack(alignment: .leading, spacing: 4) {
             Text("Export full library")
               .font(.body)
-            Text("Includes daily notes, list notes, groups, attachments, and metadata.")
-              .font(.caption)
-              .foregroundStyle(.secondary)
+            Text(
+              "Includes legacy and structured notes, groups, settings, templates, themes, and attachments."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
           }
 
           Spacer()

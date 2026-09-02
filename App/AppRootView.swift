@@ -31,7 +31,7 @@ struct AppRootView: View {
       .navigationSplitViewColumnWidth(min: 240, ideal: 290, max: 360)
     } detail: {
       Group {
-        if store.isStructuredDailyModeActive {
+        if store.isStructuredEditorActive {
           StructuredNoteEditorView(
             store: store,
             sidebarCollapsed: columnVisibility == .detailOnly,

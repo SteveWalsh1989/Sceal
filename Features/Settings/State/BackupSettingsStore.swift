@@ -74,4 +74,12 @@ final class BackupSettingsStore: ObservableObject {
   func persistSettings() throws {
     try settingsRepository.saveBackupSettings(settings)
   }
+
+  // Restores portable backup behavior while preserving this Mac's security-scoped folder access.
+  func restorePortableSettings(schedule: BackupSchedule, backupOnInactive: Bool) throws {
+    settings.schedule = schedule
+    settings.backupOnInactive = backupOnInactive
+    settings.lastBackupErrorDescription = nil
+    try persistSettings()
+  }
 }

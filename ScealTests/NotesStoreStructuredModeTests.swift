@@ -137,9 +137,10 @@ final class NotesStoreStructuredModeTests: NotesStoreTestCase {
     XCTAssertEqual(try Data(contentsOf: structuredURL), structuredData)
   }
 
-  // Keeps list-note routing on the existing list store while structured daily mode is enabled.
-  func testListModeRemainsIndependentFromStructuredDailyMode() {
+  // Routes list mode through its independent structured list-note library.
+  func testListModeUsesIndependentStructuredListLibrary() throws {
     let userDefaults = makeUserDefaults()
+    let libraryLocation = makeLibraryLocation()
     SettingsRepository(userDefaults: userDefaults).saveDailyNoteStorageMode(
       .structuredExperimental
     )
@@ -150,33 +151,41 @@ final class NotesStoreStructuredModeTests: NotesStoreTestCase {
       day: 23,
       title: "List note"
     )
-    let store = makeStore(userDefaults: userDefaults)
-    store.listNotes = [listNote]
-    store.rebuildListNoteIndex()
+    let repository = LibraryRepository(libraryLocation: libraryLocation)
+    try repository.saveListNote(listNote)
+    try repository.saveListNotesManifest(
+      ListNotesManifest(ungroupedNoteIDs: [listNote.id], groups: [])
+    )
+    let store = makeStore(userDefaults: userDefaults, libraryLocation: libraryLocation)
+    _ = try store.copyLegacyListNotesToStructuredLibrary()
     store.sidebarMode = .list
-    store.selectedListNoteID = listNote.id
+    store.activeListSelectedNoteID = listNote.id
 
     XCTAssertFalse(store.isStructuredDailyModeActive)
+    XCTAssertTrue(store.isStructuredEditorActive)
     XCTAssertEqual(store.activeSelectedNoteID, listNote.id)
-    XCTAssertEqual(store.activeNote, listNote)
+    XCTAssertEqual(store.activeNote?.id, listNote.id)
+    XCTAssertEqual(store.activeNote?.title, listNote.title)
+    XCTAssertEqual(store.activeNote?.body, listNote.body)
   }
 
-  // Blocks legacy-only transfer and backup paths from producing incomplete structured results.
-  func testStructuredModeGuardsLegacyTransferAndBackupActions() {
+  // Allows complete archive snapshots while retaining the legacy library for rollback.
+  func testStructuredModePreparesCompleteLosslessLibrarySnapshot() throws {
     let userDefaults = makeUserDefaults()
     SettingsRepository(userDefaults: userDefaults).saveDailyNoteStorageMode(
       .structuredExperimental
     )
-    let store = makeStore(userDefaults: userDefaults)
+    let store = makeStore(
+      userDefaults: userDefaults,
+      libraryLocation: makeLibraryLocation()
+    )
 
-    store.runBackupNow()
-    XCTAssertTrue(store.userMessage?.text.contains("Stage 10") == true)
+    let snapshot = try store.makeLibrarySnapshot()
 
-    store.importFromMarkdown()
-    XCTAssertTrue(store.userMessage?.text.contains("Legacy Markdown") == true)
-
-    store.restoreFullLibraryFromArchive()
-    XCTAssertTrue(store.userMessage?.text.contains("Stage 10") == true)
+    XCTAssertEqual(snapshot.settings.dailyNoteStorageModeRawValue, "structuredExperimental")
+    XCTAssertTrue(snapshot.structuredDailyNotes.isEmpty)
+    XCTAssertTrue(snapshot.structuredListNotes.isEmpty)
+    XCTAssertEqual(snapshot.structuredListManifest, .empty)
   }
 
   // Creates and immediately persists a valid blank structured note for an empty day.

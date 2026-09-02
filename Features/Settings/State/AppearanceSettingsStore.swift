@@ -30,4 +30,10 @@ final class AppearanceSettingsStore: ObservableObject {
   func persistSettings() throws {
     try settingsRepository.saveAppearanceSettings(settings)
   }
+
+  // Replaces all portable appearance and custom-theme values after archive validation.
+  func restoreSettings(_ restoredSettings: NoteAppearanceSettings) throws {
+    settings = restoredSettings.clamped
+    try persistSettings()
+  }
 }

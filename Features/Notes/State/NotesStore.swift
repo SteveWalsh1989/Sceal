@@ -88,6 +88,9 @@ final class NotesStore: ObservableObject {
   @Published var structuredSearchText = ""
   @Published var isStructuredSearchBarExpanded = false
   @Published var structuredCalendarBrowseYear: Int
+  @Published var structuredListNotes: [StructuredNoteDocument] = []
+  @Published var structuredListNoteManifest: ListNotesManifest = .empty
+  @Published var selectedStructuredListNoteID: String?
   #if DEBUG
     @Published var isDemoModeEnabled = false
     @Published private(set) var demoNotes: [DayNote] = [] {
@@ -106,6 +109,7 @@ final class NotesStore: ObservableObject {
   let libraryLocation: ScealLibraryLocation
   let libraryRepository: LibraryRepository
   let structuredNoteRepository: StructuredNoteRepository
+  let structuredListNoteRepository: StructuredNoteRepository
   let settingsRepository: SettingsRepository
   let appearanceSettingsStore: AppearanceSettingsStore
   let backupSettingsStore: BackupSettingsStore
@@ -118,9 +122,10 @@ final class NotesStore: ObservableObject {
   var hasLoaded = false
   var hasLoadedLegacyNotes = false
   var hasLoadedStructuredNotes = false
+  var hasLoadedStructuredListNotes = false
   var cachedMonthSections: [NoteMonthSection]?
   private var pendingSaveTasks: [DayNote.ID: Task<Void, Never>] = [:]
-  var pendingStructuredNoteSaveTasks: [String: Task<Void, Never>] = [:]
+  var pendingStructuredNoteSaveTasks: [StructuredNoteSaveKey: Task<Void, Never>] = [:]
   var pendingListNoteSaveTasks: [DayNote.ID: Task<Void, Never>] = [:]
   private var periodicFlushTask: Task<Void, Never>?
   var periodicBackupCheckTask: Task<Void, Never>?
@@ -168,6 +173,10 @@ final class NotesStore: ObservableObject {
       fileManager: fileManager
     )
     self.structuredNoteRepository = StructuredNoteRepository(
+      libraryLocation: resolvedLibraryLocation,
+      fileManager: fileManager
+    )
+    self.structuredListNoteRepository = StructuredNoteRepository.listNotes(
       libraryLocation: resolvedLibraryLocation,
       fileManager: fileManager
     )

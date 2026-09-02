@@ -18,6 +18,20 @@ extension NotesStore {
 
   // Loads all list notes and the manifest from disk, reconciling any mismatches.
   func loadListNotesIfNeeded() {
+    if isStructuredDailyNoteMode {
+      do {
+        try loadStructuredListNotesIfNeeded()
+        Self.listNotesLogger.info("Loaded \(self.structuredListNotes.count) structured list notes")
+      } catch {
+        Self.listNotesLogger.error(
+          "Loading structured list notes failed: \(error.localizedDescription)"
+        )
+        structuredListNotes = []
+        structuredListNoteManifest = .empty
+      }
+      return
+    }
+
     do {
       let snapshot = try libraryRepository.loadListNotes()
       listNotes = snapshot.notes
@@ -33,11 +47,7 @@ extension NotesStore {
 
   // Writes the current manifest to disk.
   func saveManifest() {
-    do {
-      try libraryRepository.saveListNotesManifest(listNoteManifest)
-    } catch {
-      report(error, context: "Saving list notes manifest failed")
-    }
+    saveActiveListManifest()
   }
 
   // MARK: - Index
@@ -49,13 +59,16 @@ extension NotesStore {
 
   // Looks up a list note by ID using the fast index.
   func listNote(withID noteID: DayNote.ID) -> DayNote? {
-    listNotesStore.note(withID: noteID)
+    if isStructuredDailyNoteMode {
+      return structuredListNoteSummaries.first(where: { $0.id == noteID })
+    }
+    return listNotesStore.note(withID: noteID)
   }
 
   // MARK: - CRUD
 
   // Generates a unique ID for a new list note (date + 6-char hex suffix).
-  private func generateListNoteID(for date: Date = .now) -> String {
+  func generateListNoteID(for date: Date = .now) -> String {
     let datePrefix = NoteDateFormatters.storageDate.string(from: date)
     let hexChars = "abcdef0123456789"
     let suffix = String((0..<6).map { _ in hexChars.randomElement()! })
@@ -66,6 +79,10 @@ extension NotesStore {
   func createListNote() {
     let now = calendar.startOfDay(for: .now)
     let noteID = generateListNoteID(for: now)
+    if isStructuredDailyNoteMode {
+      createStructuredListNote(id: noteID, date: now)
+      return
+    }
     let note = DayNote(date: now, id: noteID, title: "", tags: [], body: "")
 
     listNotes.insert(note, at: 0)
@@ -85,6 +102,10 @@ extension NotesStore {
 
   // Deletes a list note from disk and the manifest.
   func deleteListNote(noteID: DayNote.ID) {
+    if isStructuredDailyNoteMode {
+      deleteStructuredListNote(noteID: noteID)
+      return
+    }
     flushPendingListNoteSave(for: noteID)
 
     guard let note = listNote(withID: noteID) else { return }
@@ -129,11 +150,7 @@ extension NotesStore {
 
   // Returns note IDs in display order: ungrouped first, then each group's notes.
   private func flattenedListNoteIDs() -> [String] {
-    var ids = listNoteManifest.ungroupedNoteIDs
-    for group in listNoteManifest.groups where !group.isCollapsed {
-      ids.append(contentsOf: group.noteIDs)
-    }
-    return ids
+    activeListNoteManifest.flattenedNoteIDs(includingCollapsedGroups: false)
   }
 
   // MARK: - Bindings
@@ -229,53 +246,54 @@ extension NotesStore {
   // Creates a new named group and saves the manifest.
   func createGroup(name: String) {
     let group = NoteGroup(name: name)
-    listNoteManifest.groups.append(group)
+    activeListNoteManifest.groups.append(group)
     saveManifest()
   }
 
   // Renames an existing group.
   func renameGroup(groupID: String, name: String) {
-    guard let index = listNoteManifest.groups.firstIndex(where: { $0.id == groupID }) else {
+    guard let index = activeListNoteManifest.groups.firstIndex(where: { $0.id == groupID }) else {
       return
     }
-    listNoteManifest.groups[index].name = name
+    activeListNoteManifest.groups[index].name = name
     saveManifest()
   }
 
   // Deletes a group, moving its notes to ungrouped.
   func deleteGroup(groupID: String) {
-    guard let index = listNoteManifest.groups.firstIndex(where: { $0.id == groupID }) else {
+    guard let index = activeListNoteManifest.groups.firstIndex(where: { $0.id == groupID }) else {
       return
     }
-    let orphanedNoteIDs = listNoteManifest.groups[index].noteIDs
-    listNoteManifest.groups.remove(at: index)
-    listNoteManifest.ungroupedNoteIDs.append(contentsOf: orphanedNoteIDs)
+    let orphanedNoteIDs = activeListNoteManifest.groups[index].noteIDs
+    activeListNoteManifest.groups.remove(at: index)
+    activeListNoteManifest.ungroupedNoteIDs.append(contentsOf: orphanedNoteIDs)
     saveManifest()
   }
 
   // Moves a note into a specific group.
   func moveNoteToGroup(noteID: String, groupID: String) {
-    listNoteManifest.removeNoteID(noteID)
-    guard let groupIndex = listNoteManifest.groups.firstIndex(where: { $0.id == groupID }) else {
+    activeListNoteManifest.removeNoteID(noteID)
+    guard let groupIndex = activeListNoteManifest.groups.firstIndex(where: { $0.id == groupID })
+    else {
       return
     }
-    listNoteManifest.groups[groupIndex].noteIDs.append(noteID)
+    activeListNoteManifest.groups[groupIndex].noteIDs.append(noteID)
     saveManifest()
   }
 
   // Moves a note out of its group to the ungrouped section.
   func moveNoteToUngrouped(noteID: String) {
-    listNoteManifest.removeNoteID(noteID)
-    listNoteManifest.ungroupedNoteIDs.insert(noteID, at: 0)
+    activeListNoteManifest.removeNoteID(noteID)
+    activeListNoteManifest.ungroupedNoteIDs.insert(noteID, at: 0)
     saveManifest()
   }
 
   // Toggles the collapsed state of a group in the sidebar.
   func toggleGroupCollapsed(groupID: String) {
-    guard let index = listNoteManifest.groups.firstIndex(where: { $0.id == groupID }) else {
+    guard let index = activeListNoteManifest.groups.firstIndex(where: { $0.id == groupID }) else {
       return
     }
-    listNoteManifest.groups[index].isCollapsed.toggle()
+    activeListNoteManifest.groups[index].isCollapsed.toggle()
     saveManifest()
   }
 
@@ -283,31 +301,33 @@ extension NotesStore {
 
   // Moves a note to a specific index within the ungrouped list.
   func moveNoteToUngrouped(noteID: String, atIndex index: Int) {
-    listNoteManifest.removeNoteID(noteID)
-    let clampedIndex = min(index, listNoteManifest.ungroupedNoteIDs.count)
-    listNoteManifest.ungroupedNoteIDs.insert(noteID, at: clampedIndex)
+    activeListNoteManifest.removeNoteID(noteID)
+    let clampedIndex = min(index, activeListNoteManifest.ungroupedNoteIDs.count)
+    activeListNoteManifest.ungroupedNoteIDs.insert(noteID, at: clampedIndex)
     saveManifest()
   }
 
   // Moves a note to a specific index within a group.
   func moveNoteToGroup(noteID: String, groupID: String, atIndex index: Int) {
-    listNoteManifest.removeNoteID(noteID)
-    guard let groupIndex = listNoteManifest.groups.firstIndex(where: { $0.id == groupID }) else {
+    activeListNoteManifest.removeNoteID(noteID)
+    guard let groupIndex = activeListNoteManifest.groups.firstIndex(where: { $0.id == groupID })
+    else {
       return
     }
-    let clampedIndex = min(index, listNoteManifest.groups[groupIndex].noteIDs.count)
-    listNoteManifest.groups[groupIndex].noteIDs.insert(noteID, at: clampedIndex)
+    let clampedIndex = min(index, activeListNoteManifest.groups[groupIndex].noteIDs.count)
+    activeListNoteManifest.groups[groupIndex].noteIDs.insert(noteID, at: clampedIndex)
     saveManifest()
   }
 
   // Moves a group to a new position in the groups array.
   func reorderGroup(groupID: String, toIndex targetIndex: Int) {
-    guard let sourceIndex = listNoteManifest.groups.firstIndex(where: { $0.id == groupID }) else {
+    guard let sourceIndex = activeListNoteManifest.groups.firstIndex(where: { $0.id == groupID })
+    else {
       return
     }
-    let group = listNoteManifest.groups.remove(at: sourceIndex)
-    let clampedIndex = min(targetIndex, listNoteManifest.groups.count)
-    listNoteManifest.groups.insert(group, at: clampedIndex)
+    let group = activeListNoteManifest.groups.remove(at: sourceIndex)
+    let clampedIndex = min(targetIndex, activeListNoteManifest.groups.count)
+    activeListNoteManifest.groups.insert(group, at: clampedIndex)
     saveManifest()
   }
 
@@ -316,8 +336,8 @@ extension NotesStore {
   // Notes filtered by the list-mode search text.
   var filteredListNotes: [DayNote] {
     let query = listSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !query.isEmpty else { return listNotes }
-    return listNotes.filter { note in
+    guard !query.isEmpty else { return activeListNoteSummaries }
+    return activeListNoteSummaries.filter { note in
       note.title.localizedCaseInsensitiveContains(query)
         || note.tags.contains(where: { $0.localizedCaseInsensitiveContains(query) })
         || Self.searchableBody(note.body).localizedCaseInsensitiveContains(query)
@@ -333,18 +353,18 @@ extension NotesStore {
 
   // Selects the next list note in flattened display order.
   func selectNextListNote() {
-    guard let currentID = selectedListNoteID else { return }
+    guard let currentID = activeListSelectedNoteID else { return }
     let order = flattenedListNoteIDs()
     guard let idx = order.firstIndex(of: currentID), idx > 0 else { return }
-    selectedListNoteID = order[idx - 1]
+    activeListSelectedNoteID = order[idx - 1]
   }
 
   // Selects the previous list note in flattened display order.
   func selectPreviousListNote() {
-    guard let currentID = selectedListNoteID else { return }
+    guard let currentID = activeListSelectedNoteID else { return }
     let order = flattenedListNoteIDs()
     guard let idx = order.firstIndex(of: currentID), idx + 1 < order.count else { return }
-    selectedListNoteID = order[idx + 1]
+    activeListSelectedNoteID = order[idx + 1]
   }
 
   // MARK: - Active Mode Helpers
@@ -358,7 +378,7 @@ extension NotesStore {
     ActiveNoteRouting.selectedNoteID(
       route: activeNoteRoute,
       dailyNoteID: activeDailySelectedNoteID,
-      listNoteID: selectedListNoteID
+      listNoteID: activeListSelectedNoteID
     )
   }
 

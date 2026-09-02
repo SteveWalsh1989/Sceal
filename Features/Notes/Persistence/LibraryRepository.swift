@@ -12,6 +12,12 @@ struct LibraryListNotesSnapshot: Equatable, Sendable {
   let manifest: ListNotesManifest
 }
 
+struct LibraryArchiveSourceSnapshot: Equatable, Sendable {
+  let dailyNotes: [DayNote]
+  let listNotes: [DayNote]
+  let listManifest: ListNotesManifest
+}
+
 struct LibraryRepository {
   private static let logger = Logger(subsystem: "com.sceal.app", category: "libraryRepository")
   private static let manifestFileName = "groups.json"
@@ -39,6 +45,28 @@ struct LibraryRepository {
         }
       }
       .sorted(by: { $0.date > $1.date })
+  }
+
+  // Strictly reads the complete legacy library without reconciling or changing source files.
+  func loadArchiveSourceSnapshot() throws -> LibraryArchiveSourceSnapshot {
+    let dailyNotes = try markdownFileURLs(in: dailyNotesDirectoryURL())
+      .map(loadDailyNote(from:))
+      .sorted(by: { $0.date > $1.date })
+    let listNotes = try markdownFileURLs(in: listNotesDirectoryURL())
+      .map(loadListNote(from:))
+      .sorted(by: { $0.date > $1.date })
+    let manifest = try decodeManifestForArchive(
+      at: manifestFileURL(),
+      invalidError: LibraryRepositoryError.invalidLegacyManifest
+    )
+    guard manifest.allNoteIDs == Set(listNotes.map(\.id)) else {
+      throw LibraryRepositoryError.manifestMismatch
+    }
+    return LibraryArchiveSourceSnapshot(
+      dailyNotes: dailyNotes,
+      listNotes: listNotes,
+      listManifest: manifest
+    )
   }
 
   // Writes one daily note using the supported markdown codec.
@@ -134,6 +162,8 @@ struct LibraryRepository {
     try ScealLibraryStorageURLs(
       notesDirectoryURL: dailyNotesDirectoryURL(),
       listNotesDirectoryURL: listNotesDirectoryURL(),
+      structuredNotesDirectoryURL: libraryLocation.structuredNotesDirectoryURL,
+      structuredListNotesDirectoryURL: libraryLocation.structuredListNotesDirectoryURL,
       attachmentsRootURL: attachmentsRootDirectoryURL()
     )
   }
@@ -163,6 +193,40 @@ struct LibraryRepository {
     try data.write(to: manifestFileURL(), options: .atomic)
   }
 
+  // Loads and reconciles the isolated structured list-note ordering manifest.
+  func loadStructuredListNotesManifest(noteIDs: Set<String>) throws -> ListNotesManifest {
+    var manifest = decodedManifest(at: structuredManifestFileURL())
+    reconcileManifest(&manifest, with: noteIDs)
+    try saveStructuredListNotesManifest(manifest)
+    return manifest
+  }
+
+  // Strictly reads the structured list manifest without reconciling archive source data.
+  func loadStructuredListNotesManifestForArchive(
+    noteIDs: Set<String>
+  ) throws -> ListNotesManifest {
+    let manifest = try decodeManifestForArchive(
+      at: structuredManifestFileURL(),
+      invalidError: LibraryRepositoryError.invalidStructuredManifest
+    )
+    guard manifest.allNoteIDs == noteIDs else {
+      throw LibraryRepositoryError.structuredManifestMismatch
+    }
+    return manifest
+  }
+
+  // Writes list-library grouping separately from within-note structured groups.
+  func saveStructuredListNotesManifest(_ manifest: ListNotesManifest) throws {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    let data = try encoder.encode(manifest)
+    try fileManager.createDirectory(
+      at: libraryLocation.structuredListNotesDirectoryURL,
+      withIntermediateDirectories: true
+    )
+    try data.write(to: structuredManifestFileURL(), options: .atomic)
+  }
+
   // Returns the daily notes directory, creating it if needed.
   func dailyNotesDirectoryURL() throws -> URL {
     try libraryLocation.notesDirectoryURL(fileManager: fileManager)
@@ -175,6 +239,33 @@ struct LibraryRepository {
 
   private func manifestFileURL() throws -> URL {
     try listNotesDirectoryURL().appendingPathComponent(Self.manifestFileName)
+  }
+
+  private func structuredManifestFileURL() -> URL {
+    libraryLocation.structuredListNotesDirectoryURL.appendingPathComponent(Self.manifestFileName)
+  }
+
+  private func decodedManifest(at fileURL: URL) -> ListNotesManifest {
+    guard let data = try? Data(contentsOf: fileURL),
+      let manifest = try? JSONDecoder().decode(ListNotesManifest.self, from: data)
+    else { return .empty }
+    return manifest
+  }
+
+  // Treats a missing manifest as an empty library but never hides malformed archive source data.
+  private func decodeManifestForArchive(
+    at fileURL: URL,
+    invalidError: (Error) -> LibraryRepositoryError
+  ) throws -> ListNotesManifest {
+    guard fileManager.fileExists(atPath: fileURL.path) else { return .empty }
+    do {
+      return try JSONDecoder().decode(
+        ListNotesManifest.self,
+        from: Data(contentsOf: fileURL)
+      )
+    } catch {
+      throw invalidError(error)
+    }
   }
 
   private func markdownFileURLs(in directoryURL: URL) throws -> [URL] {
@@ -222,6 +313,26 @@ struct LibraryRepository {
 
     for untrackedID in noteIDsOnDisk.subtracting(trackedIDs) {
       manifest.ungroupedNoteIDs.insert(untrackedID, at: 0)
+    }
+  }
+}
+
+enum LibraryRepositoryError: LocalizedError {
+  case manifestMismatch
+  case structuredManifestMismatch
+  case invalidLegacyManifest(Error)
+  case invalidStructuredManifest(Error)
+
+  var errorDescription: String? {
+    switch self {
+    case .manifestMismatch:
+      return "The legacy list-note manifest does not match the list notes on disk."
+    case .structuredManifestMismatch:
+      return "The structured list-note manifest does not match the list notes on disk."
+    case .invalidLegacyManifest(let error):
+      return "The legacy list-note manifest is invalid. \(error.localizedDescription)"
+    case .invalidStructuredManifest(let error):
+      return "The structured list-note manifest is invalid. \(error.localizedDescription)"
     }
   }
 }

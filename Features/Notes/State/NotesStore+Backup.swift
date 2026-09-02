@@ -188,17 +188,6 @@ extension NotesStore {
   }
 
   private func performBackup(trigger: BackupTrigger, respectSchedule: Bool) {
-    guard !isStructuredDailyNoteMode else {
-      if trigger == .manual || trigger == .locationConfigured {
-        userMessage = (
-          text:
-            "Lossless Structured Notes V2 backup arrives in Stage 10. Switch to Legacy Markdown to run the existing backup.",
-          kind: .info
-        )
-      }
-      return
-    }
-
     guard backupSettings.isConfigured else {
       return
     }
@@ -226,11 +215,15 @@ extension NotesStore {
       progressMessage = "Backing up…"
     }
 
-    flushPendingSaves()
-    let dailyNotesSnapshot = notes
-    let listNotesSnapshot = listNotes
-    let manifestSnapshot = listNoteManifest
-    let templatesSnapshot = noteTemplates
+    let librarySnapshot: ScealLibrarySnapshot
+    do {
+      librarySnapshot = try makeLibrarySnapshot()
+    } catch {
+      report(error, context: "Preparing backup failed")
+      isPerformingFileOperation = false
+      progressMessage = nil
+      return
+    }
     let backupSettingsSnapshot = backupSettings
     let backupDate = Date.now
     let attachmentsRootURL = libraryRepository.attachmentsRootURL
@@ -247,10 +240,14 @@ extension NotesStore {
       do {
         let bookmarkData = try service.requireBookmarkData(from: backupSettingsSnapshot)
         let archiveURL = try service.writeManagedBackupArchive(
-          dailyNotes: dailyNotesSnapshot,
-          listNotes: listNotesSnapshot,
-          manifest: manifestSnapshot,
-          templates: templatesSnapshot,
+          dailyNotes: librarySnapshot.legacyDailyNotes,
+          listNotes: librarySnapshot.legacyListNotes,
+          manifest: librarySnapshot.legacyListManifest,
+          templates: librarySnapshot.templates,
+          structuredDailyNotes: librarySnapshot.structuredDailyNotes,
+          structuredListNotes: librarySnapshot.structuredListNotes,
+          structuredListManifest: librarySnapshot.structuredListManifest,
+          settings: librarySnapshot.settings,
           bookmarkData: bookmarkData,
           kind: trigger.archiveKind,
           schedule: backupSettingsSnapshot.schedule,

@@ -8,6 +8,7 @@ import SwiftUI
 
 struct SettingsExperimentalView: View {
   @ObservedObject var store: NotesStore
+  @State private var isShowingUpgradeConfirmation = false
 
   var body: some View {
     Form {
@@ -16,12 +17,12 @@ struct SettingsExperimentalView: View {
           .font(.headline)
 
         Text(
-          "This mode stores daily notes as editable structured sections in a separate folder. It remains opt-in while lossless full-library migration is completed."
+          "This mode stores daily and list notes as editable structured sections in separate folders. It remains opt-in during real-library testing."
         )
         .foregroundStyle(.secondary)
       }
 
-      Section("Daily-note mode") {
+      Section("Note storage mode") {
         Toggle(
           "Use Structured Notes V2",
           isOn: Binding(
@@ -40,15 +41,38 @@ struct SettingsExperimentalView: View {
         }
 
         Text(
-          "Switching modes does not migrate, replace, or synchronize files. Each mode keeps its own selection and search state."
+          "Switching back to Legacy Markdown is the rollback path. Changing this toggle never deletes, replaces, or synchronizes either library."
         )
         .font(.footnote)
         .foregroundStyle(.secondary)
       }
 
-      Section("Create structured copies") {
+      Section("Full-library upgrade") {
+        Button("Upgrade full library to Structured Notes V2...") {
+          isShowingUpgradeConfirmation = true
+        }
+        .disabled(store.isPerformingFileOperation || store.isBackupRunning)
+
+        Text(
+          "Creates a complete safety archive first, imports daily notes, list notes, and list-library groups without changing Markdown, then writes a migration comparison report. It does not enable structured mode automatically."
+        )
+        .font(.footnote)
+        .foregroundStyle(.secondary)
+      }
+
+      Section("Individual copy tools") {
         Button("Copy legacy daily notes into structured library") {
           store.copyLegacyDailyNotesToStructuredLibrary()
+        }
+        .disabled(store.isPerformingFileOperation)
+
+        Button("Copy legacy list notes into structured library") {
+          do {
+            _ = try store.copyLegacyListNotesToStructuredLibrary()
+            store.showTransientMessage("Legacy list notes copied.", kind: .info)
+          } catch {
+            store.report(error, context: "Copying legacy list notes failed")
+          }
         }
         .disabled(store.isPerformingFileOperation)
 
@@ -64,17 +88,24 @@ struct SettingsExperimentalView: View {
         storagePath("Active daily-note folder", url: store.activeDailyNotesStorageURL)
         storagePath("Legacy Markdown folder", url: store.legacyDailyNotesStorageURL)
         storagePath("Structured notes folder", url: store.structuredDailyNotesStorageURL)
-      }
-
-      Section("Current limitations") {
-        Text(
-          "Daily-note editing and portable Markdown export are available. Lossless structured backup and restore, list-note migration, and final cutover checks arrive in Stage 10. Those full-library actions stay blocked to prevent incomplete results."
-        )
-        .font(.footnote)
-        .foregroundStyle(.secondary)
+        storagePath("Structured list notes folder", url: store.structuredListNotesStorageURL)
       }
     }
     .formStyle(.grouped)
+    .confirmationDialog(
+      "Upgrade the full library?",
+      isPresented: $isShowingUpgradeConfirmation,
+      titleVisibility: .visible
+    ) {
+      Button("Create Safety Backup and Upgrade") {
+        store.upgradeFullLibraryToStructured()
+      }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text(
+        "Scéal will keep all legacy Markdown files for rollback. Structured mode remains off until you enable it after reviewing the migration report."
+      )
+    }
   }
 
   private func storagePath(_ title: String, url: URL) -> some View {

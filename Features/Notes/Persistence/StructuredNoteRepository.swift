@@ -2,7 +2,7 @@
 //  StructuredNoteRepository.swift
 //
 
-// Isolated file-backed persistence and explicit legacy-copy import for structured daily notes.
+// Isolated file-backed persistence and explicit legacy-copy import for structured notes.
 
 import Foundation
 
@@ -11,12 +11,18 @@ nonisolated struct StructuredNoteImportResult: Equatable, Sendable {
   let skipped: Int
 }
 
+nonisolated enum StructuredNoteRepositoryKind: Hashable, Sendable {
+  case daily
+  case list
+}
+
 nonisolated struct StructuredNoteRepository {
   static let fileExtension = "scealnote"
 
   let storageDirectoryURL: URL
   let legacyNotesDirectoryURL: URL
   let fileManager: FileManager
+  let kind: StructuredNoteRepositoryKind
 
   init(
     libraryLocation: ScealLibraryLocation,
@@ -25,18 +31,37 @@ nonisolated struct StructuredNoteRepository {
     self.init(
       storageDirectoryURL: libraryLocation.structuredNotesDirectoryURL,
       legacyNotesDirectoryURL: libraryLocation.legacyNotesDirectoryURL,
-      fileManager: fileManager
+      fileManager: fileManager,
+      kind: .daily
+    )
+  }
+
+  // Builds the isolated structured list-note repository beside the legacy ListNotes folder.
+  static func listNotes(
+    libraryLocation: ScealLibraryLocation,
+    fileManager: FileManager = .default
+  ) -> StructuredNoteRepository {
+    StructuredNoteRepository(
+      storageDirectoryURL: libraryLocation.structuredListNotesDirectoryURL,
+      legacyNotesDirectoryURL: libraryLocation.rootURL.appendingPathComponent(
+        ScealLibraryLocation.listNotesFolderName,
+        isDirectory: true
+      ),
+      fileManager: fileManager,
+      kind: .list
     )
   }
 
   init(
     storageDirectoryURL: URL,
     legacyNotesDirectoryURL: URL,
-    fileManager: FileManager = .default
+    fileManager: FileManager = .default,
+    kind: StructuredNoteRepositoryKind = .daily
   ) {
     self.storageDirectoryURL = storageDirectoryURL
     self.legacyNotesDirectoryURL = legacyNotesDirectoryURL
     self.fileManager = fileManager
+    self.kind = kind
   }
 
   // Loads and validates every structured daily note rather than silently dropping corruption.
@@ -52,7 +77,7 @@ nonisolated struct StructuredNoteRepository {
   // Atomically writes one validated daily document to its canonical structured filename.
   func save(_ document: StructuredNoteDocument) throws {
     try validateStorageTarget()
-    try validateDailyDocument(document)
+    try validateDocument(document)
     try createStorageDirectoryIfNeeded()
     try StructuredNoteDocumentCodec.write(document, to: fileURL(for: document.id))
   }
@@ -67,10 +92,15 @@ nonisolated struct StructuredNoteRepository {
 
   // Copies all legacy Markdown daily notes after validating the complete source set first.
   func copyLegacyDailyNotes() throws -> StructuredNoteImportResult {
+    try importPreparedDocuments(prepareLegacyDocuments())
+  }
+
+  // Decodes and validates the complete legacy source set without creating structured files.
+  func prepareLegacyDocuments() throws -> [StructuredNoteDocument] {
     try validateStorageTarget()
 
     guard fileManager.fileExists(atPath: legacyNotesDirectoryURL.path) else {
-      return StructuredNoteImportResult(imported: 0, skipped: 0)
+      return []
     }
 
     let sourceURLs = try fileManager.contentsOfDirectory(
@@ -84,11 +114,19 @@ nonisolated struct StructuredNoteRepository {
     let documents = try sourceURLs.map { sourceURL in
       try LegacyMarkdownStructuredNoteAdapter.importDocument(
         contents: String(contentsOf: sourceURL, encoding: .utf8),
-        sourceURL: sourceURL
+        sourceURL: sourceURL,
+        idOverride: kind == .list ? sourceURL.deletingPathExtension().lastPathComponent : nil
       )
     }
     try validateUniqueDocumentIDs(documents)
+    return documents
+  }
 
+  // Writes a prevalidated source set while preserving any existing same-ID structured document.
+  func importPreparedDocuments(
+    _ documents: [StructuredNoteDocument]
+  ) throws -> StructuredNoteImportResult {
+    try validateUniqueDocumentIDs(documents)
     let existingDocumentIDs = Set(try loadDocuments().map(\.id))
     let documentsToImport = documents.filter { !existingDocumentIDs.contains($0.id) }
     for document in documentsToImport {
@@ -101,7 +139,7 @@ nonisolated struct StructuredNoteRepository {
     )
   }
 
-  // Resolves a canonical file URL only after validating the daily-note storage ID.
+  // Resolves the canonical structured document URL for a stable storage ID.
   func fileURL(for documentID: String) -> URL {
     storageDirectoryURL
       .appendingPathComponent(documentID)
@@ -117,22 +155,30 @@ nonisolated struct StructuredNoteRepository {
     }
   }
 
-  // Keeps daily structured filenames date-based and unable to escape their storage directory.
-  private func validateDailyDocument(_ document: StructuredNoteDocument) throws {
+  // Keeps structured filenames safe and daily documents date-keyed.
+  private func validateDocument(_ document: StructuredNoteDocument) throws {
     try document.validate()
-    let expectedID = NoteDateFormatters.storageDate.string(from: document.date)
-    guard document.id == expectedID,
-      !document.id.contains("/"),
-      !document.id.contains(":")
-    else {
-      throw StructuredNoteRepositoryError.invalidDailyDocumentID(
-        document.id,
-        expected: expectedID
-      )
+    if kind == .daily {
+      let expectedID = NoteDateFormatters.storageDate.string(from: document.date)
+      guard document.id == expectedID else {
+        throw StructuredNoteRepositoryError.invalidDailyDocumentID(
+          document.id,
+          expected: expectedID
+        )
+      }
     }
+    guard !document.id.isEmpty,
+      !document.id.contains("/"),
+      !document.id.contains(":"),
+      document.id != ".",
+      document.id != ".."
+    else {
+      throw StructuredNoteRepositoryError.invalidDocumentID(document.id)
+    }
+
   }
 
-  // Creates only the dedicated StructuredNotes directory after the safety check passes.
+  // Creates only the dedicated structured directory after the safety check passes.
   private func createStorageDirectoryIfNeeded() throws {
     try fileManager.createDirectory(
       at: storageDirectoryURL,
@@ -154,7 +200,7 @@ nonisolated struct StructuredNoteRepository {
   private func loadDocument(from fileURL: URL) throws -> StructuredNoteDocument {
     do {
       let document = try StructuredNoteDocumentCodec.read(from: fileURL)
-      try validateDailyDocument(document)
+      try validateDocument(document)
       guard fileURL.deletingPathExtension().lastPathComponent == document.id else {
         throw StructuredNoteRepositoryError.fileNameDoesNotMatchDocumentID(
           fileURL,
@@ -179,13 +225,14 @@ nonisolated struct StructuredNoteRepository {
       guard documentIDs.insert(document.id).inserted else {
         throw StructuredNoteRepositoryError.duplicateLegacyDocumentID(document.id)
       }
-      try validateDailyDocument(document)
+      try validateDocument(document)
     }
   }
 }
 
 nonisolated enum StructuredNoteRepositoryError: LocalizedError, Equatable, Sendable {
   case refusingLegacyNotesDirectory(URL)
+  case invalidDocumentID(String)
   case invalidDailyDocumentID(String, expected: String)
   case invalidDocument(URL, reason: String)
   case fileNameDoesNotMatchDocumentID(URL, documentID: String)
@@ -195,6 +242,8 @@ nonisolated enum StructuredNoteRepositoryError: LocalizedError, Equatable, Senda
     switch self {
     case .refusingLegacyNotesDirectory(let directoryURL):
       return "Refusing to store structured notes in the legacy folder at \(directoryURL.path)."
+    case .invalidDocumentID(let documentID):
+      return "Structured note ID \(documentID) is not safe for file storage."
     case .invalidDailyDocumentID(let documentID, let expectedID):
       return "Structured daily note \(documentID) must use date-based ID \(expectedID)."
     case .invalidDocument(let fileURL, let reason):
