@@ -4,8 +4,8 @@
 
 // Multi-section daily-note editor backed directly by StructuredNoteDocument values.
 
+import AppKit
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct StructuredNoteEditorView: View {
   @Environment(\.openWindow) private var openWindow
@@ -14,6 +14,8 @@ struct StructuredNoteEditorView: View {
   @StateObject private var editorCoordinator = StructuredNoteEditorCoordinator()
   @State private var activeDragPayload: StructuredNoteDragPayload?
   @State private var activeDropTarget: StructuredNoteDropTarget?
+  @State private var isShowingAppearancePopover = false
+  @State private var fontPanelController = FontPanelController()
 
   var body: some View {
     if let document = store.selectedStructuredNote {
@@ -162,7 +164,7 @@ struct StructuredNoteEditorView: View {
       .controlSize(.small)
 
       Button {
-        openWindow(id: "settings")
+        isShowingAppearancePopover.toggle()
       } label: {
         Image(systemName: "slider.vertical.3")
           .font(.system(size: 12, weight: .semibold))
@@ -171,7 +173,20 @@ struct StructuredNoteEditorView: View {
           .background(controlColor, in: RoundedRectangle(cornerRadius: 8))
       }
       .buttonStyle(.plain)
-      .accessibilityLabel("Open appearance settings")
+      .accessibilityLabel("Open note appearance settings")
+      .popover(isPresented: $isShowingAppearancePopover, arrowEdge: .top) {
+        QuickAppearancePopover(
+          store: store,
+          showsStructuredSectionControls: true,
+          openSettings: {
+            isShowingAppearancePopover = false
+            openWindow(id: "settings")
+          },
+          openFontPanel: openFontPanel,
+          confirmDelete: {},
+          allowsDelete: false
+        )
+      }
     }
   }
 
@@ -181,6 +196,15 @@ struct StructuredNoteEditorView: View {
 
   private var accentColor: Color {
     Color(nsColor: store.effectiveAppearanceSettings.accentColor)
+  }
+
+  // Reuses the legacy header's quick font picker from the structured appearance popover.
+  private func openFontPanel() {
+    isShowingAppearancePopover = false
+    fontPanelController.present(
+      using: store.appearanceSettings,
+      onChange: store.updateBodyFontName
+    )
   }
 
   @ViewBuilder
@@ -238,13 +262,11 @@ struct StructuredNoteEditorView: View {
     )
   }
 
-  // Starts a local move session while still publishing a typed plain-text provider payload.
+  // Starts a local move session using a private pasteboard type that editors cannot insert.
   private func beginDrag(_ payload: StructuredNoteDragPayload) -> NSItemProvider {
     activeDragPayload = payload
     activeDropTarget = nil
-    let itemProvider = NSItemProvider(object: payload.encodedValue as NSString)
-    itemProvider.suggestedName = payload.encodedValue
-    return itemProvider
+    return payload.makeItemProvider()
   }
 
   // Commits a successful resolved drop through the existing structural undo stack.
@@ -426,25 +448,44 @@ private struct StructuredEditorDropZone: View {
   let accentColor: Color
 
   var body: some View {
-    HStack(spacing: 8) {
-      Capsule()
-        .fill(isActive ? accentColor : .clear)
-        .frame(height: 2)
-
+    HStack(spacing: 7) {
       if isActive {
+        Image(systemName: "arrow.down.to.line.compact")
+          .font(.system(size: 11, weight: .bold))
+
         Text(label)
-          .font(.system(size: 10, weight: .semibold))
-          .foregroundStyle(accentColor)
+          .font(.system(size: 11, weight: .semibold))
           .fixedSize()
+      } else if isAvailable {
+        Capsule()
+          .fill(accentColor.opacity(0.5))
+          .frame(width: 54, height: 2)
       }
     }
-    .padding(.horizontal, 10)
+    .foregroundStyle(accentColor)
+    .padding(.horizontal, 12)
     .frame(maxWidth: .infinity)
-    .frame(height: 18)
+    .frame(height: isActive ? 40 : (isAvailable ? 28 : 14))
+    .background {
+      if isActive {
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+          .fill(accentColor.opacity(0.12))
+          .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+              .stroke(
+                accentColor.opacity(0.8),
+                style: StrokeStyle(lineWidth: 1.5, dash: [5, 4])
+              )
+          }
+      } else if isAvailable {
+        RoundedRectangle(cornerRadius: 9, style: .continuous)
+          .fill(accentColor.opacity(0.04))
+      }
+    }
     .contentShape(Rectangle())
-    .animation(.easeOut(duration: 0.12), value: isActive)
+    .animation(.easeOut(duration: 0.14), value: isActive)
     .onDrop(
-      of: [UTType.plainText],
+      of: [StructuredNoteDragPayload.contentType],
       delegate: StructuredEditorDropDelegate(context: context, target: target)
     )
     .accessibilityHidden(!isActive)
@@ -453,6 +494,11 @@ private struct StructuredEditorDropZone: View {
 
   private var isActive: Bool {
     context.activeTarget.wrappedValue == target
+  }
+
+  private var isAvailable: Bool {
+    guard let payload = context.activePayload.wrappedValue else { return false }
+    return context.canDrop(payload, target)
   }
 }
 
@@ -504,11 +550,10 @@ private struct StructuredEditorDropDelegate: DropDelegate {
 
   // Matches the provider to this editor session so a cancelled drag cannot authorize a later one.
   private func localPayload(in info: DropInfo) -> StructuredNoteDragPayload? {
-    guard let activePayload = context.activePayload.wrappedValue else { return nil }
-    return info.itemProviders(for: [.plainText])
-      .compactMap(\.suggestedName)
-      .compactMap(StructuredNoteDragPayload.init(encodedValue:))
-      .first(where: { $0 == activePayload })
+    guard let activePayload = context.activePayload.wrappedValue,
+      info.hasItemsConforming(to: [StructuredNoteDragPayload.contentType])
+    else { return nil }
+    return activePayload
   }
 }
 
@@ -600,7 +645,7 @@ private struct StructuredSectionGroupContainer: View {
   @State private var titleDraft = ""
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 12) {
+    VStack(alignment: .leading, spacing: 10) {
       groupHeader
 
       VStack(spacing: 0) {
@@ -630,7 +675,7 @@ private struct StructuredSectionGroupContainer: View {
         }
       }
     }
-    .padding(14)
+    .padding(12)
     .background(groupBackground)
     .overlay(
       RoundedRectangle(cornerRadius: 28, style: .continuous)
@@ -657,20 +702,28 @@ private struct StructuredSectionGroupContainer: View {
         .font(.system(size: 13, weight: .semibold))
         .foregroundStyle(groupBorderColor)
 
-      VStack(alignment: .leading, spacing: 2) {
-        Text("GROUP")
-          .font(.system(size: 9, weight: .bold))
-          .tracking(1.1)
-          .foregroundStyle(.tertiary)
+      if group.displaysTypeLabel {
+        VStack(alignment: .leading, spacing: 2) {
+          Text("GROUP")
+            .font(.system(size: 9, weight: .bold))
+            .tracking(1.1)
+            .foregroundStyle(.tertiary)
 
+          Text(group.title)
+            .font(.system(size: 18, weight: .semibold))
+            .foregroundStyle(groupHeadingColor)
+        }
+      } else {
         Text(group.title)
           .font(.system(size: 18, weight: .semibold))
           .foregroundStyle(groupHeadingColor)
       }
 
-      Text(sectionCountLabel)
-        .font(.caption)
-        .foregroundStyle(.tertiary)
+      if group.displaysSectionCount {
+        Text(sectionCountLabel)
+          .font(.caption)
+          .foregroundStyle(.tertiary)
+      }
 
       Spacer()
 
@@ -684,8 +737,7 @@ private struct StructuredSectionGroupContainer: View {
         .opacity(isHovering || containsFocusedSection ? 1 : 0)
         .allowsHitTesting(isHovering || containsFocusedSection)
     }
-    .padding(.horizontal, 6)
-    .padding(.top, 2)
+    .frame(minHeight: 30)
   }
 
   private var groupOptionsMenu: some View {
@@ -697,14 +749,31 @@ private struct StructuredSectionGroupContainer: View {
 
       StructuredGroupAppearanceMenu(style: group.style, onChange: updateGroupStyle)
 
+      Menu("Header", systemImage: "rectangle.topthird.inset.filled") {
+        Toggle(
+          "Show Group Label",
+          isOn: Binding(
+            get: { group.displaysTypeLabel },
+            set: { updateGroupHeaderVisibility(showsTypeLabel: $0) }
+          )
+        )
+        Toggle(
+          "Show Section Count",
+          isOn: Binding(
+            get: { group.displaysSectionCount },
+            set: { updateGroupHeaderVisibility(showsSectionCount: $0) }
+          )
+        )
+      }
+
       Divider()
 
-      Button("Undo Structural Change", systemImage: "arrow.uturn.backward") {
+      Button("Undo", systemImage: "arrow.uturn.backward") {
         editorCoordinator.undoStructuralChange()
       }
       .disabled(!editorCoordinator.structuralUndoManager.canUndo)
 
-      Button("Redo Structural Change", systemImage: "arrow.uturn.forward") {
+      Button("Redo", systemImage: "arrow.uturn.forward") {
         editorCoordinator.redoStructuralChange()
       }
       .disabled(!editorCoordinator.structuralUndoManager.canRedo)
@@ -789,6 +858,19 @@ private struct StructuredSectionGroupContainer: View {
     }
   }
 
+  private func updateGroupHeaderVisibility(
+    showsTypeLabel: Bool? = nil,
+    showsSectionCount: Bool? = nil
+  ) {
+    performStructuralChange(actionName: "Change Group Header") { document in
+      try document.setGroupHeaderVisibility(
+        showsTypeLabel: showsTypeLabel ?? group.displaysTypeLabel,
+        showsSectionCount: showsSectionCount ?? group.displaysSectionCount,
+        groupID: group.id
+      )
+    }
+  }
+
   // Lifts every child into the group's root position without changing child state.
   private func ungroupSections() {
     performStructuralChange(actionName: "Ungroup Sections") { document in
@@ -843,6 +925,9 @@ private struct StructuredSectionEditorCard: View {
   @State private var isHovering = false
   @State private var isConfirmingDeletion = false
   @State private var isCreatingGroup = false
+  @State private var isShowingOptionsPopover = false
+  @State private var isAppearanceExpanded = false
+  @State private var isIndividualColorsExpanded = false
   @State private var groupTitleDraft = "New Group"
 
   var body: some View {
@@ -906,10 +991,10 @@ private struct StructuredSectionEditorCard: View {
       }
     }
     .background(sectionBackground)
-    .overlay(
+    .overlay {
       RoundedRectangle(cornerRadius: 22, style: .continuous)
-        .strokeBorder(sectionBorderColor, lineWidth: isFocused ? 1.5 : 1)
-    )
+        .strokeBorder(sectionBorderColor, lineWidth: sectionBorderLineWidth)
+    }
     .onHover { isHovering = $0 }
     .alert("Delete this section?", isPresented: $isConfirmingDeletion) {
       Button("Delete", role: .destructive) {
@@ -935,15 +1020,6 @@ private struct StructuredSectionEditorCard: View {
 
   private var sectionHeader: some View {
     HStack(spacing: 8) {
-      Button {
-        editorCoordinator.requestFocus(sectionID: item.id)
-      } label: {
-        Text("Section \(item.position)")
-          .font(.caption.weight(.semibold))
-          .foregroundStyle(isFocused ? accentColor : Color(nsColor: .secondaryLabelColor))
-      }
-      .buttonStyle(.plain)
-
       Spacer()
 
       StructuredEditorDragHandle(accessibilityLabel: "Move section \(item.position)") {
@@ -957,89 +1033,13 @@ private struct StructuredSectionEditorCard: View {
         .allowsHitTesting(isHovering || isFocused)
     }
     .padding(.horizontal, 18)
-    .padding(.top, 11)
+    .padding(.top, 9)
+    .frame(minHeight: 28)
   }
 
   private var sectionOptionsMenu: some View {
-    Menu {
-      Button("Add Section Below", systemImage: "plus") {
-        splitSection(
-          markdown: item.section.markdown,
-          atUTF16Offset: item.section.markdown.utf16.count
-        )
-      }
-
-      Divider()
-
-      Button("Move Up", systemImage: "arrow.up") {
-        moveSection(to: item.indexInContainer - 1)
-      }
-      .disabled(!item.canMoveUp)
-
-      Button("Move Down", systemImage: "arrow.down") {
-        moveSection(to: item.indexInContainer + 1)
-      }
-      .disabled(!item.canMoveDown)
-
-      Divider()
-
-      if item.isGrouped {
-        Button("Detach from Group", systemImage: "rectangle.portrait.and.arrow.right") {
-          detachSection()
-        }
-      } else {
-        Button("Create Group", systemImage: "square.stack.3d.up") {
-          groupTitleDraft = "New Group"
-          isCreatingGroup = true
-        }
-      }
-
-      if !item.availableGroups.isEmpty {
-        Menu("Move to Group", systemImage: "arrow.right") {
-          ForEach(item.availableGroups) { destination in
-            Button(destination.title) {
-              moveSection(toGroup: destination)
-            }
-          }
-        }
-      }
-
-      Divider()
-
-      Button("Merge With Previous", systemImage: "arrow.up.to.line") {
-        mergeSection(direction: .previous)
-      }
-      .disabled(item.previousMergeSectionID == nil)
-
-      Button("Merge With Next", systemImage: "arrow.down.to.line") {
-        mergeSection(direction: .next)
-      }
-      .disabled(item.nextMergeSectionID == nil)
-
-      StructuredSectionAppearanceMenu(
-        styleOverrides: item.section.styleOverrides,
-        inheritanceLabel: item.isGrouped ? "Inherit from Group" : "Inherit from Theme",
-        onChange: updateStyleOverrides
-      )
-
-      Divider()
-
-      Button("Undo Structural Change", systemImage: "arrow.uturn.backward") {
-        editorCoordinator.undoStructuralChange()
-      }
-      .disabled(!editorCoordinator.structuralUndoManager.canUndo)
-
-      Button("Redo Structural Change", systemImage: "arrow.uturn.forward") {
-        editorCoordinator.redoStructuralChange()
-      }
-      .disabled(!editorCoordinator.structuralUndoManager.canRedo)
-
-      Divider()
-
-      Button("Delete Section", systemImage: "trash", role: .destructive) {
-        requestSectionDeletion()
-      }
-      .disabled(!item.canDelete)
+    Button {
+      isShowingOptionsPopover.toggle()
     } label: {
       Image(systemName: "ellipsis")
         .font(.system(size: 13, weight: .semibold))
@@ -1047,10 +1047,142 @@ private struct StructuredSectionEditorCard: View {
         .frame(width: 28, height: 24)
         .contentShape(Rectangle())
     }
-    .menuStyle(.borderlessButton)
-    .menuIndicator(.hidden)
+    .buttonStyle(.plain)
     .fixedSize()
     .accessibilityLabel("Section \(item.position) options")
+    .popover(isPresented: $isShowingOptionsPopover, arrowEdge: .trailing) {
+      sectionOptionsPopover
+    }
+  }
+
+  private var sectionOptionsPopover: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      Text("Section options")
+        .font(.system(size: 14, weight: .semibold))
+
+      StructuredOptionsActionButton(title: "Add Section Below", systemImage: "plus") {
+        performOptionAction {
+          splitSection(
+            markdown: item.section.markdown,
+            atUTF16Offset: item.section.markdown.utf16.count
+          )
+        }
+      }
+
+      HStack(spacing: 8) {
+        StructuredOptionsActionButton(
+          title: "Move Up",
+          systemImage: "arrow.up",
+          isDisabled: !item.canMoveUp
+        ) {
+          performOptionAction { moveSection(to: item.indexInContainer - 1) }
+        }
+        StructuredOptionsActionButton(
+          title: "Move Down",
+          systemImage: "arrow.down",
+          isDisabled: !item.canMoveDown
+        ) {
+          performOptionAction { moveSection(to: item.indexInContainer + 1) }
+        }
+      }
+
+      if item.isGrouped {
+        StructuredOptionsActionButton(
+          title: "Detach from Group",
+          systemImage: "rectangle.portrait.and.arrow.right"
+        ) {
+          performOptionAction(detachSection)
+        }
+      } else {
+        StructuredOptionsActionButton(title: "Create Group", systemImage: "square.stack.3d.up") {
+          performOptionAction {
+            groupTitleDraft = "New Group"
+            isCreatingGroup = true
+          }
+        }
+      }
+
+      if !item.availableGroups.isEmpty {
+        Menu {
+          ForEach(item.availableGroups) { destination in
+            Button(destination.title) {
+              performOptionAction { moveSection(toGroup: destination) }
+            }
+          }
+        } label: {
+          StructuredOptionsActionLabel(title: "Move to Group", systemImage: "arrow.right")
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+      }
+
+      HStack(spacing: 8) {
+        StructuredOptionsActionButton(
+          title: "Merge Previous",
+          systemImage: "arrow.up.to.line",
+          isDisabled: item.previousMergeSectionID == nil
+        ) {
+          performOptionAction { mergeSection(direction: .previous) }
+        }
+        StructuredOptionsActionButton(
+          title: "Merge Next",
+          systemImage: "arrow.down.to.line",
+          isDisabled: item.nextMergeSectionID == nil
+        ) {
+          performOptionAction { mergeSection(direction: .next) }
+        }
+      }
+
+      Divider()
+
+      DisclosureGroup(isExpanded: $isAppearanceExpanded) {
+        StructuredSectionAppearanceControls(
+          styleOverrides: item.section.styleOverrides,
+          inheritanceLabel: item.isGrouped ? "Inherit from Group" : "Inherit from Theme",
+          showsIndividualColors: $isIndividualColorsExpanded,
+          onChange: updateStyleOverrides
+        )
+        .padding(.top, 10)
+      } label: {
+        Label("Appearance", systemImage: "paintpalette")
+          .font(.system(size: 12, weight: .semibold))
+      }
+
+      Divider()
+
+      HStack(spacing: 8) {
+        StructuredOptionsActionButton(
+          title: "Undo",
+          systemImage: "arrow.uturn.backward",
+          isDisabled: !editorCoordinator.structuralUndoManager.canUndo
+        ) {
+          performOptionAction(editorCoordinator.undoStructuralChange)
+        }
+        StructuredOptionsActionButton(
+          title: "Redo",
+          systemImage: "arrow.uturn.forward",
+          isDisabled: !editorCoordinator.structuralUndoManager.canRedo
+        ) {
+          performOptionAction(editorCoordinator.redoStructuralChange)
+        }
+      }
+
+      StructuredOptionsActionButton(
+        title: "Delete Section",
+        systemImage: "trash",
+        role: .destructive,
+        isDisabled: !item.canDelete
+      ) {
+        performOptionAction(requestSectionDeletion)
+      }
+    }
+    .padding(14)
+    .frame(width: 380)
+  }
+
+  private func performOptionAction(_ action: () -> Void) {
+    isShowingOptionsPopover = false
+    action()
   }
 
   private var focusRequest: StructuredNoteEditorCoordinator.FocusRequest? {
@@ -1071,22 +1203,11 @@ private struct StructuredSectionEditorCard: View {
   }
 
   private var sectionBackground: some View {
-    ZStack {
-      RoundedRectangle(cornerRadius: 22, style: .continuous)
-        .fill(themeColors.sectionCardFill.color)
-      if let colorName = resolvedStyle.backgroundColorName,
-        let color = ThemePalette.color(named: colorName)
-      {
-        RoundedRectangle(cornerRadius: 22, style: .continuous)
-          .fill(Color(nsColor: color).opacity(0.2))
-      }
-    }
+    RoundedRectangle(cornerRadius: 22, style: .continuous)
+      .fill(themeColors.sectionCardFill.color)
   }
 
   private var sectionBorderColor: Color {
-    if isFocused {
-      return accentColor.opacity(0.65)
-    }
     if let colorName = resolvedStyle.borderColorName,
       let color = ThemePalette.color(named: colorName)
     {
@@ -1095,8 +1216,8 @@ private struct StructuredSectionEditorCard: View {
     return themeColors.divider.color
   }
 
-  private var accentColor: Color {
-    Color(nsColor: store.effectiveAppearanceSettings.accentColor)
+  private var sectionBorderLineWidth: CGFloat {
+    isFocused && store.effectiveAppearanceSettings.highlightsFocusedSectionBorder ? 2 : 1.25
   }
 
   private var normalizedGroupTitleDraft: String {
@@ -1211,7 +1332,7 @@ private struct StructuredSectionEditorCard: View {
     }
   }
 
-  // Persists all four appearance properties as one undoable section mutation.
+  // Persists section color links and independent fallbacks as one undoable mutation.
   private func updateStyleOverrides(_ styleOverrides: StructuredSectionStyleOverrides) {
     performStructuralChange(
       actionName: "Change Section Appearance",
@@ -1287,85 +1408,218 @@ private struct StructuredSectionEditorCard: View {
   }
 }
 
-private struct StructuredSectionAppearanceMenu: View {
+private struct StructuredSectionAppearanceControls: View {
   let styleOverrides: StructuredSectionStyleOverrides
   let inheritanceLabel: String
+  @Binding var showsIndividualColors: Bool
   let onChange: (StructuredSectionStyleOverrides) -> Void
 
   var body: some View {
-    Menu("Appearance", systemImage: "paintpalette") {
-      StructuredColorOverrideMenu(
-        title: "Background",
-        currentValue: styleOverrides.backgroundColor,
-        inheritanceLabel: inheritanceLabel
-      ) { value in
-        var updated = styleOverrides
-        updated.backgroundColor = value
-        onChange(updated)
+    VStack(alignment: .leading, spacing: 12) {
+      StructuredColorOverridePalette(
+        title: "Main color",
+        currentValue: displayedPrimaryColor,
+        inheritanceLabel: inheritanceLabel,
+        onSelect: updatePrimaryColor
+      )
+
+      VStack(alignment: .leading, spacing: 7) {
+        Text("Use main color for")
+          .font(.system(size: 11, weight: .medium))
+          .foregroundStyle(.secondary)
+
+        HStack(spacing: 14) {
+          colorRoleToggle(.heading, title: "Heading")
+          colorRoleToggle(.border, title: "Border")
+          colorRoleToggle(.bullet, title: "Bullet points")
+        }
       }
 
-      StructuredColorOverrideMenu(
-        title: "Border",
-        currentValue: styleOverrides.borderColor,
-        inheritanceLabel: inheritanceLabel
-      ) { value in
-        var updated = styleOverrides
-        updated.borderColor = value
-        onChange(updated)
+      DisclosureGroup("Individual colors", isExpanded: $showsIndividualColors) {
+        VStack(alignment: .leading, spacing: 14) {
+          if allRolesFollowPrimaryColor {
+            Text("Turn off a main-color option to set its individual color.")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          } else {
+            individualColorControl(.heading, title: "Heading")
+            individualColorControl(.border, title: "Border")
+            individualColorControl(.bullet, title: "Bullet points and checkboxes")
+          }
+        }
+        .padding(.top, 9)
       }
+      .font(.system(size: 12, weight: .medium))
+    }
+  }
 
-      StructuredColorOverrideMenu(
-        title: "Headings",
-        currentValue: styleOverrides.headingColor,
-        inheritanceLabel: inheritanceLabel
-      ) { value in
-        var updated = styleOverrides
-        updated.headingColor = value
-        onChange(updated)
-      }
+  private var displayedPrimaryColor: StructuredColorOverride {
+    styleOverrides.primaryColor ?? styleOverrides.headingColor
+  }
 
-      StructuredColorOverrideMenu(
-        title: "Bullets",
-        currentValue: styleOverrides.bulletColor,
+  @ViewBuilder
+  private func colorRoleToggle(
+    _ role: StructuredSectionColorRole,
+    title: String
+  ) -> some View {
+    Toggle(
+      title,
+      isOn: Binding(
+        get: { styleOverrides.followsPrimaryColor(role) },
+        set: { updateFollowState($0, for: role) }
+      )
+    )
+    .toggleStyle(.checkbox)
+    .controlSize(.small)
+    .font(.system(size: 11, weight: .medium))
+  }
+
+  @ViewBuilder
+  private func individualColorControl(
+    _ role: StructuredSectionColorRole,
+    title: String
+  ) -> some View {
+    if !styleOverrides.followsPrimaryColor(role) {
+      StructuredColorOverridePalette(
+        title: "\(title) color",
+        currentValue: styleOverrides.independentColorOverride(for: role),
         inheritanceLabel: inheritanceLabel
-      ) { value in
+      ) { color in
         var updated = styleOverrides
-        updated.bulletColor = value
+        updated.setIndependentColorOverride(color, for: role)
         onChange(updated)
       }
     }
   }
+
+  private var allRolesFollowPrimaryColor: Bool {
+    StructuredSectionColorRole.allCases.allSatisfy(styleOverrides.followsPrimaryColor)
+  }
+
+  // Preserves existing independent choices while changing every linked role immediately.
+  private func updatePrimaryColor(_ color: StructuredColorOverride) {
+    var updated = styleOverrides
+    updated.setPrimaryColor(color)
+    onChange(updated)
+  }
+
+  // Materializes legacy inferred links before changing one persisted follow toggle.
+  private func updateFollowState(
+    _ followsPrimaryColor: Bool,
+    for role: StructuredSectionColorRole
+  ) {
+    var updated = styleOverrides
+    if updated.primaryColor == nil {
+      updated.setPrimaryColor(displayedPrimaryColor)
+    }
+    updated.setFollowsPrimaryColor(followsPrimaryColor, for: role)
+    onChange(updated)
+  }
 }
 
-private struct StructuredColorOverrideMenu: View {
+private struct StructuredOptionsActionButton: View {
+  let title: String
+  let systemImage: String
+  var role: ButtonRole? = nil
+  var isDisabled = false
+  let action: () -> Void
+
+  var body: some View {
+    Button(role: role, action: action) {
+      StructuredOptionsActionLabel(title: title, systemImage: systemImage)
+    }
+    .buttonStyle(.plain)
+    .disabled(isDisabled)
+    .opacity(isDisabled ? 0.45 : 1)
+    .frame(maxWidth: .infinity)
+  }
+}
+
+private struct StructuredOptionsActionLabel: View {
+  let title: String
+  let systemImage: String
+
+  var body: some View {
+    Label(title, systemImage: systemImage)
+      .font(.system(size: 11, weight: .medium))
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .padding(.horizontal, 9)
+      .padding(.vertical, 7)
+      .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 7))
+      .contentShape(Rectangle())
+  }
+}
+
+private struct StructuredColorOverridePalette: View {
   let title: String
   let currentValue: StructuredColorOverride
   let inheritanceLabel: String
   let onSelect: (StructuredColorOverride) -> Void
 
   var body: some View {
-    Menu(title) {
-      option(inheritanceLabel, value: .inherit)
-      option("Theme Default", value: .themeDefault)
+    VStack(alignment: .leading, spacing: 9) {
+      Text(title)
+        .font(.system(size: 12, weight: .medium))
 
-      Divider()
+      HStack(spacing: 8) {
+        textOption(inheritanceLabel, value: .inherit)
+        textOption("Theme default", value: .themeDefault)
+      }
 
-      ForEach(ThemePalette.colors.map(\.name), id: \.self) { colorName in
-        option(colorName.capitalized, value: .colorName(colorName))
+      HStack(spacing: 10) {
+        ForEach(ThemePalette.colors, id: \.name) { entry in
+          Button {
+            onSelect(.colorName(entry.name))
+          } label: {
+            Circle()
+              .fill(Color(nsColor: entry.color))
+              .frame(width: 20, height: 20)
+              .overlay {
+                Circle()
+                  .strokeBorder(
+                    paletteBorderColor(for: entry.name),
+                    lineWidth: currentValue == .colorName(entry.name) ? 2 : 1
+                  )
+              }
+          }
+          .buttonStyle(.plain)
+          .accessibilityLabel("Use \(entry.name) for \(title.lowercased())")
+        }
       }
     }
   }
 
-  private func option(_ title: String, value: StructuredColorOverride) -> some View {
+  private func textOption(
+    _ label: String,
+    value: StructuredColorOverride
+  ) -> some View {
     Button {
       onSelect(value)
     } label: {
-      if currentValue == value {
-        Label(title, systemImage: "checkmark")
-      } else {
-        Text(title)
+      HStack(spacing: 5) {
+        if currentValue == value {
+          Image(systemName: "checkmark")
+            .font(.system(size: 9, weight: .bold))
+        }
+        Text(label)
+          .lineLimit(1)
       }
+      .font(.system(size: 11, weight: .medium))
+      .padding(.horizontal, 9)
+      .padding(.vertical, 5)
+      .background(
+        currentValue == value ? Color.accentColor.opacity(0.16) : Color.secondary.opacity(0.08),
+        in: Capsule()
+      )
     }
+    .buttonStyle(.plain)
+  }
+
+  private func paletteBorderColor(for colorName: String) -> Color {
+    if currentValue == .colorName(colorName) {
+      return .primary
+    }
+    return colorName == "white" ? Color.primary.opacity(0.2) : .clear
   }
 }
 

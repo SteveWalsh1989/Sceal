@@ -125,6 +125,10 @@ nonisolated enum LegacyMarkdownStructuredNoteAdapter {
   private static func styleOverrides(
     for directive: MarkdownEditorSectionDirective
   ) -> StructuredSectionStyleOverrides {
+    guard directive.headingColorName != nil || directive.bulletColorName != nil else {
+      return .inherited
+    }
+
     let bulletColorName =
       directive.usesSectionColor
       ? directive.headingColorName ?? directive.bulletColorName

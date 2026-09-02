@@ -102,6 +102,8 @@ final class StructuredNoteDocumentCodecTests: XCTestCase {
         bulletColorName: "blue"
       ),
       isCollapsed: true,
+      showsTypeLabel: true,
+      showsSectionCount: false,
       sections: [groupedSection]
     )
 

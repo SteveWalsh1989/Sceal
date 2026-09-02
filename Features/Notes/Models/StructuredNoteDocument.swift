@@ -152,6 +152,8 @@ nonisolated struct StructuredSectionGroup: Codable, Equatable, Identifiable, Sen
   var title: String
   var style: StructuredSectionStyle
   var isCollapsed: Bool
+  var showsTypeLabel: Bool?
+  var showsSectionCount: Bool?
   var sections: [StructuredNoteSection]
 
   init(
@@ -159,14 +161,21 @@ nonisolated struct StructuredSectionGroup: Codable, Equatable, Identifiable, Sen
     title: String,
     style: StructuredSectionStyle = .themeDefault,
     isCollapsed: Bool = false,
+    showsTypeLabel: Bool? = nil,
+    showsSectionCount: Bool? = nil,
     sections: [StructuredNoteSection]
   ) {
     self.id = id
     self.title = title
     self.style = style
     self.isCollapsed = isCollapsed
+    self.showsTypeLabel = showsTypeLabel
+    self.showsSectionCount = showsSectionCount
     self.sections = sections
   }
+
+  var displaysTypeLabel: Bool { showsTypeLabel ?? false }
+  var displaysSectionCount: Bool { showsSectionCount ?? false }
 }
 
 nonisolated struct StructuredNoteSection: Codable, Equatable, Identifiable, Sendable {
@@ -197,15 +206,15 @@ nonisolated struct StructuredNoteSection: Codable, Equatable, Identifiable, Send
         groupValue: groupStyle?.backgroundColorName,
         themeValue: themeStyle.backgroundColorName
       ),
-      borderColorName: styleOverrides.borderColor.resolvedValue(
+      borderColorName: styleOverrides.effectiveColorOverride(for: .border).resolvedValue(
         groupValue: groupStyle?.borderColorName,
         themeValue: themeStyle.borderColorName
       ),
-      headingColorName: styleOverrides.headingColor.resolvedValue(
+      headingColorName: styleOverrides.effectiveColorOverride(for: .heading).resolvedValue(
         groupValue: groupStyle?.headingColorName,
         themeValue: themeStyle.headingColorName
       ),
-      bulletColorName: styleOverrides.bulletColor.resolvedValue(
+      bulletColorName: styleOverrides.effectiveColorOverride(for: .bullet).resolvedValue(
         groupValue: groupStyle?.bulletColorName,
         themeValue: themeStyle.bulletColorName
       )
@@ -239,20 +248,135 @@ nonisolated struct StructuredSectionStyleOverrides: Codable, Equatable, Sendable
   var borderColor: StructuredColorOverride
   var headingColor: StructuredColorOverride
   var bulletColor: StructuredColorOverride
+  var primaryColor: StructuredColorOverride?
+  var headingFollowsPrimaryColor: Bool?
+  var borderFollowsPrimaryColor: Bool?
+  var bulletFollowsPrimaryColor: Bool?
 
   init(
     backgroundColor: StructuredColorOverride = .inherit,
     borderColor: StructuredColorOverride = .inherit,
     headingColor: StructuredColorOverride = .inherit,
-    bulletColor: StructuredColorOverride = .inherit
+    bulletColor: StructuredColorOverride = .inherit,
+    primaryColor: StructuredColorOverride? = nil,
+    headingFollowsPrimaryColor: Bool? = nil,
+    borderFollowsPrimaryColor: Bool? = nil,
+    bulletFollowsPrimaryColor: Bool? = nil
   ) {
     self.backgroundColor = backgroundColor
     self.borderColor = borderColor
     self.headingColor = headingColor
     self.bulletColor = bulletColor
+    self.primaryColor = primaryColor
+    self.headingFollowsPrimaryColor = headingFollowsPrimaryColor
+    self.borderFollowsPrimaryColor = borderFollowsPrimaryColor
+    self.bulletFollowsPrimaryColor = bulletFollowsPrimaryColor
   }
 
-  static let inherited = StructuredSectionStyleOverrides()
+  static let inherited = StructuredSectionStyleOverrides(
+    primaryColor: .inherit,
+    headingFollowsPrimaryColor: true,
+    borderFollowsPrimaryColor: true,
+    bulletFollowsPrimaryColor: true
+  )
+
+  // Resolves a linked role to the primary color while preserving its independent fallback.
+  func effectiveColorOverride(
+    for role: StructuredSectionColorRole
+  ) -> StructuredColorOverride {
+    guard let primaryColor, followsPrimaryColor(role) else {
+      return independentColorOverride(for: role)
+    }
+    return primaryColor
+  }
+
+  // Reports persisted links and infers sensible links for documents written before this field.
+  func followsPrimaryColor(_ role: StructuredSectionColorRole) -> Bool {
+    if primaryColor != nil {
+      return storedFollowValue(for: role) ?? false
+    }
+
+    switch role {
+    case .heading:
+      return true
+    case .border:
+      return borderColor == headingColor
+    case .bullet:
+      return bulletColor == headingColor
+    }
+  }
+
+  // Introduces or changes the primary color without changing which roles currently follow it.
+  mutating func setPrimaryColor(_ color: StructuredColorOverride) {
+    let headingFollowsPrimaryColor = followsPrimaryColor(.heading)
+    let borderFollowsPrimaryColor = followsPrimaryColor(.border)
+    let bulletFollowsPrimaryColor = followsPrimaryColor(.bullet)
+    primaryColor = color
+    self.headingFollowsPrimaryColor = headingFollowsPrimaryColor
+    self.borderFollowsPrimaryColor = borderFollowsPrimaryColor
+    self.bulletFollowsPrimaryColor = bulletFollowsPrimaryColor
+  }
+
+  // Links or unlinks one role while retaining its independent color for later reuse.
+  mutating func setFollowsPrimaryColor(
+    _ followsPrimaryColor: Bool,
+    for role: StructuredSectionColorRole
+  ) {
+    switch role {
+    case .heading:
+      headingFollowsPrimaryColor = followsPrimaryColor
+    case .border:
+      borderFollowsPrimaryColor = followsPrimaryColor
+    case .bullet:
+      bulletFollowsPrimaryColor = followsPrimaryColor
+    }
+  }
+
+  // Updates one role's independent color and detaches it from the primary color.
+  mutating func setIndependentColorOverride(
+    _ color: StructuredColorOverride,
+    for role: StructuredSectionColorRole
+  ) {
+    switch role {
+    case .heading:
+      headingColor = color
+    case .border:
+      borderColor = color
+    case .bullet:
+      bulletColor = color
+    }
+    setFollowsPrimaryColor(false, for: role)
+  }
+
+  func independentColorOverride(
+    for role: StructuredSectionColorRole
+  ) -> StructuredColorOverride {
+    switch role {
+    case .heading:
+      return headingColor
+    case .border:
+      return borderColor
+    case .bullet:
+      return bulletColor
+    }
+  }
+
+  private func storedFollowValue(for role: StructuredSectionColorRole) -> Bool? {
+    switch role {
+    case .heading:
+      return headingFollowsPrimaryColor
+    case .border:
+      return borderFollowsPrimaryColor
+    case .bullet:
+      return bulletFollowsPrimaryColor
+    }
+  }
+}
+
+nonisolated enum StructuredSectionColorRole: CaseIterable, Sendable {
+  case heading
+  case border
+  case bullet
 }
 
 nonisolated enum StructuredColorOverride: Equatable, Sendable {

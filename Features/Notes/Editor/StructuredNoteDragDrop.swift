@@ -4,16 +4,22 @@
 
 // Pure drag payload and drop-target resolution for structured note nodes.
 
+import AppKit
 import Foundation
+import UniformTypeIdentifiers
 
 nonisolated enum StructuredNoteDragPayload: Equatable, Sendable {
   case section(UUID)
   case group(UUID)
 
+  static let contentType = UTType(
+    exportedAs: "com.stevewalsh.sceal.structured-note-node",
+    conformingTo: .data
+  )
   private static let sectionPrefix = "sceal-structured-section:"
   private static let groupPrefix = "sceal-structured-group:"
 
-  // Encodes a local drag item as a stable plain-text item-provider value.
+  // Encodes a local drag item as a stable value for the private pasteboard type.
   var encodedValue: String {
     switch self {
     case .section(let sectionID):
@@ -40,6 +46,22 @@ nonisolated enum StructuredNoteDragPayload: Equatable, Sendable {
     }
 
     return nil
+  }
+
+  // Publishes only a dedicated non-text type so an NSTextView cannot insert the payload.
+  @MainActor
+  func makeItemProvider() -> NSItemProvider {
+    let encodedData = Data(encodedValue.utf8)
+    let itemProvider = NSItemProvider()
+    itemProvider.suggestedName = encodedValue
+    itemProvider.registerDataRepresentation(
+      forTypeIdentifier: Self.contentType.identifier,
+      visibility: .all
+    ) { completion in
+      completion(encodedData, nil)
+      return nil
+    }
+    return itemProvider
   }
 }
 

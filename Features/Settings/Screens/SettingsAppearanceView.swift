@@ -71,6 +71,14 @@ struct SettingsAppearanceView: View {
           )
         )
 
+        Toggle(
+          "Highlight focused section border",
+          isOn: Binding(
+            get: { store.appearanceSettings.highlightsFocusedSectionBorder },
+            set: { store.updateHighlightsFocusedSectionBorder($0) }
+          )
+        )
+
         AppearanceSliderRow(
           style: .settings,
           title: "Line height",

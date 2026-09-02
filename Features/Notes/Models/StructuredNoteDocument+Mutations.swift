@@ -270,6 +270,24 @@ extension StructuredNoteDocument {
     }
   }
 
+  // Updates optional group-header metadata without changing its semantic title or children.
+  mutating func setGroupHeaderVisibility(
+    showsTypeLabel: Bool,
+    showsSectionCount: Bool,
+    groupID: UUID
+  ) throws {
+    try applyMutation { document in
+      guard let groupIndex = document.groupNodeIndex(for: groupID),
+        case .group(var group) = document.nodes[groupIndex]
+      else {
+        throw StructuredNoteDocumentError.groupNotFound(groupID)
+      }
+      group.showsTypeLabel = showsTypeLabel
+      group.showsSectionCount = showsSectionCount
+      document.nodes[groupIndex] = .group(group)
+    }
+  }
+
   // Commits a mutation only after the complete updated document validates.
   private mutating func applyMutation<Result>(
     _ mutation: (inout StructuredNoteDocument) throws -> Result

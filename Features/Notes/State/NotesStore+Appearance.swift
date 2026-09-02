@@ -59,6 +59,12 @@ extension NotesStore {
     }
   }
 
+  func updateHighlightsFocusedSectionBorder(_ highlightsFocusedSectionBorder: Bool) {
+    updateAppearanceSettings { settings in
+      settings.highlightsFocusedSectionBorder = highlightsFocusedSectionBorder
+    }
+  }
+
   func updateAccentColorName(_ accentColorName: String) {
     updateAppearanceSettings { settings in
       settings.accentColorName = accentColorName

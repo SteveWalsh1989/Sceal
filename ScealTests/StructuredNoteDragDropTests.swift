@@ -22,6 +22,21 @@ final class StructuredNoteDragDropTests: XCTestCase {
     XCTAssertNil(StructuredNoteDragPayload(encodedValue: "foreign-drag-item"))
   }
 
+  // Prevents the in-process drag data from being advertised as insertable plain text.
+  @MainActor
+  func testItemProviderPublishesOnlyStructuredDragType() {
+    let payload = StructuredNoteDragPayload.section(UUID())
+    let provider = payload.makeItemProvider()
+
+    XCTAssertEqual(
+      provider.registeredTypeIdentifiers,
+      [StructuredNoteDragPayload.contentType.identifier]
+    )
+    XCTAssertNotEqual(StructuredNoteDragPayload.contentType.identifier, "public.data")
+    XCTAssertEqual(provider.suggestedName, payload.encodedValue)
+    XCTAssertFalse(provider.hasItemConformingToTypeIdentifier("public.plain-text"))
+  }
+
   // Interprets root insertion gaps after removing the dragged section.
   func testReordersRootSectionsInBothDirections() throws {
     let first = StructuredNoteSection(markdown: "First")

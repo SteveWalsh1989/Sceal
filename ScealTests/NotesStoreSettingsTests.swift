@@ -14,6 +14,7 @@ final class NotesStoreSettingsTests: NotesStoreTestCase {
       settings.bodyFontSize = 999
       settings.lineHeight = 999
       settings.accentColorName = "not-a-real-color"
+      settings.highlightsFocusedSectionBorder = false
     }
 
     let data = try XCTUnwrap(
@@ -28,6 +29,7 @@ final class NotesStoreSettingsTests: NotesStoreTestCase {
       store.appearanceSettings.accentColorName, NoteAppearanceSettings.defaultAccentColorName)
     XCTAssertEqual(persisted.bodyFontSize, NoteAppearanceSettings.maximumBodyFontSize)
     XCTAssertEqual(persisted.accentColorName, NoteAppearanceSettings.defaultAccentColorName)
+    XCTAssertFalse(persisted.highlightsFocusedSectionBorder)
   }
 
   // Prevents a saved appearance payload from being ignored on the next launch.

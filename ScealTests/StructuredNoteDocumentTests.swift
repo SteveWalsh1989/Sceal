@@ -80,6 +80,51 @@ final class StructuredNoteDocumentTests: XCTestCase {
     XCTAssertEqual(resolved.bulletColorName, "theme-bullet")
   }
 
+  // Keeps primary-color links persistent while retaining each role's independent fallback.
+  func testPrimaryColorLinksUpdateOnlyFollowingRoles() {
+    var overrides = StructuredSectionStyleOverrides(
+      borderColor: .colorName("blue"),
+      headingColor: .colorName("blue"),
+      bulletColor: .colorName("orange")
+    )
+
+    XCTAssertTrue(overrides.followsPrimaryColor(.heading))
+    XCTAssertTrue(overrides.followsPrimaryColor(.border))
+    XCTAssertFalse(overrides.followsPrimaryColor(.bullet))
+
+    overrides.setPrimaryColor(.colorName("purple"))
+
+    XCTAssertEqual(overrides.effectiveColorOverride(for: .heading), .colorName("purple"))
+    XCTAssertEqual(overrides.effectiveColorOverride(for: .border), .colorName("purple"))
+    XCTAssertEqual(overrides.effectiveColorOverride(for: .bullet), .colorName("orange"))
+
+    overrides.setFollowsPrimaryColor(false, for: .border)
+    overrides.setIndependentColorOverride(.colorName("pink"), for: .bullet)
+
+    XCTAssertEqual(overrides.effectiveColorOverride(for: .border), .colorName("blue"))
+    XCTAssertEqual(overrides.effectiveColorOverride(for: .bullet), .colorName("pink"))
+  }
+
+  // Preserves pre-primary-color documents when optional link fields are absent.
+  func testStyleOverridesDecodeWithoutPrimaryColorFields() throws {
+    let existingOverrides = StructuredSectionStyleOverrides(
+      borderColor: .themeDefault,
+      headingColor: .colorName("blue"),
+      bulletColor: .inherit
+    )
+
+    let decodedOverrides = try JSONDecoder().decode(
+      StructuredSectionStyleOverrides.self,
+      from: JSONEncoder().encode(existingOverrides)
+    )
+
+    XCTAssertEqual(decodedOverrides, existingOverrides)
+    XCTAssertNil(decodedOverrides.primaryColor)
+    XCTAssertEqual(decodedOverrides.effectiveColorOverride(for: .border), .themeDefault)
+    XCTAssertEqual(decodedOverrides.effectiveColorOverride(for: .heading), .colorName("blue"))
+    XCTAssertEqual(decodedOverrides.effectiveColorOverride(for: .bullet), .inherit)
+  }
+
   // Ensures `/div` can split Unicode markdown using TextKit's UTF-16 caret offsets.
   func testSplitSectionUsesUTF16OffsetAndCreatesFollowingRootSection() throws {
     let section = StructuredNoteSection(markdown: "Before 🌍 after")
@@ -419,6 +464,28 @@ final class StructuredNoteDocumentTests: XCTestCase {
     XCTAssertEqual(updatedGroup.style, groupStyle)
     XCTAssertEqual(updatedGroup.sections.first?.styleOverrides, sectionOverrides)
     XCTAssertEqual(self.rootSection(in: document, at: 0)?.styleOverrides, .inherited)
+  }
+
+  // Keeps optional group-header metadata hidden by default and persists explicit choices.
+  func testGroupHeaderVisibilityDefaultsOffAndMutatesIndependently() throws {
+    let group = StructuredSectionGroup(
+      title: "Feature",
+      sections: [StructuredNoteSection(markdown: "Grouped")]
+    )
+    var document = makeDocument(nodes: [.group(group)])
+
+    XCTAssertFalse(group.displaysTypeLabel)
+    XCTAssertFalse(group.displaysSectionCount)
+
+    try document.setGroupHeaderVisibility(
+      showsTypeLabel: true,
+      showsSectionCount: false,
+      groupID: group.id
+    )
+
+    let updatedGroup = try XCTUnwrap(self.group(in: document, id: group.id))
+    XCTAssertTrue(updatedGroup.displaysTypeLabel)
+    XCTAssertFalse(updatedGroup.displaysSectionCount)
   }
 
   // Restores group inheritance per property when an explicit section override is cleared.
