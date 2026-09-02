@@ -29,7 +29,7 @@ nonisolated enum LegacyMarkdownStructuredNoteAdapter {
   }
 
   // Splits only active section directives while preserving protected Markdown blocks verbatim.
-  private static func sections(from body: String) -> [StructuredNoteSection] {
+  static func sections(from body: String) -> [StructuredNoteSection] {
     let lines = body.components(separatedBy: "\n")
     var sections: [StructuredNoteSection] = []
     var sectionLines: [String] = []

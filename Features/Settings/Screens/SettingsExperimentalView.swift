@@ -16,7 +16,7 @@ struct SettingsExperimentalView: View {
           .font(.headline)
 
         Text(
-          "This mode stores daily notes as editable structured sections in a separate folder. It remains opt-in while section controls and feature parity are built."
+          "This mode stores daily notes as editable structured sections in a separate folder. It remains opt-in while lossless full-library migration is completed."
         )
         .foregroundStyle(.secondary)
       }
@@ -68,7 +68,7 @@ struct SettingsExperimentalView: View {
 
       Section("Current limitations") {
         Text(
-          "Basic section editing is available. Section splitting, options, and keyboard boundary navigation arrive in Stage 5. Portable export is connected in Stage 9, and lossless structured backup and restore arrive in Stage 10. Those legacy-only actions stay blocked to prevent incomplete results."
+          "Daily-note editing and portable Markdown export are available. Lossless structured backup and restore, list-note migration, and final cutover checks arrive in Stage 10. Those full-library actions stay blocked to prevent incomplete results."
         )
         .font(.footnote)
         .foregroundStyle(.secondary)

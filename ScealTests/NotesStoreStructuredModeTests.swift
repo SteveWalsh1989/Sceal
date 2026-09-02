@@ -514,6 +514,191 @@ final class NotesStoreStructuredModeTests: NotesStoreTestCase {
     XCTAssertEqual(savedDocument.title, "Saved before navigation")
   }
 
+  // Applies a custom template default as real sections when opening today's structured note.
+  func testStructuredTodayCreationAppliesTemplateDefault() throws {
+    let userDefaults = makeUserDefaults()
+    let libraryLocation = makeLibraryLocation()
+    SettingsRepository(userDefaults: userDefaults).saveDailyNoteStorageMode(
+      .structuredExperimental
+    )
+    let template = NoteTemplate(
+      title: "Daily plan",
+      command: "daily-plan",
+      body: "# Plan\n\n- First\n<!-- section -->\n# Review",
+      sectionColorName: "purple",
+      startsWithDivider: true,
+      endsWithDivider: true
+    )
+    let store = makeStore(userDefaults: userDefaults, libraryLocation: libraryLocation)
+    store.loadIfNeeded()
+    store.replaceNoteTemplates([template])
+    store.updateNewNoteDefault(.template(template.id))
+
+    store.selectToday()
+    store.flushPendingSaves()
+
+    let document = try XCTUnwrap(store.selectedStructuredNote)
+    let sections = sectionIDs(in: document).compactMap { section(in: document, id: $0) }
+    XCTAssertEqual(sections.map(\.markdown), ["", "# Plan\n\n- First", "# Review", ""])
+    XCTAssertTrue(
+      sections.allSatisfy { !$0.markdown.contains("<!-- section") }
+    )
+    XCTAssertEqual(sections[1].styleOverrides.borderColor, .colorName("purple"))
+    XCTAssertEqual(
+      try StructuredNoteDocumentCodec.read(
+        from: store.structuredNoteRepository.fileURL(for: document.id)
+      ),
+      document
+    )
+  }
+
+  // Copies the prior document's groups, styles, and attachments with fresh stable node IDs.
+  func testStructuredCopyPreviousDefaultDuplicatesCompleteDocumentAndAttachments() throws {
+    let userDefaults = makeUserDefaults()
+    let libraryLocation = makeLibraryLocation()
+    SettingsRepository(userDefaults: userDefaults).saveDailyNoteStorageMode(
+      .structuredExperimental
+    )
+    let store = makeStore(userDefaults: userDefaults, libraryLocation: libraryLocation)
+    let previousDate = store.calendar.date(byAdding: .day, value: -1, to: Date.now)!
+    let normalizedPreviousDate = store.calendar.startOfDay(for: previousDate)
+    let previousID = NoteDateFormatters.storageDate.string(from: normalizedPreviousDate)
+    let sourceSection = StructuredNoteSection(
+      markdown: "![Desk](../Attachments/\(previousID)/desk.png)",
+      styleOverrides: StructuredSectionStyleOverrides(borderColor: .colorName("orange")),
+      isCollapsed: true
+    )
+    let sourceGroup = StructuredSectionGroup(
+      title: "Feature",
+      style: StructuredSectionStyle(headingColorName: "blue"),
+      isCollapsed: true,
+      sections: [sourceSection]
+    )
+    let sourceDocument = StructuredNoteDocument(
+      id: previousID,
+      date: normalizedPreviousDate,
+      title: "Previous",
+      tags: ["copy"],
+      nodes: [.group(sourceGroup)]
+    )
+    try store.structuredNoteRepository.save(sourceDocument)
+    let sourceAttachmentURL = store.libraryRepository.attachmentsRootURL
+      .appendingPathComponent(previousID, isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: sourceAttachmentURL,
+      withIntermediateDirectories: true
+    )
+    try Data("image".utf8).write(to: sourceAttachmentURL.appendingPathComponent("desk.png"))
+    store.loadIfNeeded()
+    store.updateNewNoteDefault(.copyPrevious)
+
+    store.selectToday()
+
+    let copiedDocument = try XCTUnwrap(store.selectedStructuredNote)
+    XCTAssertNotEqual(copiedDocument.id, sourceDocument.id)
+    XCTAssertEqual(copiedDocument.title, sourceDocument.title)
+    XCTAssertEqual(copiedDocument.tags, sourceDocument.tags)
+    guard case .group(let copiedGroup) = copiedDocument.nodes.first else {
+      return XCTFail("Expected the copied group.")
+    }
+    XCTAssertNotEqual(copiedGroup.id, sourceGroup.id)
+    XCTAssertNotEqual(copiedGroup.sections[0].id, sourceSection.id)
+    XCTAssertEqual(copiedGroup.style, sourceGroup.style)
+    XCTAssertTrue(copiedGroup.isCollapsed)
+    XCTAssertTrue(copiedGroup.sections[0].isCollapsed)
+    XCTAssertTrue(copiedGroup.sections[0].markdown.contains(copiedDocument.id))
+    XCTAssertTrue(
+      FileManager.default.fileExists(
+        atPath: store.libraryRepository.attachmentsRootURL
+          .appendingPathComponent(copiedDocument.id)
+          .appendingPathComponent("desk.png").path
+      )
+    )
+  }
+
+  // Routes date changes through structured persistence while retaining the source attachment folder.
+  func testStructuredDateChangeMovesDocumentAndCopiesAttachments() throws {
+    let userDefaults = makeUserDefaults()
+    let libraryLocation = makeLibraryLocation()
+    SettingsRepository(userDefaults: userDefaults).saveDailyNoteStorageMode(
+      .structuredExperimental
+    )
+    let sourceDate = makeDate(year: 2026, month: 8, day: 1)
+    let targetDate = makeDate(year: 2026, month: 8, day: 2)
+    let sourceID = NoteDateFormatters.storageDate.string(from: sourceDate)
+    let targetID = NoteDateFormatters.storageDate.string(from: targetDate)
+    let sourceSection = StructuredNoteSection(
+      markdown: "![Desk](../Attachments/\(sourceID)/desk.png)"
+    )
+    let document = StructuredNoteDocument(
+      id: sourceID,
+      date: sourceDate,
+      title: "Move",
+      tags: [],
+      nodes: [.section(sourceSection)]
+    )
+    let repository = StructuredNoteRepository(libraryLocation: libraryLocation)
+    try repository.save(document)
+    let sourceAttachmentURL = libraryLocation.rootURL
+      .appendingPathComponent("Attachments/\(sourceID)", isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: sourceAttachmentURL,
+      withIntermediateDirectories: true
+    )
+    try Data("image".utf8).write(to: sourceAttachmentURL.appendingPathComponent("desk.png"))
+    let store = makeStore(userDefaults: userDefaults, libraryLocation: libraryLocation)
+    store.loadIfNeeded()
+
+    store.changeDate(noteID: sourceID, to: targetDate)
+
+    let movedDocument = try XCTUnwrap(store.selectedStructuredNote)
+    XCTAssertEqual(movedDocument.id, targetID)
+    XCTAssertEqual(sectionIDs(in: movedDocument), [sourceSection.id])
+    XCTAssertFalse(FileManager.default.fileExists(atPath: repository.fileURL(for: sourceID).path))
+    XCTAssertTrue(FileManager.default.fileExists(atPath: repository.fileURL(for: targetID).path))
+    XCTAssertTrue(FileManager.default.fileExists(atPath: sourceAttachmentURL.path))
+    XCTAssertTrue(
+      FileManager.default.fileExists(
+        atPath: libraryLocation.rootURL
+          .appendingPathComponent("Attachments/\(targetID)/desk.png").path
+      )
+    )
+    XCTAssertEqual(
+      section(in: movedDocument, id: sourceSection.id)?.markdown,
+      "![Desk](../Attachments/\(targetID)/desk.png)"
+    )
+  }
+
+  // Deletes only the structured document so a legacy note can retain its shared attachments.
+  func testStructuredDeleteLeavesSharedAttachmentsUntouched() throws {
+    let userDefaults = makeUserDefaults()
+    let libraryLocation = makeLibraryLocation()
+    SettingsRepository(userDefaults: userDefaults).saveDailyNoteStorageMode(
+      .structuredExperimental
+    )
+    let date = makeDate(year: 2026, month: 8, day: 3)
+    let documentID = NoteDateFormatters.storageDate.string(from: date)
+    let document = StructuredNoteDocument.empty(id: documentID, date: date)
+    let repository = StructuredNoteRepository(libraryLocation: libraryLocation)
+    try repository.save(document)
+    let attachmentURL = libraryLocation.rootURL
+      .appendingPathComponent("Attachments/\(documentID)/desk.png")
+    try FileManager.default.createDirectory(
+      at: attachmentURL.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try Data("image".utf8).write(to: attachmentURL)
+    let store = makeStore(userDefaults: userDefaults, libraryLocation: libraryLocation)
+    store.loadIfNeeded()
+
+    store.delete(noteID: documentID)
+
+    XCTAssertTrue(store.structuredNotes.isEmpty)
+    XCTAssertNil(store.selectedStructuredNoteID)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: repository.fileURL(for: documentID).path))
+    XCTAssertTrue(FileManager.default.fileExists(atPath: attachmentURL.path))
+  }
+
   // Collects stable section IDs from root and grouped structured nodes.
   private func sectionIDs(in document: StructuredNoteDocument) -> [UUID] {
     document.nodes.flatMap { node in

@@ -34,7 +34,10 @@ struct AppRootView: View {
         if store.isStructuredDailyModeActive {
           StructuredNoteEditorView(
             store: store,
-            sidebarCollapsed: columnVisibility == .detailOnly
+            sidebarCollapsed: columnVisibility == .detailOnly,
+            requestDelete: { noteID in
+              notePendingDeletionID = noteID
+            }
           )
         } else if let activeNoteID = store.activeSelectedNoteID {
           NotesEditorView(
@@ -168,7 +171,7 @@ struct AppRootView: View {
     Binding(
       get: {
         guard let noteID = notePendingDateChangeID,
-          let note = store.note(withID: noteID)
+          let note = store.activeDailyNoteSummary(withID: noteID)
         else { return nil }
         return DateChangeContext(id: noteID, date: note.date)
       },

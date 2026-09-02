@@ -83,9 +83,10 @@ class NotesStoreTestCase: XCTestCase {
     userDefaults: UserDefaults? = nil,
     libraryLocation: ScealLibraryLocation? = nil
   ) -> NotesStore {
-    NotesStore(
+    let resolvedUserDefaults = userDefaults ?? makeUserDefaults()
+    return NotesStore(
       calendar: Calendar(identifier: .gregorian),
-      userDefaults: userDefaults ?? .standard,
+      userDefaults: resolvedUserDefaults,
       libraryLocation: libraryLocation ?? makeLibraryLocation(),
       previewNotes: previewNotes
     )

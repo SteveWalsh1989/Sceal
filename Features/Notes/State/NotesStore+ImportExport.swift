@@ -105,20 +105,29 @@ extension NotesStore {
 
   // Exports notes within a date range to a zip file at a user-chosen location.
   func exportNotes(startDate: Date, endDate: Date) {
-    guard !isStructuredDailyNoteMode else {
-      userMessage = (
-        text: "Structured Notes V2 portable export is connected in Stage 9.",
-        kind: .info
-      )
-      return
-    }
-
     flushPendingSaves()
 
-    let filtered = notes.filter { note in
-      let noteDay = calendar.startOfDay(for: note.date)
-      return noteDay >= calendar.startOfDay(for: startDate)
-        && noteDay <= calendar.startOfDay(for: endDate)
+    let filtered: [DayNote]
+    do {
+      if isStructuredDailyNoteMode {
+        filtered =
+          try structuredNotes
+          .filter { document in
+            let noteDay = calendar.startOfDay(for: document.date)
+            return noteDay >= calendar.startOfDay(for: startDate)
+              && noteDay <= calendar.startOfDay(for: endDate)
+          }
+          .map(StructuredNoteMarkdownExporter.dayNote(for:))
+      } else {
+        filtered = notes.filter { note in
+          let noteDay = calendar.startOfDay(for: note.date)
+          return noteDay >= calendar.startOfDay(for: startDate)
+            && noteDay <= calendar.startOfDay(for: endDate)
+        }
+      }
+    } catch {
+      report(error, context: "Preparing notes for export failed")
+      return
     }
 
     guard !filtered.isEmpty else {

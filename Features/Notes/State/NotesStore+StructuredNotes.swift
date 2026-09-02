@@ -68,6 +68,14 @@ extension NotesStore {
     }
   }
 
+  // Returns the active daily-note summary used by shared sidebar dialogs.
+  func activeDailyNoteSummary(withID noteID: DayNote.ID) -> DayNote? {
+    if isStructuredDailyNoteMode {
+      return structuredNoteSummaries.first(where: { $0.id == noteID })
+    }
+    return note(withID: noteID)
+  }
+
   // Switches daily-note storage without resetting or rewriting either isolated library.
   func updateDailyNoteStorageMode(_ mode: DailyNoteStorageMode) {
     guard dailyNoteStorageMode != mode else { return }
@@ -133,6 +141,7 @@ extension NotesStore {
     guard !hasLoadedStructuredNotes else { return }
     let loadedDocuments = try structuredNoteRepository.loadDocuments()
     structuredNotes = loadedDocuments
+    cachedMonthSections = nil
     if !loadedDocuments.contains(where: { $0.id == selectedStructuredNoteID }) {
       selectedStructuredNoteID = loadedDocuments.first?.id
     }
@@ -219,6 +228,7 @@ extension NotesStore {
   // Updates the isolated structured search query.
   func updateStructuredSearchText(_ text: String) {
     structuredSearchText = text
+    cachedMonthSections = nil
   }
 
   // Updates the isolated structured search expansion state.
@@ -275,12 +285,75 @@ extension NotesStore {
   // Opens an existing structured day or creates a blank structured document for that date.
   func selectStructuredDailyDate(_ date: Date) {
     do {
-      let document = try ensureStructuredDailyNoteExists(for: date)
+      let document = try ensureStructuredDailyNoteExists(
+        for: date,
+        applyDefault: calendar.isDateInToday(date)
+      )
       selectStructuredNote(document.id)
       userMessage = nil
     } catch {
       report(error, context: "Creating structured note failed")
     }
+  }
+
+  // Moves a structured note while preserving section identity and leaving legacy attachments intact.
+  func changeStructuredNoteDate(noteID: DayNote.ID, to newDate: Date) {
+    let targetDate = calendar.startOfDay(for: newDate)
+    let targetID = NoteDateFormatters.storageDate.string(from: targetDate)
+    guard let sourceDocument = structuredDocument(withID: noteID) else { return }
+
+    if structuredDocument(withID: targetID) != nil {
+      let formatted = NoteDateFormatters.editorDate.string(from: targetDate)
+      userMessage = (text: "A note already exists for \(formatted).", kind: .error)
+      return
+    }
+
+    flushPendingStructuredNoteSave(for: noteID)
+    let movedDocument = rewritingStructuredDocument(
+      sourceDocument,
+      id: targetID,
+      date: targetDate,
+      regeneratesNodeIDs: false
+    )
+
+    do {
+      try structuredNoteRepository.save(movedDocument)
+      do {
+        try libraryRepository.copyAttachments(from: sourceDocument.id, to: targetID)
+        try structuredNoteRepository.delete(documentID: sourceDocument.id)
+      } catch {
+        try? structuredNoteRepository.delete(documentID: targetID)
+        throw error
+      }
+    } catch {
+      report(error, context: "Changing structured note date failed")
+      return
+    }
+
+    structuredNotes.removeAll(where: { $0.id == noteID })
+    structuredNotes.append(movedDocument)
+    structuredNotes.sort(by: { $0.date > $1.date })
+    cachedMonthSections = nil
+    selectedStructuredNoteID = movedDocument.id
+  }
+
+  // Deletes one structured document without removing attachments shared by the legacy library.
+  func deleteStructuredNote(noteID: DayNote.ID) {
+    guard structuredDocument(withID: noteID) != nil else { return }
+    let adjacentNoteIDs = adjacentStructuredNoteIDs(for: noteID)
+    flushPendingStructuredNoteSave(for: noteID)
+
+    do {
+      try structuredNoteRepository.delete(documentID: noteID)
+    } catch {
+      report(error, context: "Deleting structured note failed")
+      return
+    }
+
+    structuredNotes.removeAll(where: { $0.id == noteID })
+    cachedMonthSections = nil
+    selectedStructuredNoteID =
+      adjacentNoteIDs.previous ?? adjacentNoteIDs.next ?? structuredNotes.first?.id
   }
 
   // Immediately persists every debounced structured document save.
@@ -354,6 +427,7 @@ extension NotesStore {
     var updatedDocuments = structuredNotes
     updatedDocuments[documentIndex] = updatedDocument
     structuredNotes = updatedDocuments
+    cachedMonthSections = nil
     scheduleStructuredNoteSave(for: documentID)
   }
 
@@ -380,17 +454,147 @@ extension NotesStore {
   }
 
   // Creates one valid blank structured daily note and persists it before displaying it.
-  private func ensureStructuredDailyNoteExists(for date: Date) throws -> StructuredNoteDocument {
+  private func ensureStructuredDailyNoteExists(
+    for date: Date,
+    applyDefault: Bool
+  ) throws -> StructuredNoteDocument {
     let startOfDay = calendar.startOfDay(for: date)
     let documentID = NoteDateFormatters.storageDate.string(from: startOfDay)
     if let existingDocument = structuredDocument(withID: documentID) {
       return existingDocument
     }
 
-    let document = StructuredNoteDocument.empty(id: documentID, date: startOfDay)
+    let document = try makeStructuredDailyNote(
+      id: documentID,
+      date: startOfDay,
+      applyDefault: applyDefault
+    )
     try structuredNoteRepository.save(document)
+
+    if applyDefault, case .copyPrevious = effectiveNewNoteDefault,
+      let sourceDocument = structuredNotes.first
+    {
+      do {
+        try libraryRepository.copyAttachments(from: sourceDocument.id, to: document.id)
+      } catch {
+        try? structuredNoteRepository.delete(documentID: document.id)
+        throw error
+      }
+    }
+
     structuredNotes = (structuredNotes + [document]).sorted(by: { $0.date > $1.date })
+    cachedMonthSections = nil
     return document
+  }
+
+  // Builds a blank, copied, or template-backed structured note using the shared daily preference.
+  private func makeStructuredDailyNote(
+    id: String,
+    date: Date,
+    applyDefault: Bool
+  ) throws -> StructuredNoteDocument {
+    guard applyDefault else { return .empty(id: id, date: date) }
+
+    if case .copyPrevious = effectiveNewNoteDefault, let previousDocument = structuredNotes.first {
+      return rewritingStructuredDocument(
+        previousDocument,
+        id: id,
+        date: date,
+        regeneratesNodeIDs: true
+      )
+    }
+
+    if case .template(let templateID) = effectiveNewNoteDefault,
+      let template = noteTemplate(withID: templateID)
+    {
+      let insertion = try StructuredNoteTemplateAdapter.insert(
+        StructuredTemplateInsertionRequest(
+          leadingMarkdown: "",
+          trailingMarkdown: "",
+          template: template,
+          preservesReplacedLineBreak: false
+        ),
+        replacing: StructuredNoteSection()
+      )
+      return StructuredNoteDocument(
+        id: id,
+        date: date,
+        title: "",
+        tags: [],
+        nodes: insertion.sections.map(StructuredNoteNode.section)
+      )
+    }
+
+    return .empty(id: id, date: date)
+  }
+
+  // Rewrites attachment paths and optionally refreshes node IDs for a copied daily document.
+  private func rewritingStructuredDocument(
+    _ document: StructuredNoteDocument,
+    id: String,
+    date: Date,
+    regeneratesNodeIDs: Bool
+  ) -> StructuredNoteDocument {
+    let nodes = document.nodes.map { node -> StructuredNoteNode in
+      switch node {
+      case .section(let section):
+        return .section(
+          rewrittenStructuredSection(
+            section,
+            from: document.id,
+            to: id,
+            regeneratesID: regeneratesNodeIDs
+          )
+        )
+
+      case .group(let group):
+        return .group(
+          StructuredSectionGroup(
+            id: regeneratesNodeIDs ? UUID() : group.id,
+            title: group.title,
+            style: group.style,
+            isCollapsed: group.isCollapsed,
+            showsTypeLabel: group.showsTypeLabel,
+            showsSectionCount: group.showsSectionCount,
+            sections: group.sections.map {
+              rewrittenStructuredSection(
+                $0,
+                from: document.id,
+                to: id,
+                regeneratesID: regeneratesNodeIDs
+              )
+            }
+          )
+        )
+      }
+    }
+
+    return StructuredNoteDocument(
+      id: id,
+      date: date,
+      title: document.title,
+      tags: document.tags,
+      nodes: nodes
+    )
+  }
+
+  // Rewrites attachment references while retaining all section presentation state.
+  private func rewrittenStructuredSection(
+    _ section: StructuredNoteSection,
+    from sourceID: String,
+    to destinationID: String,
+    regeneratesID: Bool
+  ) -> StructuredNoteSection {
+    StructuredNoteSection(
+      id: regeneratesID ? UUID() : section.id,
+      markdown: NoteImageAttachmentStore.rewritingAttachmentReferences(
+        in: section.markdown,
+        from: sourceID,
+        to: destinationID
+      ),
+      styleOverrides: section.styleOverrides,
+      isCollapsed: section.isCollapsed
+    )
   }
 
   // Produces searchable sidebar text without invoking the throwing portable export boundary.

@@ -172,6 +172,56 @@ enum NoteImageAttachmentStore {
     try fileManager.moveItem(at: sourceURL, to: destinationURL)
   }
 
+  // Copies missing attachments without overwriting files already owned by the destination note.
+  nonisolated static func copyAttachments(
+    from oldNoteID: DayNote.ID,
+    to newNoteID: DayNote.ID,
+    fileManager: FileManager = .default,
+    rootURL: URL? = nil
+  ) throws {
+    let sourceURL = try noteAttachmentDirectoryURL(
+      for: oldNoteID,
+      fileManager: fileManager,
+      rootURL: rootURL,
+      createIfNeeded: false
+    )
+    guard fileManager.fileExists(atPath: sourceURL.path) else { return }
+
+    let destinationURL = try noteAttachmentDirectoryURL(
+      for: newNoteID,
+      fileManager: fileManager,
+      rootURL: rootURL,
+      createIfNeeded: false
+    )
+    let sourceFileURLs = try fileManager.contentsOfDirectory(
+      at: sourceURL,
+      includingPropertiesForKeys: nil,
+      options: [.skipsHiddenFiles]
+    )
+
+    for sourceFileURL in sourceFileURLs {
+      let destinationFileURL = destinationURL.appendingPathComponent(
+        sourceFileURL.lastPathComponent
+      )
+      guard fileManager.fileExists(atPath: destinationFileURL.path) else { continue }
+      guard try Data(contentsOf: sourceFileURL) == Data(contentsOf: destinationFileURL) else {
+        throw NoteImageAttachmentStoreError.conflictingAttachment(
+          destinationFileURL.lastPathComponent,
+          noteID: newNoteID
+        )
+      }
+    }
+
+    try fileManager.createDirectory(at: destinationURL, withIntermediateDirectories: true)
+    for sourceFileURL in sourceFileURLs {
+      let destinationFileURL = destinationURL.appendingPathComponent(
+        sourceFileURL.lastPathComponent
+      )
+      guard !fileManager.fileExists(atPath: destinationFileURL.path) else { continue }
+      try fileManager.copyItem(at: sourceFileURL, to: destinationFileURL)
+    }
+  }
+
   nonisolated static func copyAttachmentFolders(
     for noteIDs: Set<DayNote.ID>,
     from sourceRootURL: URL,
@@ -350,6 +400,7 @@ enum NoteImageAttachmentStore {
 enum NoteImageAttachmentStoreError: LocalizedError {
   case unsupportedImage(URL)
   case imageEncodingFailed
+  case conflictingAttachment(String, noteID: String)
 
   var errorDescription: String? {
     switch self {
@@ -357,6 +408,8 @@ enum NoteImageAttachmentStoreError: LocalizedError {
       return "\(url.lastPathComponent) is not a supported image file."
     case .imageEncodingFailed:
       return "Scéal could not encode the pasted image."
+    case .conflictingAttachment(let fileName, let noteID):
+      return "Attachment \(fileName) already has different contents for note \(noteID)."
     }
   }
 }

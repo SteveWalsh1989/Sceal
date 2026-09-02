@@ -65,6 +65,127 @@ final class EditorSlashCommandTests: EditorTestCase {
     XCTAssertEqual(document.nodes.compactMap(sectionMarkdown), ["# Before", "After"])
   }
 
+  // Keeps the legacy `/section` alias structural and hidden from persisted section content.
+  func testStructuredSectionAliasReturnsStructuralSplit() async {
+    let markdown = MarkdownBox("Before\n/section\nAfter")
+    var splitMarkdown: String?
+    let splitExpectation = expectation(description: "Structured alias split callback")
+    let editor = MarkdownEditorView(
+      noteID: "2026-09-02#section",
+      text: Binding(
+        get: { markdown.value },
+        set: { markdown.value = $0 }
+      ),
+      appearanceSettings: appearance,
+      allowsSlashCommands: false,
+      interpretsSectionDirectives: false,
+      onStructuredSectionSplit: { returnedMarkdown, _ in
+        splitMarkdown = returnedMarkdown
+        splitExpectation.fulfill()
+      }
+    )
+    let coordinator = editor.makeCoordinator()
+    let fixture = makeRawEditorFixture(string: markdown.value)
+    fixture.textView.delegate = coordinator
+    let commandRange = (fixture.textView.string as NSString).range(of: "/section")
+    fixture.textView.setSelectedRange(NSRange(location: NSMaxRange(commandRange), length: 0))
+
+    XCTAssertTrue(
+      coordinator.textView(
+        fixture.textView,
+        doCommandBy: #selector(NSResponder.insertNewline(_:))
+      )
+    )
+    await fulfillment(of: [splitExpectation], timeout: 1)
+
+    XCTAssertEqual(splitMarkdown, "BeforeAfter")
+    XCTAssertFalse(splitMarkdown?.contains("/section") == true)
+    XCTAssertFalse(splitMarkdown?.contains("<!-- section") == true)
+  }
+
+  // Runs popup completion through the structured split callback instead of inserting a marker.
+  func testStructuredDividerPopupSelectionCreatesStructuralRequest() async throws {
+    let markdown = MarkdownBox("Before\n/di\nAfter")
+    var splitMarkdown: String?
+    let splitExpectation = expectation(description: "Structured popup split callback")
+    let editor = MarkdownEditorView(
+      noteID: "2026-09-02#section",
+      text: Binding(
+        get: { markdown.value },
+        set: { markdown.value = $0 }
+      ),
+      appearanceSettings: appearance,
+      allowsSlashCommands: true,
+      interpretsSectionDirectives: false,
+      onStructuredSectionSplit: { returnedMarkdown, _ in
+        splitMarkdown = returnedMarkdown
+        splitExpectation.fulfill()
+      }
+    )
+    let coordinator = editor.makeCoordinator()
+    let fixture = makeRawEditorFixture(string: markdown.value)
+    fixture.textView.delegate = coordinator
+    let commandRange = (fixture.textView.string as NSString).range(of: "/di")
+    fixture.textView.setSelectedRange(NSRange(location: NSMaxRange(commandRange), length: 0))
+    coordinator.textDidChange(
+      Notification(name: NSText.didChangeNotification, object: fixture.textView)
+    )
+
+    XCTAssertTrue(
+      coordinator.textView(
+        fixture.textView,
+        doCommandBy: #selector(NSResponder.insertNewline(_:))
+      )
+    )
+    await fulfillment(of: [splitExpectation], timeout: 1)
+
+    XCTAssertEqual(splitMarkdown, "BeforeAfter")
+    XCTAssertFalse(splitMarkdown?.contains("<!-- section") == true)
+  }
+
+  // Sends a popup-selected custom snippet to structured conversion rather than legacy insertion.
+  func testStructuredCustomTemplatePopupReturnsInsertionRequest() async throws {
+    let template = NoteTemplate.starterMeeting
+    let markdown = MarkdownBox("/me")
+    var insertionRequest: StructuredTemplateInsertionRequest?
+    let insertionExpectation = expectation(description: "Structured template callback")
+    let editor = MarkdownEditorView(
+      noteID: "2026-09-02#section",
+      text: Binding(
+        get: { markdown.value },
+        set: { markdown.value = $0 }
+      ),
+      appearanceSettings: appearance,
+      customSlashTemplates: [template],
+      allowsSlashCommands: true,
+      interpretsSectionDirectives: false,
+      onStructuredTemplateInsert: { request in
+        insertionRequest = request
+        insertionExpectation.fulfill()
+      }
+    )
+    let coordinator = editor.makeCoordinator()
+    let fixture = makeRawEditorFixture(string: markdown.value)
+    fixture.textView.delegate = coordinator
+    fixture.textView.setSelectedRange(NSRange(location: markdown.value.utf16.count, length: 0))
+    coordinator.textDidChange(
+      Notification(name: NSText.didChangeNotification, object: fixture.textView)
+    )
+
+    XCTAssertTrue(
+      coordinator.textView(
+        fixture.textView,
+        doCommandBy: #selector(NSResponder.insertNewline(_:))
+      )
+    )
+    await fulfillment(of: [insertionExpectation], timeout: 1)
+
+    XCTAssertEqual(insertionRequest?.template, template)
+    XCTAssertEqual(insertionRequest?.leadingMarkdown, "")
+    XCTAssertEqual(insertionRequest?.trailingMarkdown, "")
+    XCTAssertFalse(markdown.value.contains("<!-- section"))
+  }
+
   // Reads Markdown only from section nodes for the structured split assertion.
   private func sectionMarkdown(_ node: StructuredNoteNode) -> String? {
     guard case .section(let section) = node else { return nil }

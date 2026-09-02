@@ -63,6 +63,39 @@ extension StructuredNoteDocument {
     }
   }
 
+  // Replaces one section in place with one or more sections while retaining its parent container.
+  mutating func replaceSection(
+    id sectionID: UUID,
+    with replacementSections: [StructuredNoteSection]
+  ) throws {
+    try applyMutation { document in
+      guard !replacementSections.isEmpty else {
+        throw StructuredNoteDocumentError.emptySectionReplacement
+      }
+      guard let location = document.sectionLocation(for: sectionID) else {
+        throw StructuredNoteDocumentError.sectionNotFound(sectionID)
+      }
+
+      switch location.parent {
+      case .root:
+        document.nodes.replaceSubrange(
+          location.rootNodeIndex...location.rootNodeIndex,
+          with: replacementSections.map(StructuredNoteNode.section)
+        )
+
+      case .group:
+        guard case .group(var group) = document.nodes[location.rootNodeIndex] else {
+          throw StructuredNoteDocumentError.invalidDestinationIndex(location.rootNodeIndex)
+        }
+        group.sections.replaceSubrange(
+          location.index...location.index,
+          with: replacementSections
+        )
+        document.nodes[location.rootNodeIndex] = .group(group)
+      }
+    }
+  }
+
   // Deletes one section while preserving the invariant that every document stays editable.
   mutating func deleteSection(id sectionID: UUID) throws {
     try applyMutation { document in

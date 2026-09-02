@@ -64,6 +64,73 @@ final class ScealArchiveExporterTests: NotesStoreTestCase {
     XCTAssertEqual(try JSONDecoder().decode([NoteTemplate].self, from: templatesData), [template])
   }
 
+  func testStructuredPortableArchiveFlattensGroupsAndIncludesAttachments() throws {
+    let date = makeDate(year: 2026, month: 9, day: 2)
+    let documentID = NoteDateFormatters.storageDate.string(from: date)
+    let document = StructuredNoteDocument(
+      id: documentID,
+      date: date,
+      title: "Structured",
+      tags: ["v2"],
+      nodes: [
+        .group(
+          StructuredSectionGroup(
+            title: "Feature",
+            sections: [
+              StructuredNoteSection(
+                markdown: "![Desk](../Attachments/\(documentID)/desk.png)"
+              )
+            ]
+          )
+        )
+      ]
+    )
+    let attachmentsRootURL = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let noteAttachmentDirectoryURL = attachmentsRootURL.appendingPathComponent(
+      documentID,
+      isDirectory: true
+    )
+    try FileManager.default.createDirectory(
+      at: noteAttachmentDirectoryURL,
+      withIntermediateDirectories: true
+    )
+    try Data("image".utf8).write(to: noteAttachmentDirectoryURL.appendingPathComponent("desk.png"))
+    addTeardownBlock { try? FileManager.default.removeItem(at: attachmentsRootURL) }
+
+    let archiveURL = try ScealArchiveExporter.exportNotes(
+      [try StructuredNoteMarkdownExporter.dayNote(for: document)],
+      attachmentsRootURL: attachmentsRootURL
+    )
+    defer { ZipArchiveWriter.cleanUp(zipURL: archiveURL) }
+    let unzipDirectoryURL = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: unzipDirectoryURL,
+      withIntermediateDirectories: true
+    )
+    defer { try? FileManager.default.removeItem(at: unzipDirectoryURL) }
+
+    try unzipArchive(at: archiveURL, to: unzipDirectoryURL)
+
+    let rootURL = exportedRootURL(in: unzipDirectoryURL)
+    let markdownURL =
+      rootURL
+      .appendingPathComponent("2026", isDirectory: true)
+      .appendingPathComponent("\(documentID).md")
+    let exportedNote = try MarkdownNoteCodec.decode(
+      contents: String(contentsOf: markdownURL, encoding: .utf8),
+      sourceURL: markdownURL
+    )
+    XCTAssertEqual(
+      exportedNote.body, "## Feature\n\n![Desk](../Attachments/\(documentID)/desk.png)")
+    XCTAssertTrue(
+      FileManager.default.fileExists(
+        atPath: rootURL.appendingPathComponent("Attachments/\(documentID)/desk.png").path
+      )
+    )
+  }
+
   private func unzipArchive(at archiveURL: URL, to destinationURL: URL) throws {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")

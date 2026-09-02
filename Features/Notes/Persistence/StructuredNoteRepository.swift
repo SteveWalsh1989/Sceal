@@ -57,6 +57,14 @@ nonisolated struct StructuredNoteRepository {
     try StructuredNoteDocumentCodec.write(document, to: fileURL(for: document.id))
   }
 
+  // Removes one canonical structured document without touching the legacy Markdown library.
+  func delete(documentID: String) throws {
+    try validateStorageTarget()
+    let documentURL = fileURL(for: documentID)
+    guard fileManager.fileExists(atPath: documentURL.path) else { return }
+    try fileManager.removeItem(at: documentURL)
+  }
+
   // Copies all legacy Markdown daily notes after validating the complete source set first.
   func copyLegacyDailyNotes() throws -> StructuredNoteImportResult {
     try validateStorageTarget()

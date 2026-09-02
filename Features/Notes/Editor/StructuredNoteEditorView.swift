@@ -11,6 +11,7 @@ struct StructuredNoteEditorView: View {
   @Environment(\.openWindow) private var openWindow
   @ObservedObject var store: NotesStore
   var sidebarCollapsed: Bool
+  let requestDelete: (DayNote.ID) -> Void
   @StateObject private var editorCoordinator = StructuredNoteEditorCoordinator()
   @State private var activeDragPayload: StructuredNoteDragPayload?
   @State private var activeDropTarget: StructuredNoteDropTarget?
@@ -188,8 +189,11 @@ struct StructuredNoteEditorView: View {
             openWindow(id: "settings")
           },
           openFontPanel: openFontPanel,
-          confirmDelete: {},
-          allowsDelete: false
+          confirmDelete: {
+            isShowingAppearancePopover = false
+            requestDelete(document.id)
+          },
+          allowsDelete: true
         )
       }
     }
@@ -1100,6 +1104,7 @@ private struct StructuredSectionEditorCard: View {
 
           MarkdownEditorView(
             noteID: "\(documentID)#\(item.id.uuidString)",
+            attachmentNoteID: documentID,
             text: store.structuredSectionMarkdownBinding(
               documentID: documentID,
               sectionID: item.id
@@ -1107,11 +1112,12 @@ private struct StructuredSectionEditorCard: View {
             appearanceSettings: store.effectiveAppearanceSettings,
             continuousSpellCheckingEnabled: store.continuousSpellCheckingEnabled,
             searchText: store.structuredSearchText,
+            customSlashTemplates: store.enabledSlashCommandTemplates(),
             libraryRootURL: store.libraryLocation.rootURL,
             imageAttachmentRootURL: store.libraryRepository.attachmentsRootURL,
-            allowsImageAttachments: false,
+            allowsImageAttachments: true,
             allowsSectionColorEditing: false,
-            allowsSlashCommands: false,
+            allowsSlashCommands: true,
             interpretsSectionDirectives: false,
             debouncesMarkdownUpdates: false,
             viewportMode: .contentSized(minimumHeight: 132),
@@ -1128,6 +1134,7 @@ private struct StructuredSectionEditorCard: View {
             onStructuredSectionSplit: { markdown, splitOffset in
               splitSection(markdown: markdown, atUTF16Offset: splitOffset)
             },
+            onStructuredTemplateInsert: insertTemplate,
             onBoundaryNavigation: { direction in
               editorCoordinator.navigate(from: item.id, direction: direction)
             },
@@ -1140,6 +1147,9 @@ private struct StructuredSectionEditorCard: View {
             onContentHeightChange: { contentHeight in
               guard abs(editorHeight - contentHeight) > 0.5 else { return }
               editorHeight = contentHeight
+            },
+            onPromptCopied: {
+              store.showTransientMessage("Copied", kind: .info)
             }
           )
           .frame(height: editorHeight)
@@ -1476,6 +1486,43 @@ private struct StructuredSectionEditorCard: View {
         undoFocusSectionID: item.id,
         focusSectionID: newSectionID,
         caretPlacement: .start
+      )
+    } catch {
+      reportStructuralError(error)
+    }
+  }
+
+  // Replaces a slash row with template content and converts template-owned dividers to sections.
+  private func insertTemplate(_ request: StructuredTemplateInsertionRequest) {
+    guard let previousDocument = currentDocument else { return }
+    var updatedDocument = previousDocument
+
+    do {
+      let result = try StructuredNoteTemplateAdapter.insert(
+        request,
+        replacing: item.section
+      )
+      try updatedDocument.replaceSection(id: item.id, with: result.sections)
+      let focusSection = result.sections.first(where: { $0.id == result.focusSectionID })
+      let caretOffset =
+        focusSection.map { section in
+          let display = MarkdownEditorFormatter.formatForDisplay(
+            section.markdown,
+            appearance: store.effectiveAppearanceSettings,
+            interpretsSectionDirectives: false
+          )
+          return NoteTemplateCursorResolver.offset(
+            in: display,
+            placement: request.template.cursorPlacement
+          )
+        } ?? 0
+      commitStructuralChange(
+        from: previousDocument,
+        to: updatedDocument,
+        actionName: "Insert Template",
+        undoFocusSectionID: item.id,
+        focusSectionID: result.focusSectionID,
+        caretPlacement: .offset(caretOffset)
       )
     } catch {
       reportStructuralError(error)

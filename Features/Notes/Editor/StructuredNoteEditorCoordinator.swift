@@ -11,6 +11,7 @@ enum StructuredEditorCaretPlacement: Equatable {
   case preserve
   case start
   case end
+  case offset(Int)
 }
 
 enum StructuredEditorBoundaryNavigation: Equatable {

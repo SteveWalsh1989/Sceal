@@ -32,6 +32,7 @@ struct MarkdownEditorView: NSViewRepresentable {
   }
 
   let noteID: DayNote.ID
+  var attachmentNoteID: DayNote.ID? = nil
   @Binding var text: String
   let appearanceSettings: NoteAppearanceSettings
   var continuousSpellCheckingEnabled: Bool = true
@@ -54,6 +55,7 @@ struct MarkdownEditorView: NSViewRepresentable {
   var onFocus: (() -> Void)? = nil
   var onTextChange: (() -> Void)? = nil
   var onStructuredSectionSplit: ((String, Int) -> Void)? = nil
+  var onStructuredTemplateInsert: ((StructuredTemplateInsertionRequest) -> Void)? = nil
   var onBoundaryNavigation: ((StructuredEditorBoundaryNavigation) -> Bool)? = nil
   var onStructuredUndo: (() -> Bool)? = nil
   var onStructuredRedo: (() -> Bool)? = nil
@@ -241,7 +243,7 @@ struct MarkdownEditorView: NSViewRepresentable {
   private func configure(_ textView: NSTextView, coordinator: Coordinator) {
     Self.configureTextView(
       textView,
-      noteID: noteID,
+      noteID: attachmentNoteID ?? noteID,
       appearanceSettings: appearanceSettings,
       continuousSpellCheckingEnabled: continuousSpellCheckingEnabled,
       libraryRootURL: libraryRootURL,
@@ -455,6 +457,10 @@ struct MarkdownEditorView: NSViewRepresentable {
         textView.setSelectedRange(NSRange(location: 0, length: 0))
       case .end:
         textView.setSelectedRange(NSRange(location: textView.string.utf16.count, length: 0))
+      case .offset(let offset):
+        textView.setSelectedRange(
+          NSRange(location: min(max(offset, 0), textView.string.utf16.count), length: 0)
+        )
       }
       textView.window?.makeFirstResponder(textView)
     }
@@ -522,7 +528,7 @@ private final class EditorScrollView: NSScrollView {
   }
 }
 
-private enum NoteTemplateCursorResolver {
+enum NoteTemplateCursorResolver {
   // Resolves the caret offset inside a rendered template after insertion.
   static func offset(
     in attributedString: NSAttributedString,
@@ -1178,6 +1184,36 @@ extension MarkdownEditorView {
             placement: template.cursorPlacement
           )
 
+          if let insertStructuredTemplate = parent.onStructuredTemplateInsert {
+            let leadingDisplay = textStorage.attributedSubstring(
+              from: NSRange(location: 0, length: replacementRange.location)
+            )
+            let trailingLocation = NSMaxRange(replacementRange)
+            let trailingDisplay = textStorage.attributedSubstring(
+              from: NSRange(
+                location: trailingLocation,
+                length: textStorage.length - trailingLocation
+              )
+            )
+            let request = StructuredTemplateInsertionRequest(
+              leadingMarkdown: MarkdownEditorFormatter.convertToMarkdown(
+                from: leadingDisplay,
+                normalizesSectionDirectives: false
+              ),
+              trailingMarkdown: MarkdownEditorFormatter.convertToMarkdown(
+                from: trailingDisplay,
+                normalizesSectionDirectives: false
+              ),
+              template: template,
+              preservesReplacedLineBreak: fullLineRange.length > lineRange.length
+            )
+            dismissSlashPopup()
+            DispatchQueue.main.async {
+              insertStructuredTemplate(request)
+            }
+            return true
+          }
+
           let handled = textView.performEditorEdit(
             affectedRange: replacementRange,
             replacementString: displaySnippet.string,
@@ -1743,8 +1779,9 @@ extension MarkdownEditorView {
         let lineRect = textView.editorLineFragmentRect(forCharacterLocation: cursorLocation)
       else { return }
 
-      let rectInScrollView = textView.convert(lineRect, to: scrollView)
-      slashPopup.show(relativeTo: rectInScrollView, in: scrollView)
+      let popupHostView = scrollView.window?.contentView ?? scrollView
+      let rectInHostView = textView.convert(lineRect, to: popupHostView)
+      slashPopup.show(relativeTo: rectInHostView, in: popupHostView)
 
       slashPopup.onSelect = { [weak self, weak textView] entry in
         guard let self, let textView else { return }

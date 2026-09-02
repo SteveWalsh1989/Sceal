@@ -110,6 +110,16 @@ struct LibraryRepository {
     )
   }
 
+  // Copies a note's attachment folder for structured duplication without changing its source.
+  func copyAttachments(from oldNoteID: DayNote.ID, to newNoteID: DayNote.ID) throws {
+    try NoteImageAttachmentStore.copyAttachments(
+      from: oldNoteID,
+      to: newNoteID,
+      fileManager: fileManager,
+      rootURL: attachmentsRootURL
+    )
+  }
+
   // Deletes all attachment files for the requested note ID.
   func deleteAttachments(for noteID: DayNote.ID) throws {
     try NoteImageAttachmentStore.deleteAttachments(

@@ -839,6 +839,11 @@ final class NotesStore: ObservableObject {
 
   // Moves a note to a new date by re-creating it with the target date's ID and file.
   func changeDate(noteID: DayNote.ID, to newDate: Date) {
+    if isStructuredDailyNoteMode {
+      changeStructuredNoteDate(noteID: noteID, to: newDate)
+      return
+    }
+
     #if DEBUG
       if isDemoModeEnabled {
         userMessage = (text: "Demo Library notes cannot be moved.", kind: .info)
@@ -891,6 +896,11 @@ final class NotesStore: ObservableObject {
 
   // Deletes the requested note so shared UI flows can confirm destructive actions centrally.
   func delete(noteID: DayNote.ID) {
+    if isStructuredDailyNoteMode {
+      deleteStructuredNote(noteID: noteID)
+      return
+    }
+
     #if DEBUG
       if isDemoModeEnabled {
         userMessage = (text: "Demo Library notes cannot be deleted.", kind: .info)

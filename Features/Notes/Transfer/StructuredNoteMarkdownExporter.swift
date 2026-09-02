@@ -9,15 +9,19 @@ import Foundation
 nonisolated enum StructuredNoteMarkdownExporter {
   // Encodes a validated structured document as a complete Markdown note file.
   static func export(_ document: StructuredNoteDocument) throws -> String {
+    try MarkdownNoteCodec.encode(dayNote(for: document))
+  }
+
+  // Produces the legacy transfer value used by the existing portable zip exporter.
+  static func dayNote(for document: StructuredNoteDocument) throws -> DayNote {
     try document.validate()
-    let note = DayNote(
+    return DayNote(
       date: document.date,
       id: document.id,
       title: document.title,
       tags: document.tags,
       body: try body(for: document)
     )
-    return try MarkdownNoteCodec.encode(note)
   }
 
   // Flattens sections and groups while omitting structured-only appearance and collapse state.

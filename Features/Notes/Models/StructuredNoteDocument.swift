@@ -467,6 +467,7 @@ nonisolated enum StructuredNoteDocumentError: LocalizedError, Equatable {
   case invalidSplitOffset(Int)
   case noAdjacentSection(UUID, StructuredNoteMergeDirection)
   case cannotDeleteOnlySection
+  case emptySectionReplacement
 
   var errorDescription: String? {
     switch self {
@@ -503,6 +504,8 @@ nonisolated enum StructuredNoteDocumentError: LocalizedError, Equatable {
         "Section \(id.uuidString) has no \(direction == .previous ? "previous" : "next") section to merge."
     case .cannotDeleteOnlySection:
       return "A structured note must keep at least one section."
+    case .emptySectionReplacement:
+      return "A structured section replacement must contain at least one section."
     }
   }
 }
