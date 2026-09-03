@@ -974,6 +974,15 @@ extension MarkdownEditorView {
       if commandSelector == #selector(NSResponder.insertBacktab(_:)) {
         return handleListIndent(textView: textView, increase: false)
       }
+      if commandSelector == #selector(NSResponder.deleteBackward(_:))
+        || commandSelector == #selector(NSResponder.deleteForward(_:))
+      {
+        if let editorTextView = textView as? MarkdownEditorTextView,
+          editorTextView.deleteSelectionContainingPromptBlocks()
+        {
+          return true
+        }
+      }
       if commandSelector == #selector(NSResponder.deleteBackward(_:)),
         let textStorage = textView.textStorage,
         handleSectionDividerBackspace(in: textView, textStorage: textStorage)

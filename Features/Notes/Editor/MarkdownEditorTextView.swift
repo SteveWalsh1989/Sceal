@@ -1241,6 +1241,51 @@ final class MarkdownEditorTextView: NSTextView {
     return deletePromptBlock(in: range)
   }
 
+  // Deletes a selection containing protected prompt markers without leaving partial blocks behind.
+  @discardableResult
+  func deleteSelectionContainingPromptBlocks() -> Bool {
+    guard let textStorage else { return false }
+    let selection = selectedRange()
+    guard selection.length > 0,
+      containsPromptBoundary(in: selection, textStorage: textStorage)
+    else { return false }
+
+    let intersectingBlocks = promptBlockVisualRanges(in: textStorage).filter {
+      NSIntersectionRange(selection, $0).length > 0
+    }
+    guard !intersectingBlocks.isEmpty else { return false }
+
+    let deletionStart = intersectingBlocks.reduce(selection.location) {
+      min($0, $1.location)
+    }
+    let deletionEnd = intersectingBlocks.reduce(NSMaxRange(selection)) {
+      max($0, NSMaxRange($1))
+    }
+    let deletionRange = NSRange(
+      location: deletionStart,
+      length: deletionEnd - deletionStart
+    )
+    let handled = performPromptStructureEdit(
+      affectedRange: deletionRange,
+      replacementString: "",
+      actionName: "Delete Selection"
+    ) { textStorage in
+      textStorage.replaceCharacters(in: deletionRange, with: "")
+      return NSRange(location: deletionRange.location, length: 0)
+    }
+
+    if handled {
+      hoveredPromptBlockLocation = nil
+      hoveredPromptCopyLocation = nil
+      hoveredPromptClearLocation = nil
+      hoveredPromptCloseLocation = nil
+      updateTrackingAreas()
+      setNeedsDisplay(bounds)
+      flushPromptBlockEditIfNeeded()
+    }
+    return handled
+  }
+
   private func deletePromptBlock(in range: NSRange) -> Bool {
     let handled = performPromptStructureEdit(
       affectedRange: range,

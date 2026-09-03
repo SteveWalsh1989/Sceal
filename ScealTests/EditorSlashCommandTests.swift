@@ -896,6 +896,67 @@ final class EditorSlashCommandTests: EditorTestCase {
     XCTAssertEqual(markdown.value, "Intro\nOutro")
   }
 
+  // Deletes selected text and a prompt as one safe edit with no orphan boundary markers.
+  func testBackspaceDeletesSelectionContainingPromptBlock() {
+    let initialMarkdown = """
+      Intro
+      <!-- prompt -->
+      Delete this
+      <!-- /prompt -->
+      Outro
+      """
+    let markdown = MarkdownBox(initialMarkdown)
+    let coordinator = makeCoordinator(markdown: markdown)
+    let fixture = makeEditorFixture(markdown: initialMarkdown)
+    let textView = fixture.textView
+    textView.delegate = coordinator
+
+    guard let textStorage = textView.textStorage else {
+      return XCTFail("Expected editor text storage.")
+    }
+    let endBoundaryRange = firstPromptBoundaryRange(
+      in: textStorage,
+      kind: MarkdownEditorPromptBlockMarkdown.endBoundaryKind
+    )
+    let endBoundaryLineRange = (textStorage.string as NSString).lineRange(for: endBoundaryRange)
+    textView.setSelectedRange(
+      NSRange(location: 0, length: NSMaxRange(endBoundaryLineRange))
+    )
+
+    XCTAssertTrue(
+      coordinator.textView(textView, doCommandBy: #selector(NSResponder.deleteBackward(_:)))
+    )
+    XCTAssertEqual(
+      MarkdownEditorFormatter.convertToMarkdown(from: textStorage),
+      "Outro"
+    )
+    XCTAssertEqual(markdown.value, "Outro")
+    XCTAssertTrue(textView.allowsTextChangeNearPromptBoundaries(in: textView.selectedRange()))
+  }
+
+  // Gives forward deletion the same protected selection behavior as Backspace.
+  func testForwardDeleteRemovesSelectionContainingPromptBlock() {
+    let initialMarkdown = """
+      Intro
+      <!-- prompt -->
+      Delete this
+      <!-- /prompt -->
+      Outro
+      """
+    let markdown = MarkdownBox(initialMarkdown)
+    let coordinator = makeCoordinator(markdown: markdown)
+    let fixture = makeEditorFixture(markdown: initialMarkdown)
+    let textView = fixture.textView
+    textView.delegate = coordinator
+    textView.setSelectedRange(NSRange(location: 0, length: textView.string.utf16.count))
+
+    XCTAssertTrue(
+      coordinator.textView(textView, doCommandBy: #selector(NSResponder.deleteForward(_:)))
+    )
+    XCTAssertEqual(markdown.value, "")
+    XCTAssertEqual(textView.string, "")
+  }
+
   // Prevents clearing a prompt from removing its reusable block boundaries.
   func testPromptBlockClearRetainsEmptyBlock() {
     let initialMarkdown = """
