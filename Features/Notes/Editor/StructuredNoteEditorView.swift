@@ -618,6 +618,7 @@ private struct StructuredEditorDropDelegate: DropDelegate {
 
 private struct StructuredEditorDragHandle<Preview: View>: View {
   let accessibilityLabel: String
+  let helpText: String
   @ViewBuilder let preview: () -> Preview
   let itemProvider: () -> NSItemProvider
 
@@ -628,7 +629,7 @@ private struct StructuredEditorDragHandle<Preview: View>: View {
       .frame(width: 24, height: 24)
       .contentShape(Rectangle())
       .onDrag(itemProvider, preview: preview)
-      .help("Drag to move")
+      .help(helpText)
       .accessibilityLabel(accessibilityLabel)
   }
 }
@@ -902,7 +903,10 @@ private struct StructuredSectionGroupContainer: View {
 
         Spacer()
 
-        StructuredEditorDragHandle(accessibilityLabel: "Move \(group.title) group") {
+        StructuredEditorDragHandle(
+          accessibilityLabel: "Move \(group.title) group",
+          helpText: "Drag group"
+        ) {
           StructuredEditorDragPreview(
             title: group.title,
             detail: sectionCountLabel,
@@ -1365,7 +1369,10 @@ private struct StructuredSectionEditorCard: View {
 
   private var sectionGutter: some View {
     VStack(spacing: 2) {
-      StructuredEditorDragHandle(accessibilityLabel: "Move section \(item.position)") {
+      StructuredEditorDragHandle(
+        accessibilityLabel: "Move section \(item.position)",
+        helpText: "Drag section"
+      ) {
         StructuredEditorDragPreview(
           title: collapsedSectionPreview,
           detail: "Section \(item.position)",
