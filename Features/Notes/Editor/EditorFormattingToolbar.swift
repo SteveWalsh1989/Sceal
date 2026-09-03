@@ -10,6 +10,7 @@ import AppKit
 @MainActor class EditorFormattingToolbar: NSView {
   weak var textView: NSTextView?
   var appearanceSettings = NoteAppearanceSettings.default
+  var listMarkerColor: NSColor?
 
   private let stackView = NSStackView()
   private var colorSeparator: NSView?
@@ -652,14 +653,14 @@ import AppKit
     guard let textView, let textStorage = textView.textStorage else { return }
     let nsString = textStorage.string as NSString
 
-    // Collect individual line ranges covering the entire selection
     let selectedRange = textView.selectedRange()
     let fullRange = nsString.lineRange(for: selectedRange)
     var lines: [(range: NSRange, text: String)] = []
     var scanStart = fullRange.location
     while scanStart < NSMaxRange(fullRange) {
-      var lineRange = nsString.lineRange(for: NSRange(location: scanStart, length: 0))
-      // Trim trailing newline for the text range
+      let fullLineRange = nsString.lineRange(for: NSRange(location: scanStart, length: 0))
+      guard NSMaxRange(fullLineRange) > scanStart else { break }
+      var lineRange = fullLineRange
       if lineRange.length > 0
         && nsString.character(at: lineRange.location + lineRange.length - 1) == 0x0A
       {
@@ -667,38 +668,49 @@ import AppKit
       }
       let lineText = nsString.substring(with: lineRange)
       lines.append((lineRange, lineText))
-      scanStart = lineRange.location + lineRange.length + 1  // +1 to skip past newline
+      scanStart = NSMaxRange(fullLineRange)
     }
 
     guard !lines.isEmpty else { return }
+    let source = textStorage.attributedSubstring(from: fullRange)
+    let removesTargetType = lines.allSatisfy { line in
+      guard line.range.length > 0 else { return false }
+      let localLocation = line.range.location - fullRange.location
+      return source.attribute(.markdownListType, at: localLocation, effectiveRange: nil) as? String
+        == targetType.rawValue
+    }
 
     _ = textView.performEditorEdit(affectedRange: fullRange, actionName: "List Style") {
       textStorage in
-      // Process lines in reverse so replacements don't shift later ranges
+      let replacement = NSMutableAttributedString(attributedString: source)
+
+      // Build away from live TextKit storage so attachment conversion emits one layout update.
       for (index, line) in lines.enumerated().reversed() {
+        let localRange = NSRange(
+          location: line.range.location - fullRange.location,
+          length: line.range.length
+        )
         let currentTypeRaw =
-          line.range.length > 0
-          ? textStorage.attribute(
-            .markdownListType, at: line.range.location, effectiveRange: nil
+          localRange.length > 0
+          ? source.attribute(
+            .markdownListType, at: localRange.location, effectiveRange: nil
           ) as? String : nil
         let currentType = currentTypeRaw.flatMap { MarkdownListType(rawValue: $0) }
-        // Preserve indent level when converting between list types
         let indentLevel: Int =
-          line.range.length > 0
-          ? textStorage.attribute(
-            .markdownIndentLevel, at: line.range.location, effectiveRange: nil
+          localRange.length > 0
+          ? source.attribute(
+            .markdownIndentLevel, at: localRange.location, effectiveRange: nil
           ) as? Int ?? 0 : 0
 
-        if currentType == targetType {
-          // Toggle off — preserve inline attrs (links, bold, etc.), reset block-level attrs only
-          let markerLen = displayMarkerUTF16Length(in: line.text, listType: targetType)
-          let contentLoc = line.range.location + markerLen
-          let contentLen = max(0, line.range.length - markerLen)
+        if removesTargetType {
+          let markerLength = displayMarkerUTF16Length(in: line.text, listType: targetType)
+          let contentLocation = localRange.location + markerLength
+          let contentLength = max(0, localRange.length - markerLength)
           let content: NSMutableAttributedString =
-            contentLen > 0
+            contentLength > 0
             ? NSMutableAttributedString(
-              attributedString: textStorage.attributedSubstring(
-                from: NSRange(location: contentLoc, length: contentLen)))
+              attributedString: source.attributedSubstring(
+                from: NSRange(location: contentLocation, length: contentLength)))
             : NSMutableAttributedString()
           let bodyRange = NSRange(location: 0, length: content.length)
 
@@ -721,18 +733,25 @@ import AppKit
             content.removeAttribute(.markdownIndentLevel, range: bodyRange)
           }
 
-          textStorage.replaceCharacters(in: line.range, with: content)
+          content.removeAttribute(.strikethroughStyle, range: bodyRange)
+          replacement.replaceCharacters(in: localRange, with: content)
         } else {
-          // Apply — strip any existing display marker, preserve inline attrs, add the new prefix
-          let existingMarkerLen =
+          let existingMarkerLength =
             currentType.map { displayMarkerUTF16Length(in: line.text, listType: $0) } ?? 0
-          let contentLoc = line.range.location + existingMarkerLen
-          let contentLen = max(0, line.range.length - existingMarkerLen)
-          let existingContent: NSAttributedString =
-            contentLen > 0
-            ? textStorage.attributedSubstring(
-              from: NSRange(location: contentLoc, length: contentLen))
-            : NSAttributedString()
+          let contentLocation = localRange.location + existingMarkerLength
+          let contentLength = max(0, localRange.length - existingMarkerLength)
+          let existingContent = NSMutableAttributedString(
+            attributedString: contentLength > 0
+              ? source.attributedSubstring(
+                from: NSRange(location: contentLocation, length: contentLength))
+              : NSAttributedString()
+          )
+          if currentType == .checkboxChecked {
+            existingContent.removeAttribute(
+              .strikethroughStyle,
+              range: NSRange(location: 0, length: existingContent.length)
+            )
+          }
 
           let listStyle = MarkdownEditorFormatter.listParagraphStyle(
             for: appearanceSettings, indentLevel: indentLevel)
@@ -742,12 +761,19 @@ import AppKit
           if targetType == .checkboxUnchecked || targetType == .checkboxChecked {
             let checked = targetType == .checkboxChecked
             result = NSMutableAttributedString()
-            result.append(
-              MarkdownEditorFormatter.checkboxAttributedString(
+            let checkbox =
+              listMarkerColor.map {
+                NSAttributedString(
+                  attachment: MarkdownEditorFormatter.checkboxAttachment(
+                    checked: checked,
+                    color: $0
+                  ))
+              }
+              ?? MarkdownEditorFormatter.checkboxAttributedString(
                 checked: checked,
                 appearance: appearanceSettings
-              ))
-            // Space separator between attachment and content
+              )
+            result.append(checkbox)
             result.append(
               NSAttributedString(
                 string: " ",
@@ -772,7 +798,6 @@ import AppKit
             default: marker = ""
             }
 
-            // Build styled marker, then append the preserved attributed content
             result = NSMutableAttributedString(
               string: marker,
               attributes: [
@@ -784,7 +809,6 @@ import AppKit
               ])
             styleListMarker(in: result, listType: targetType)
             result.append(existingContent)
-            // Apply block-level attrs to the content portion
             let contentPartRange = NSRange(
               location: marker.utf16.count, length: existingContent.length)
             if contentPartRange.length > 0 {
@@ -798,10 +822,12 @@ import AppKit
             }
           }
 
-          textStorage.replaceCharacters(in: line.range, with: result)
+          replacement.replaceCharacters(in: localRange, with: result)
         }
       }
-      return nil
+
+      textStorage.replaceCharacters(in: fullRange, with: replacement)
+      return NSRange(location: fullRange.location, length: replacement.length)
     }
   }
 
@@ -914,7 +940,8 @@ import AppKit
     case .bullet:
       attrStr.addAttributes(
         [
-          .foregroundColor: MarkdownEditorFormatter.bulletColor(for: appearanceSettings),
+          .foregroundColor: listMarkerColor
+            ?? MarkdownEditorFormatter.bulletColor(for: appearanceSettings),
           .font: NSFont.systemFont(ofSize: appearanceSettings.bulletSize, weight: .bold),
         ], range: NSRange(location: 0, length: 1))
     case .checkboxUnchecked:

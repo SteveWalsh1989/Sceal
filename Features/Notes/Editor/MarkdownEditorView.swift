@@ -108,6 +108,8 @@ struct MarkdownEditorView: NSViewRepresentable {
     context.coordinator.lastFocusRequestID = focusRequestID
     context.coordinator.lastDividerCount = (textView as MarkdownEditorTextView).sectionDividerCount
     context.coordinator.toolbar.appearanceSettings = appearanceSettings
+    context.coordinator.toolbar.listMarkerColor = initialListMarkerColor
+    (textView as? MarkdownEditorTextView)?.defaultListMarkerColor = initialListMarkerColor
 
     Self.applySearchHighlights(
       to: textView, query: searchText.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -143,6 +145,8 @@ struct MarkdownEditorView: NSViewRepresentable {
     context.coordinator.parent = self
     configure(textView, coordinator: context.coordinator)
     context.coordinator.toolbar.appearanceSettings = appearanceSettings
+    context.coordinator.toolbar.listMarkerColor = initialListMarkerColor
+    (textView as? MarkdownEditorTextView)?.defaultListMarkerColor = initialListMarkerColor
     scrollView.hasVerticalScroller =
       viewportMode.showsVerticalScroller && appearanceSettings.showEditorScrollbar
     if let editorScrollView = scrollView as? EditorScrollView {
@@ -286,6 +290,10 @@ struct MarkdownEditorView: NSViewRepresentable {
       libraryRootURL: libraryRootURL,
       interpretsSectionDirectives: interpretsSectionDirectives
     )
+  }
+
+  private var initialListMarkerColor: NSColor? {
+    initialSectionBulletColorName.flatMap(ThemePalette.color(named:))
   }
 
   static func configureTextView(
@@ -1492,6 +1500,7 @@ extension MarkdownEditorView {
       }
 
       toolbar.appearanceSettings = parent.appearanceSettings
+      toolbar.listMarkerColor = parent.initialListMarkerColor
       toolbar.textView = textView
       toolbar.show(relativeTo: textView.convert(selectionRect, to: scrollView), in: scrollView)
     }
@@ -1552,8 +1561,16 @@ extension MarkdownEditorView {
       switch listType {
       case .checkboxUnchecked, .checkboxChecked:
         let result = NSMutableAttributedString()
-        result.append(
-          MarkdownEditorFormatter.checkboxAttributedString(checked: false, appearance: appearance))
+        let checkbox =
+          parent.initialListMarkerColor.map {
+            NSAttributedString(
+              attachment: MarkdownEditorFormatter.checkboxAttachment(checked: false, color: $0))
+          }
+          ?? MarkdownEditorFormatter.checkboxAttributedString(
+            checked: false,
+            appearance: appearance
+          )
+        result.append(checkbox)
         result.append(
           NSAttributedString(
             string: " ",
@@ -1584,7 +1601,8 @@ extension MarkdownEditorView {
         if listType == .bullet {
           result.addAttributes(
             [
-              .foregroundColor: MarkdownEditorFormatter.bulletColor(for: appearance),
+              .foregroundColor: parent.initialListMarkerColor
+                ?? MarkdownEditorFormatter.bulletColor(for: appearance),
               .font: NSFont.systemFont(ofSize: appearance.bulletSize, weight: .bold),
             ], range: NSRange(location: 0, length: 1))
         } else if listType == .numbered {
@@ -1896,9 +1914,13 @@ extension MarkdownEditorView {
     ) {
       for lineRange in lineRanges {
         guard lineRange.location < textStorage.length else { continue }
-        guard let sectionInfo = editorTextView.sectionColors(at: lineRange.location) else {
-          continue
-        }
+        let sectionInfo =
+          editorTextView.sectionColors(at: lineRange.location) ?? (
+            headingColorName: parent.initialSectionHeadingColorName,
+            bulletColorName: parent.initialSectionBulletColorName,
+            useSectionColor: parent.initialSectionHeadingColorName != nil
+              && parent.initialSectionHeadingColorName == parent.initialSectionBulletColorName
+          )
         let nsString = textStorage.string as NSString
         let currentLineRange = nsString.lineRange(
           for: NSRange(location: lineRange.location, length: 0))

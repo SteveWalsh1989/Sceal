@@ -66,7 +66,8 @@ extension NSTextView {
   @discardableResult
   func editorToggleCheckbox(
     at charIndex: Int,
-    appearanceSettings: NoteAppearanceSettings
+    appearanceSettings: NoteAppearanceSettings,
+    markerColor: NSColor? = nil
   ) -> Bool {
     guard let textStorage else { return false }
 
@@ -91,10 +92,14 @@ extension NSTextView {
       affectedRange: textRange,
       actionName: isChecked ? "Uncheck Item" : "Check Item"
     ) { textStorage in
-      let newAttachment = MarkdownEditorFormatter.checkboxAttachment(
-        checked: !isChecked,
-        appearance: appearanceSettings
-      )
+      let newAttachment =
+        markerColor.map {
+          MarkdownEditorFormatter.checkboxAttachment(checked: !isChecked, color: $0)
+        }
+        ?? MarkdownEditorFormatter.checkboxAttachment(
+          checked: !isChecked,
+          appearance: appearanceSettings
+        )
       let attachmentString = NSAttributedString(attachment: newAttachment)
       textStorage.replaceCharacters(
         in: NSRange(location: charIndex, length: 1),

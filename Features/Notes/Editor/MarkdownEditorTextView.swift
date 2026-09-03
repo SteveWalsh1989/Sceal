@@ -44,6 +44,7 @@ final class MarkdownEditorTextView: NSTextView {
   }
 
   var appearanceSettings = NoteAppearanceSettings.default
+  var defaultListMarkerColor: NSColor?
   var noteID: DayNote.ID?
   var libraryRootURL: URL?
   var imageAttachmentRootURL: URL?
@@ -2213,7 +2214,11 @@ final class MarkdownEditorTextView: NSTextView {
       return
     }
 
-    if editorToggleCheckbox(at: checkboxIndex, appearanceSettings: appearanceSettings) {
+    if editorToggleCheckbox(
+      at: checkboxIndex,
+      appearanceSettings: appearanceSettings,
+      markerColor: defaultListMarkerColor
+    ) {
       return
     }
 

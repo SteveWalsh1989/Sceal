@@ -1,9 +1,103 @@
+import SwiftUI
 import XCTest
 
 @testable import Sceal
 
 @MainActor
 final class EditorCheckboxTests: EditorTestCase {
+  // Converts a multi-line bullet selection through the real formatting-toolbar action.
+  func testFormattingToolbarConvertsSelectedBulletsToCheckboxes() {
+    let fixture = makeEditorFixture(markdown: "- First\n- Second")
+    let textView = fixture.textView
+    let toolbar = EditorFormattingToolbar()
+    toolbar.textView = textView
+    toolbar.appearanceSettings = appearance
+    textView.setSelectedRange(NSRange(location: 0, length: textView.textStorage?.length ?? 0))
+
+    toolbar.perform(NSSelectorFromString("toggleCheckbox"))
+
+    XCTAssertEqual(
+      MarkdownEditorFormatter.convertToMarkdown(from: textView.textStorage ?? NSTextStorage()),
+      "- [ ] First\n- [ ] Second"
+    )
+  }
+
+  // Converts mixed list selections uniformly through every supported list style.
+  func testFormattingToolbarConvertsMixedListTypesWithoutRetainingCheckedStyling() {
+    let fixture = makeEditorFixture(markdown: "- First\n2. Second\n- [x] Third")
+    let textView = fixture.textView
+    let toolbar = EditorFormattingToolbar()
+    toolbar.textView = textView
+    toolbar.appearanceSettings = appearance
+    textView.setSelectedRange(NSRange(location: 0, length: textView.textStorage?.length ?? 0))
+
+    toolbar.perform(NSSelectorFromString("toggleCheckbox"))
+    XCTAssertEqual(
+      MarkdownEditorFormatter.convertToMarkdown(from: textView.textStorage ?? NSTextStorage()),
+      "- [ ] First\n- [ ] Second\n- [ ] Third"
+    )
+
+    toolbar.perform(NSSelectorFromString("toggleNumbered"))
+    XCTAssertEqual(
+      MarkdownEditorFormatter.convertToMarkdown(from: textView.textStorage ?? NSTextStorage()),
+      "1. First\n2. Second\n3. Third"
+    )
+
+    toolbar.perform(NSSelectorFromString("toggleBullet"))
+    XCTAssertEqual(
+      MarkdownEditorFormatter.convertToMarkdown(from: textView.textStorage ?? NSTextStorage()),
+      "- First\n- Second\n- Third"
+    )
+  }
+
+  // Applies a structured section's bullet color to the empty checkbox continued by Enter.
+  func testChecklistContinuationUsesInitialSectionBulletColor() throws {
+    let color = try XCTUnwrap(ThemePalette.color(named: "blue"))
+    let markdown = MarkdownBox("- [ ] Task")
+    let editor = MarkdownEditorView(
+      noteID: "2026-09-03#section",
+      text: Binding(
+        get: { markdown.value },
+        set: { markdown.value = $0 }
+      ),
+      appearanceSettings: appearance,
+      debouncesMarkdownUpdates: false,
+      initialSectionBulletColorName: "blue"
+    )
+    let coordinator = editor.makeCoordinator()
+    let fixture = makeEditorFixture(
+      displayString: MarkdownEditorFormatter.formatForDisplay(
+        markdown.value,
+        appearance: appearance,
+        initialSectionBulletColorName: "blue"
+      ))
+    let textView = fixture.textView
+    textView.delegate = coordinator
+    textView.setSelectedRange(NSRange(location: textView.string.utf16.count, length: 0))
+
+    XCTAssertTrue(
+      coordinator.textView(textView, doCommandBy: #selector(NSResponder.insertNewline(_:)))
+    )
+    let secondLineRange = (textView.string as NSString).lineRange(
+      for: NSRange(location: textView.string.utf16.count, length: 0)
+    )
+    let attachment = try XCTUnwrap(
+      textView.textStorage?.attribute(
+        .attachment,
+        at: secondLineRange.location,
+        effectiveRange: nil
+      ) as? NSTextAttachment
+    )
+    let expectedAttachment = MarkdownEditorFormatter.checkboxAttachment(
+      checked: false,
+      color: color
+    )
+
+    XCTAssertEqual(
+      attachment.image?.tiffRepresentation, expectedAttachment.image?.tiffRepresentation)
+    XCTAssertEqual(markdown.value, "- [ ] Task\n- [ ] ")
+  }
+
   // Prevents checkbox taps from losing the checked state or markdown output.
   func testToggleUpdatesRenderedStateAndMarkdown() {
     let fixture = makeEditorFixture(markdown: "- [ ] Task")
