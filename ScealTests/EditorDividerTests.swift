@@ -134,8 +134,7 @@ final class EditorDividerTests: EditorTestCase {
   func testTemplateColorInsertionAddsLeadingSectionForPlainBody() {
     let markdown = NoteTemplateMarkdown.applyingTemplateOptions(
       to: "# Meeting:\n- Item",
-      sectionColorName: "turquoise",
-      endsWithDivider: false
+      sectionColorName: "turquoise"
     )
 
     XCTAssertTrue(

@@ -16,8 +16,7 @@ struct NoteTemplate: Identifiable, Codable, Equatable, Sendable {
   var usesGeneratedCommand: Bool
   var cursorPlacement: NoteTemplateCursorPlacement
   var sectionColorName: String?
-  var startsWithDivider: Bool
-  var endsWithDivider: Bool
+  var createsNewSection: Bool
 
   init(
     id: String = UUID().uuidString,
@@ -29,8 +28,7 @@ struct NoteTemplate: Identifiable, Codable, Equatable, Sendable {
     usesGeneratedCommand: Bool = true,
     cursorPlacement: NoteTemplateCursorPlacement = .automatic,
     sectionColorName: String? = nil,
-    startsWithDivider: Bool = false,
-    endsWithDivider: Bool = false
+    createsNewSection: Bool = false
   ) {
     self.id = id
     self.title = title
@@ -41,8 +39,7 @@ struct NoteTemplate: Identifiable, Codable, Equatable, Sendable {
     self.usesGeneratedCommand = usesGeneratedCommand
     self.cursorPlacement = cursorPlacement
     self.sectionColorName = sectionColorName
-    self.startsWithDivider = startsWithDivider
-    self.endsWithDivider = endsWithDivider
+    self.createsNewSection = createsNewSection
   }
 
   var slashCommand: String {
@@ -53,22 +50,26 @@ struct NoteTemplate: Identifiable, Codable, Equatable, Sendable {
     NoteTemplateMarkdown.applyingTemplateOptions(
       to: body,
       sectionColorName: sectionColorName,
-      startsWithDivider: startsWithDivider,
-      endsWithDivider: endsWithDivider
+      createsNewSection: createsNewSection
     )
   }
 
   func normalizedForCurrentVersion() -> NoteTemplate {
     var template = self
+    var foundEdgeDivider = false
 
     if NoteTemplateMarkdown.hasLeadingSectionDivider(in: template.body) {
       template.body = NoteTemplateMarkdown.removingLeadingSectionDivider(from: template.body)
-      template.startsWithDivider = true
+      foundEdgeDivider = true
     }
 
     if NoteTemplateMarkdown.hasTrailingSectionDivider(in: template.body) {
       template.body = NoteTemplateMarkdown.removingTrailingSectionDivider(from: template.body)
-      template.endsWithDivider = true
+      foundEdgeDivider = true
+    }
+
+    if foundEdgeDivider {
+      template.createsNewSection = true
     }
 
     return template
@@ -88,8 +89,7 @@ struct NoteTemplate: Identifiable, Codable, Equatable, Sendable {
     isEnabled: true,
     usesGeneratedCommand: true,
     cursorPlacement: .firstHeadingEnd,
-    startsWithDivider: true,
-    endsWithDivider: true
+    createsNewSection: true
   )
 
   private enum CodingKeys: String, CodingKey {
@@ -102,6 +102,7 @@ struct NoteTemplate: Identifiable, Codable, Equatable, Sendable {
     case usesGeneratedCommand
     case cursorPlacement
     case sectionColorName
+    case createsNewSection
     case startsWithDivider
     case endsWithDivider
   }
@@ -120,9 +121,13 @@ struct NoteTemplate: Identifiable, Codable, Equatable, Sendable {
       try container.decodeIfPresent(NoteTemplateCursorPlacement.self, forKey: .cursorPlacement)
       ?? .automatic
     sectionColorName = try container.decodeIfPresent(String.self, forKey: .sectionColorName)
-    startsWithDivider =
+    let legacyStartsWithDivider =
       try container.decodeIfPresent(Bool.self, forKey: .startsWithDivider) ?? false
-    endsWithDivider = try container.decodeIfPresent(Bool.self, forKey: .endsWithDivider) ?? false
+    let legacyEndsWithDivider =
+      try container.decodeIfPresent(Bool.self, forKey: .endsWithDivider) ?? false
+    createsNewSection =
+      try container.decodeIfPresent(Bool.self, forKey: .createsNewSection)
+      ?? legacyStartsWithDivider || legacyEndsWithDivider
   }
 
   func encode(to encoder: Encoder) throws {
@@ -136,8 +141,7 @@ struct NoteTemplate: Identifiable, Codable, Equatable, Sendable {
     try container.encode(usesGeneratedCommand, forKey: .usesGeneratedCommand)
     try container.encode(cursorPlacement, forKey: .cursorPlacement)
     try container.encodeIfPresent(sectionColorName, forKey: .sectionColorName)
-    try container.encode(startsWithDivider, forKey: .startsWithDivider)
-    try container.encode(endsWithDivider, forKey: .endsWithDivider)
+    try container.encode(createsNewSection, forKey: .createsNewSection)
   }
 }
 
@@ -201,12 +205,11 @@ enum NoteTemplateCommandRules {
 }
 
 enum NoteTemplateMarkdown {
-  // Applies template-level section styling and optional edge dividers on insertion.
+  // Applies template-level section styling and an optional leading section boundary.
   static func applyingTemplateOptions(
     to markdown: String,
     sectionColorName: String?,
-    startsWithDivider: Bool = false,
-    endsWithDivider: Bool
+    createsNewSection: Bool = false
   ) -> String {
     var lines = markdown.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
 
@@ -215,17 +218,13 @@ enum NoteTemplateMarkdown {
       return sectionMarker(colorName: sectionColorName)
     }
 
-    if startsWithDivider {
+    if createsNewSection {
       lines = removingLeadingSectionDivider(from: lines)
       lines.insert(sectionMarker(colorName: sectionColorName), at: 0)
     }
 
     if shouldAddLeadingSectionMarker(to: lines, sectionColorName: sectionColorName) {
       lines.insert(sectionMarker(colorName: sectionColorName), at: 0)
-    }
-
-    if endsWithDivider, !hasTrailingSectionDivider(in: lines) {
-      lines.append(sectionMarker(colorName: sectionColorName))
     }
 
     return lines.joined(separator: "\n")
@@ -243,7 +242,7 @@ enum NoteTemplateMarkdown {
   }
 
   static func removingSectionColorMetadata(from markdown: String) -> String {
-    applyingTemplateOptions(to: markdown, sectionColorName: nil, endsWithDivider: false)
+    applyingTemplateOptions(to: markdown, sectionColorName: nil)
   }
 
   static func hasTrailingSectionDivider(in markdown: String) -> Bool {

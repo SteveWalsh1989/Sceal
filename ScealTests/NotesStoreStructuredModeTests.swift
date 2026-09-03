@@ -535,8 +535,7 @@ final class NotesStoreStructuredModeTests: NotesStoreTestCase {
       command: "daily-plan",
       body: "# Plan\n\n- First\n<!-- section -->\n# Review",
       sectionColorName: "purple",
-      startsWithDivider: true,
-      endsWithDivider: true
+      createsNewSection: true
     )
     let store = makeStore(userDefaults: userDefaults, libraryLocation: libraryLocation)
     store.loadIfNeeded()
@@ -548,11 +547,11 @@ final class NotesStoreStructuredModeTests: NotesStoreTestCase {
 
     let document = try XCTUnwrap(store.selectedStructuredNote)
     let sections = sectionIDs(in: document).compactMap { section(in: document, id: $0) }
-    XCTAssertEqual(sections.map(\.markdown), ["", "# Plan\n\n- First", "# Review", ""])
+    XCTAssertEqual(sections.map(\.markdown), ["# Plan\n\n- First", "# Review"])
     XCTAssertTrue(
       sections.allSatisfy { !$0.markdown.contains("<!-- section") }
     )
-    XCTAssertEqual(sections[1].styleOverrides.borderColor, .colorName("purple"))
+    XCTAssertEqual(sections[0].styleOverrides.borderColor, .colorName("purple"))
     XCTAssertEqual(
       try StructuredNoteDocumentCodec.read(
         from: store.structuredNoteRepository.fileURL(for: document.id)

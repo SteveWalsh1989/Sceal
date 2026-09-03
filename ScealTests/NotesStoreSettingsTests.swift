@@ -88,24 +88,23 @@ final class NotesStoreSettingsTests: NotesStoreTestCase {
     XCTAssertEqual(store.templateCommandValidationMessage(for: templateID), "Enter a command.")
   }
 
-  // Prevents the starter template from storing edge dividers inside the compact editor body.
-  func testStarterTemplateDividerOptions() throws {
+  // Keeps the starter template in one new section without creating a trailing empty section.
+  func testStarterTemplateCreatesOneNewSection() throws {
     let userDefaults = makeUserDefaults()
     let store = makeStore(userDefaults: userDefaults)
     let template = try XCTUnwrap(store.noteTemplates.first { $0.command == "meeting" })
 
-    XCTAssertTrue(template.startsWithDivider)
-    XCTAssertTrue(template.endsWithDivider)
+    XCTAssertTrue(template.createsNewSection)
     XCTAssertFalse(NoteTemplateMarkdown.hasLeadingSectionDivider(in: template.body))
     XCTAssertFalse(NoteTemplateMarkdown.hasTrailingSectionDivider(in: template.body))
     XCTAssertTrue(
       NoteTemplateMarkdown.hasLeadingSectionDivider(in: template.resolvedBodyForInsertion))
-    XCTAssertTrue(
+    XCTAssertFalse(
       NoteTemplateMarkdown.hasTrailingSectionDivider(in: template.resolvedBodyForInsertion))
   }
 
-  // Prevents a leading body divider from creating extra top spacing in the compact editor.
-  func testTemplateBodyMovesLeadingDividerToStartOption() throws {
+  // Converts an edge divider into the explicit new-section option.
+  func testTemplateBodyMovesLeadingDividerToNewSectionOption() throws {
     let userDefaults = makeUserDefaults()
     let store = makeStore(userDefaults: userDefaults)
     let templateID = store.createNoteTemplate()
@@ -113,7 +112,7 @@ final class NotesStoreSettingsTests: NotesStoreTestCase {
     store.templateBodyBinding(for: templateID).wrappedValue = "<!-- section -->\n\nBody"
 
     let template = try XCTUnwrap(store.noteTemplate(withID: templateID))
-    XCTAssertTrue(template.startsWithDivider)
+    XCTAssertTrue(template.createsNewSection)
     XCTAssertEqual(template.body, "Body")
     XCTAssertEqual(template.resolvedBodyForInsertion, "<!-- section -->\nBody")
   }
@@ -128,14 +127,13 @@ final class NotesStoreSettingsTests: NotesStoreTestCase {
     store.templateBodyBinding(for: templateID).wrappedValue = body
 
     let template = try XCTUnwrap(store.noteTemplate(withID: templateID))
-    XCTAssertFalse(template.startsWithDivider)
-    XCTAssertFalse(template.endsWithDivider)
+    XCTAssertFalse(template.createsNewSection)
     XCTAssertEqual(template.body, body)
     XCTAssertEqual(template.resolvedBodyForInsertion, body)
   }
 
   // Migrates older templates that stored their starting divider in the body text.
-  func testLoadingTemplateMovesLeadingDividerToStartOption() throws {
+  func testLoadingTemplateMovesLeadingDividerToNewSectionOption() throws {
     let userDefaults = makeUserDefaults()
     let savedTemplate = NoteTemplate(
       title: "Legacy Meeting",
@@ -147,22 +145,22 @@ final class NotesStoreSettingsTests: NotesStoreTestCase {
     let store = makeStore(userDefaults: userDefaults)
     let template = try XCTUnwrap(store.noteTemplates.first)
 
-    XCTAssertTrue(template.startsWithDivider)
+    XCTAssertTrue(template.createsNewSection)
     XCTAssertEqual(template.body, "Body")
   }
 
-  // Prevents enabling the final-divider option from leaving a duplicate manual divider in the body.
-  func testEndingTemplateWithDividerRemovesTrailingBodyDivider() throws {
+  // Converts a trailing edge divider without retaining an empty trailing section.
+  func testTrailingTemplateDividerEnablesNewSectionWithoutTrailingBlank() throws {
     let userDefaults = makeUserDefaults()
     let store = makeStore(userDefaults: userDefaults)
     let templateID = store.createNoteTemplate()
 
     store.templateBodyBinding(for: templateID).wrappedValue = "Body\n\n<!-- section -->"
-    store.templateEndsWithDividerBinding(for: templateID).wrappedValue = true
 
     let template = try XCTUnwrap(store.noteTemplate(withID: templateID))
+    XCTAssertTrue(template.createsNewSection)
     XCTAssertEqual(template.body, "Body")
-    XCTAssertEqual(template.resolvedBodyForInsertion, "Body\n<!-- section -->")
+    XCTAssertEqual(template.resolvedBodyForInsertion, "<!-- section -->\nBody")
   }
 
   // Prevents the single template color from becoming separate per-section color state again.
@@ -172,8 +170,7 @@ final class NotesStoreSettingsTests: NotesStoreTestCase {
       command: "meeting",
       body: "Body",
       sectionColorName: "blue",
-      startsWithDivider: true,
-      endsWithDivider: true
+      createsNewSection: true
     )
 
     XCTAssertEqual(
@@ -181,9 +178,26 @@ final class NotesStoreSettingsTests: NotesStoreTestCase {
       [
         "<!-- section heading:blue bullet:blue usesectioncolor:true -->",
         "Body",
-        "<!-- section heading:blue bullet:blue usesectioncolor:true -->",
       ].joined(separator: "\n")
     )
+  }
+
+  // Reads both legacy edge-divider flags as the replacement new-section option.
+  func testLegacyDividerSettingsDecodeAsCreateNewSection() throws {
+    let data = Data(
+      """
+      [{"id":"legacy","title":"Legacy","command":"legacy","body":"Body","startsWithDivider":false,"endsWithDivider":true}]
+      """.utf8
+    )
+
+    let template = try XCTUnwrap(JSONDecoder().decode([NoteTemplate].self, from: data).first)
+    XCTAssertTrue(template.createsNewSection)
+
+    let encoded = try JSONEncoder().encode(template)
+    let encodedText = try XCTUnwrap(String(data: encoded, encoding: .utf8))
+    XCTAssertTrue(encodedText.contains("\"createsNewSection\":true"))
+    XCTAssertFalse(encodedText.contains("startsWithDivider"))
+    XCTAssertFalse(encodedText.contains("endsWithDivider"))
   }
 
   // Prevents user templates from taking over built-in slash commands.

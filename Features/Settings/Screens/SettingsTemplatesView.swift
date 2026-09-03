@@ -323,17 +323,20 @@ private struct TemplateDetailView: View {
               .pickerStyle(.menu)
             }
 
-            Section("Divider") {
+            Section("Insertion") {
               Toggle(
-                "Start with divider",
-                isOn: store.templateStartsWithDividerBinding(for: template.id)
+                "Create new section",
+                isOn: store.templateCreatesNewSectionBinding(for: template.id)
               )
 
-              Toggle(
-                "End with divider",
-                isOn: store.templateEndsWithDividerBinding(for: template.id)
+              Text(
+                "Insert this template below the current section. When disabled, insert it at the cursor."
               )
+              .font(.caption)
+              .foregroundStyle(.secondary)
+            }
 
+            Section("Appearance") {
               ColorSwatchRow(
                 title: "Color",
                 selectedColorName: store.templateSectionColorBinding(for: template.id)

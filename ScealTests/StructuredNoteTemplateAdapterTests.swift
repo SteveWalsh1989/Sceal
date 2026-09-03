@@ -16,8 +16,7 @@ final class StructuredNoteTemplateAdapterTests: XCTestCase {
       body: "# Feature\n\n- Item",
       cursorPlacement: .firstHeadingEnd,
       sectionColorName: "purple",
-      startsWithDivider: true,
-      endsWithDivider: true
+      createsNewSection: true
     )
 
     let result = try StructuredNoteTemplateAdapter.insert(
@@ -30,7 +29,7 @@ final class StructuredNoteTemplateAdapterTests: XCTestCase {
       replacing: existingSection
     )
 
-    XCTAssertEqual(result.sections.count, 3)
+    XCTAssertEqual(result.sections.count, 2)
     XCTAssertEqual(result.sections[0].id, existingSection.id)
     XCTAssertEqual(result.sections[0].markdown, "Before\n<!-- section -->\nLiteral\nAfter")
     XCTAssertEqual(result.sections[0].styleOverrides, existingSection.styleOverrides)
@@ -38,21 +37,19 @@ final class StructuredNoteTemplateAdapterTests: XCTestCase {
     XCTAssertEqual(result.sections[1].styleOverrides.headingColor, .colorName("purple"))
     XCTAssertEqual(result.sections[1].styleOverrides.borderColor, .colorName("purple"))
     XCTAssertEqual(result.sections[1].styleOverrides.bulletColor, .colorName("purple"))
-    XCTAssertEqual(result.sections[2].markdown, "")
-    XCTAssertEqual(result.sections[2].styleOverrides.headingColor, .colorName("purple"))
     XCTAssertEqual(result.focusSectionID, result.sections[1].id)
     XCTAssertFalse(
       result.sections.contains(where: { $0.markdown.contains("sceal-template-focus") }))
   }
 
-  // Keeps text after a leading-divider command in the current section instead of splitting it.
-  func testLeadingDividerTemplateAppendsOnlyItsRequestedSections() throws {
+  // Keeps text after a new-section template command in the current section instead of splitting it.
+  func testNewSectionTemplateAppendsOnlyItsRequestedSections() throws {
     let existingSection = StructuredNoteSection(markdown: "Before\n/feature\nAfter")
     let template = NoteTemplate(
       title: "Feature",
       command: "feature",
       body: "# Feature",
-      startsWithDivider: true
+      createsNewSection: true
     )
 
     let result = try StructuredNoteTemplateAdapter.insert(
@@ -117,20 +114,21 @@ final class StructuredNoteTemplateAdapterTests: XCTestCase {
     XCTAssertEqual(bulletResult.sections.count, 2)
     XCTAssertEqual(bulletResult.focusSectionID, bulletResult.sections[1].id)
 
-    var endTemplate = bulletTemplate
-    endTemplate.cursorPlacement = .end
-    endTemplate.endsWithDivider = true
-    let endResult = try StructuredNoteTemplateAdapter.insert(
+    var newSectionTemplate = bulletTemplate
+    newSectionTemplate.cursorPlacement = .end
+    newSectionTemplate.createsNewSection = true
+    let newSectionResult = try StructuredNoteTemplateAdapter.insert(
       StructuredTemplateInsertionRequest(
         leadingMarkdown: "",
         trailingMarkdown: "",
-        template: endTemplate,
+        template: newSectionTemplate,
         preservesReplacedLineBreak: false
       ),
       replacing: existingSection
     )
 
-    XCTAssertEqual(endResult.focusSectionID, endResult.sections.last?.id)
-    XCTAssertEqual(endResult.sections.last?.markdown, "")
+    XCTAssertEqual(newSectionResult.sections.count, 2)
+    XCTAssertEqual(newSectionResult.focusSectionID, newSectionResult.sections.last?.id)
+    XCTAssertEqual(newSectionResult.sections.last?.markdown, "- ")
   }
 }

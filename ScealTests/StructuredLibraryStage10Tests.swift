@@ -350,7 +350,7 @@ final class StructuredLibraryStage10Tests: NotesStoreTestCase {
       body: "## Release\n\n- [ ] Verify",
       cursorPlacement: .end,
       sectionColorName: "teal",
-      startsWithDivider: true
+      createsNewSection: true
     )
     let archiveURL = try ScealBackupArchiveExporter.exportBackup(
       dailyNotes: [legacyDaily],

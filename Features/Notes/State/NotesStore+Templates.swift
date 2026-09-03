@@ -150,27 +150,14 @@ extension NotesStore {
     )
   }
 
-  func templateStartsWithDividerBinding(for templateID: NoteTemplate.ID) -> Binding<Bool> {
+  func templateCreatesNewSectionBinding(for templateID: NoteTemplate.ID) -> Binding<Bool> {
     Binding(
-      get: { self.noteTemplate(withID: templateID)?.startsWithDivider ?? false },
-      set: { startsWithDivider in
+      get: { self.noteTemplate(withID: templateID)?.createsNewSection ?? false },
+      set: { createsNewSection in
         self.mutateNoteTemplate(id: templateID) { template in
-          template.startsWithDivider = startsWithDivider
-          if startsWithDivider {
+          template.createsNewSection = createsNewSection
+          if createsNewSection {
             template.body = NoteTemplateMarkdown.removingLeadingSectionDivider(from: template.body)
-          }
-        }
-      }
-    )
-  }
-
-  func templateEndsWithDividerBinding(for templateID: NoteTemplate.ID) -> Binding<Bool> {
-    Binding(
-      get: { self.noteTemplate(withID: templateID)?.endsWithDivider ?? false },
-      set: { endsWithDivider in
-        self.mutateNoteTemplate(id: templateID) { template in
-          template.endsWithDivider = endsWithDivider
-          if endsWithDivider {
             template.body = NoteTemplateMarkdown.removingTrailingSectionDivider(from: template.body)
           }
         }
@@ -242,15 +229,21 @@ extension NotesStore {
   }
 }
 
-// Pulls edge divider markers out of editable content and into explicit template toggles.
+// Pulls edge divider markers out of editable content and into the section insertion option.
 private func normalizeEdgeDividersIntoOptions(for template: inout NoteTemplate) {
+  var foundEdgeDivider = false
+
   if NoteTemplateMarkdown.hasLeadingSectionDivider(in: template.body) {
     template.body = NoteTemplateMarkdown.removingLeadingSectionDivider(from: template.body)
-    template.startsWithDivider = true
+    foundEdgeDivider = true
   }
 
   if NoteTemplateMarkdown.hasTrailingSectionDivider(in: template.body) {
     template.body = NoteTemplateMarkdown.removingTrailingSectionDivider(from: template.body)
-    template.endsWithDivider = true
+    foundEdgeDivider = true
+  }
+
+  if foundEdgeDivider {
+    template.createsNewSection = true
   }
 }

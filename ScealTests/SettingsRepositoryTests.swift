@@ -95,7 +95,7 @@ final class SettingsRepositoryTests: NotesStoreTestCase {
     let templates = repository.loadNoteTemplates()
     let loadedTemplate = try XCTUnwrap(templates.first)
 
-    XCTAssertTrue(loadedTemplate.startsWithDivider)
+    XCTAssertTrue(loadedTemplate.createsNewSection)
     XCTAssertEqual(loadedTemplate.body, "Body")
   }
 }

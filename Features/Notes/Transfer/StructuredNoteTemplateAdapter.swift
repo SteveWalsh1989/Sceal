@@ -54,12 +54,19 @@ enum StructuredNoteTemplateAdapter {
     var insertedSections = templateSections
     let focusSectionID: UUID
 
-    if request.template.startsWithDivider {
+    if request.template.createsNewSection {
       retainedSection.markdown = request.leadingMarkdown + request.trailingMarkdown
       focusSectionID =
         focusTemplateIndex.flatMap { index in
           insertedSections.indices.contains(index) ? insertedSections[index].id : nil
         } ?? insertedSections.last?.id ?? retainedSection.id
+
+      if retainedSection.markdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        return StructuredTemplateInsertionResult(
+          sections: insertedSections,
+          focusSectionID: focusSectionID
+        )
+      }
     } else {
       let firstTemplateSection = insertedSections.removeFirst()
       retainedSection.markdown =
