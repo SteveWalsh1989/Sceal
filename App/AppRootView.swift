@@ -90,10 +90,12 @@ struct AppRootView: View {
         }
         self.notePendingDeletionID = nil
       }
+      .keyboardShortcut(.defaultAction)
 
       Button("Cancel", role: .cancel) {
         notePendingDeletionID = nil
       }
+      .keyboardShortcut(.cancelAction)
     } message: {
       Text("This cannot be undone.")
     }
