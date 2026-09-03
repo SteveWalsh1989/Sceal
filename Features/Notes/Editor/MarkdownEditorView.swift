@@ -1775,19 +1775,14 @@ extension MarkdownEditorView {
 
       slashPopup.updateFilter(trimmed, customTemplates: parent.customSlashTemplates)
 
-      guard
-        let scrollView = textView.enclosingScrollView,
-        let lineRect = textView.editorLineFragmentRect(forCharacterLocation: cursorLocation)
+      guard let lineRect = textView.editorLineFragmentRect(forCharacterLocation: cursorLocation)
       else { return }
-
-      let popupHostView = scrollView.window?.contentView ?? scrollView
-      let rectInHostView = textView.convert(lineRect, to: popupHostView)
-      slashPopup.show(relativeTo: rectInHostView, in: popupHostView)
 
       slashPopup.onSelect = { [weak self, weak textView] entry in
         guard let self, let textView else { return }
         self.applySlashCommand(entry, in: textView)
       }
+      slashPopup.show(relativeTo: lineRect, in: textView)
     }
 
     func dismissSlashPopup() {

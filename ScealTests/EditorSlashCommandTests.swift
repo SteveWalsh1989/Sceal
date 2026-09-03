@@ -186,29 +186,33 @@ final class EditorSlashCommandTests: EditorTestCase {
     XCTAssertFalse(markdown.value.contains("<!-- section"))
   }
 
-  // Keeps the popup visible in either AppKit coordinate orientation and supports arrow selection.
+  // Keeps the panel on-screen and routes keyboard and pointer choices through one selection path.
   func testSlashPopupPlacementAndKeyboardSelection() {
-    for hostView in [
-      NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 300)),
-      FlippedSlashPopupHostView(frame: NSRect(x: 0, y: 0, width: 320, height: 300)),
-    ] {
-      let popup = EditorSlashCommandPopup()
-      var selectedCommand: String?
-      popup.onSelect = { selectedCommand = $0.command }
-      popup.updateFilter("/")
-      popup.show(relativeTo: NSRect(x: 300, y: 8, width: 2, height: 18), in: hostView)
+    let visibleFrame = NSRect(x: 100, y: 100, width: 320, height: 300)
+    let popupFrame = EditorSlashCommandPopupPlacement.frame(
+      relativeTo: NSRect(x: 400, y: 108, width: 2, height: 18),
+      visibleFrame: visibleFrame,
+      width: 210,
+      contentHeight: 260,
+      minimumHeight: 44
+    )
 
-      XCTAssertTrue(popup.isVisible)
-      XCTAssertGreaterThanOrEqual(popup.frame.minX, hostView.bounds.minX)
-      XCTAssertLessThanOrEqual(popup.frame.maxX, hostView.bounds.maxX)
-      XCTAssertGreaterThanOrEqual(popup.frame.minY, hostView.bounds.minY)
-      XCTAssertLessThanOrEqual(popup.frame.maxY, hostView.bounds.maxY)
+    XCTAssertGreaterThanOrEqual(popupFrame.minX, visibleFrame.minX)
+    XCTAssertLessThanOrEqual(popupFrame.maxX, visibleFrame.maxX)
+    XCTAssertGreaterThanOrEqual(popupFrame.minY, visibleFrame.minY)
+    XCTAssertLessThanOrEqual(popupFrame.maxY, visibleFrame.maxY)
 
-      popup.moveSelectionDown()
-      popup.confirmSelection()
-      XCTAssertEqual(selectedCommand, "/heading-1")
-      popup.hide()
-    }
+    let popup = EditorSlashCommandPopup()
+    var selectedCommand: String?
+    popup.onSelect = { selectedCommand = $0.command }
+    popup.updateFilter("/")
+    popup.moveSelectionDown()
+    popup.confirmSelection()
+    XCTAssertEqual(selectedCommand, "/heading-1")
+
+    popup.updateFilter("/pro")
+    popup.selectCommand(at: 0)
+    XCTAssertEqual(selectedCommand, "/prompt")
   }
 
   // Reads Markdown only from section nodes for the structured split assertion.
@@ -930,8 +934,4 @@ final class EditorSlashCommandTests: EditorTestCase {
       """
     )
   }
-}
-
-private final class FlippedSlashPopupHostView: NSView {
-  override var isFlipped: Bool { true }
 }
