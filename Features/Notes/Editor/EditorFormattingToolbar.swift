@@ -7,7 +7,49 @@
 
 import AppKit
 
+enum EditorFormattingToolbarLayout {
+  static let gap: CGFloat = 4
+  static let edgeInset: CGFloat = 4
+
+  // Places the toolbar visually above the selection for either AppKit coordinate direction.
+  static func origin(
+    selectionRect: NSRect,
+    toolbarSize: NSSize,
+    parentBounds: NSRect,
+    parentIsFlipped: Bool
+  ) -> NSPoint {
+    let preferredAboveY: CGFloat
+    let fallbackBelowY: CGFloat
+    let hasSpaceAbove: Bool
+
+    if parentIsFlipped {
+      preferredAboveY = selectionRect.minY - toolbarSize.height - gap
+      fallbackBelowY = selectionRect.maxY + gap
+      hasSpaceAbove = preferredAboveY >= parentBounds.minY + edgeInset
+    } else {
+      preferredAboveY = selectionRect.maxY + gap
+      fallbackBelowY = selectionRect.minY - toolbarSize.height - gap
+      hasSpaceAbove =
+        preferredAboveY + toolbarSize.height <= parentBounds.maxY - edgeInset
+    }
+
+    let minimumX = parentBounds.minX + edgeInset
+    let maximumX = max(minimumX, parentBounds.maxX - toolbarSize.width - edgeInset)
+    let minimumY = parentBounds.minY + edgeInset
+    let maximumY = max(minimumY, parentBounds.maxY - toolbarSize.height - edgeInset)
+    let centeredX = selectionRect.midX - toolbarSize.width / 2
+    let preferredY = hasSpaceAbove ? preferredAboveY : fallbackBelowY
+
+    return NSPoint(
+      x: min(max(centeredX, minimumX), maximumX),
+      y: min(max(preferredY, minimumY), maximumY)
+    )
+  }
+}
+
 @MainActor class EditorFormattingToolbar: NSView {
+  private static weak var visibleToolbar: EditorFormattingToolbar?
+
   weak var textView: NSTextView?
   var appearanceSettings = NoteAppearanceSettings.default
   var listMarkerColor: NSColor?
@@ -243,22 +285,12 @@ import AppKit
     let size = fittingSize
     let toolbarHeight = max(size.height, 34)
     let toolbarWidth = max(size.width, 100)
-    let gap: CGFloat = 4
-    let edgeInset: CGFloat = 4
-
-    let parentBounds = parentView.bounds
-    let preferredAboveY = selectionRect.minY - toolbarHeight - gap
-    let fallbackBelowY = selectionRect.maxY + gap
-
-    var origin = NSPoint(x: selectionRect.midX - toolbarWidth / 2, y: preferredAboveY)
-    origin.x = max(
-      edgeInset, min(origin.x, parentBounds.maxX - toolbarWidth - edgeInset)
-    )
-    if preferredAboveY < edgeInset {
-      origin.y = fallbackBelowY
-    }
-    origin.y = max(
-      edgeInset, min(origin.y, parentBounds.maxY - toolbarHeight - edgeInset)
+    let toolbarSize = NSSize(width: toolbarWidth, height: toolbarHeight)
+    let origin = EditorFormattingToolbarLayout.origin(
+      selectionRect: selectionRect,
+      toolbarSize: toolbarSize,
+      parentBounds: parentView.bounds,
+      parentIsFlipped: parentView.isFlipped
     )
 
     frame = NSRect(x: origin.x, y: origin.y, width: toolbarWidth, height: toolbarHeight)
@@ -267,6 +299,10 @@ import AppKit
       parentView.addSubview(self)
     }
 
+    if let visibleToolbar = Self.visibleToolbar, visibleToolbar !== self {
+      visibleToolbar.hide()
+    }
+    Self.visibleToolbar = self
     isHidden = false
     alphaValue = 1
   }
@@ -274,6 +310,9 @@ import AppKit
   // Hides the toolbar.
   func hide() {
     isHidden = true
+    if Self.visibleToolbar === self {
+      Self.visibleToolbar = nil
+    }
   }
 
   // MARK: - Inline Actions

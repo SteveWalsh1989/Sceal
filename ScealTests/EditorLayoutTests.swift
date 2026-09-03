@@ -5,6 +5,70 @@ import XCTest
 
 @MainActor
 final class EditorLayoutTests: EditorTestCase {
+  // Keeps the toolbar visually above a selection in flipped and non-flipped containers.
+  func testFormattingToolbarPlacementAccountsForCoordinateDirection() {
+    let parentBounds = NSRect(x: 0, y: 0, width: 500, height: 300)
+    let selectionRect = NSRect(x: 200, y: 120, width: 40, height: 20)
+    let toolbarSize = NSSize(width: 100, height: 34)
+
+    let flippedOrigin = EditorFormattingToolbarLayout.origin(
+      selectionRect: selectionRect,
+      toolbarSize: toolbarSize,
+      parentBounds: parentBounds,
+      parentIsFlipped: true
+    )
+    let nonFlippedOrigin = EditorFormattingToolbarLayout.origin(
+      selectionRect: selectionRect,
+      toolbarSize: toolbarSize,
+      parentBounds: parentBounds,
+      parentIsFlipped: false
+    )
+
+    XCTAssertLessThan(flippedOrigin.y + toolbarSize.height, selectionRect.minY)
+    XCTAssertGreaterThan(nonFlippedOrigin.y, selectionRect.maxY)
+  }
+
+  // Moves the toolbar below the selection when the visual area above it is unavailable.
+  func testFormattingToolbarPlacementFallsBackBelowSelection() {
+    let parentBounds = NSRect(x: 0, y: 0, width: 500, height: 300)
+    let toolbarSize = NSSize(width: 100, height: 34)
+    let flippedSelection = NSRect(x: 200, y: 2, width: 40, height: 20)
+    let nonFlippedSelection = NSRect(x: 200, y: 278, width: 40, height: 20)
+
+    let flippedOrigin = EditorFormattingToolbarLayout.origin(
+      selectionRect: flippedSelection,
+      toolbarSize: toolbarSize,
+      parentBounds: parentBounds,
+      parentIsFlipped: true
+    )
+    let nonFlippedOrigin = EditorFormattingToolbarLayout.origin(
+      selectionRect: nonFlippedSelection,
+      toolbarSize: toolbarSize,
+      parentBounds: parentBounds,
+      parentIsFlipped: false
+    )
+
+    XCTAssertGreaterThan(flippedOrigin.y, flippedSelection.maxY)
+    XCTAssertLessThan(nonFlippedOrigin.y + toolbarSize.height, nonFlippedSelection.minY)
+  }
+
+  // Prevents separate structured section editors from showing competing toolbars.
+  func testShowingFormattingToolbarHidesPreviouslyVisibleToolbar() {
+    let parentView = NSView(frame: NSRect(x: 0, y: 0, width: 1_000, height: 400))
+    let selectionRect = NSRect(x: 400, y: 180, width: 80, height: 20)
+    let firstToolbar = EditorFormattingToolbar()
+    let secondToolbar = EditorFormattingToolbar()
+
+    firstToolbar.show(relativeTo: selectionRect, in: parentView)
+    XCTAssertFalse(firstToolbar.isHidden)
+
+    secondToolbar.show(relativeTo: selectionRect, in: parentView)
+    XCTAssertTrue(firstToolbar.isHidden)
+    XCTAssertFalse(secondToolbar.isHidden)
+
+    secondToolbar.hide()
+  }
+
   // Prevents tiny windows from losing the minimum scroll room below the note.
   func testBottomOverscrollUsesMinimumForSmallViewport() {
     XCTAssertEqual(MarkdownEditorView.bottomOverscrollHeight(for: 240), 300)
