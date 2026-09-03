@@ -48,11 +48,13 @@ struct StructuredNoteEditorView: View {
     return VStack(alignment: .leading, spacing: 12) {
       editorHeader(document)
         .padding(.leading, sidebarCollapsed ? 130 : 0)
+        .padding(.horizontal, 24)
 
       TextField("Title", text: store.structuredTitleBinding(for: document.id), axis: .vertical)
         .textFieldStyle(.plain)
         .font(.system(size: 30, weight: .bold))
         .lineLimit(1...3)
+        .padding(.horizontal, 24)
 
       ScrollViewReader { scrollProxy in
         ScrollView {
@@ -96,7 +98,6 @@ struct StructuredNoteEditorView: View {
         }
       }
     }
-    .padding(.horizontal, 24)
     .padding(.bottom, 24)
     .padding(.top, 12)
     .onAppear {
@@ -626,7 +627,10 @@ private struct StructuredEditorDragHandle<Preview: View>: View {
     Image(systemName: "line.3.horizontal")
       .font(.system(size: 12, weight: .semibold))
       .foregroundStyle(.tertiary)
-      .frame(width: 24, height: 24)
+      .frame(
+        width: StructuredSectionGutterLayout.controlDimension,
+        height: StructuredSectionGutterLayout.controlDimension
+      )
       .contentShape(Rectangle())
       .onDrag(itemProvider, preview: preview)
       .help(helpText)
@@ -759,16 +763,16 @@ nonisolated enum StructuredSectionGutterSelection {
 }
 
 nonisolated enum StructuredSectionGutterLayout {
-  static let capsuleWidth: CGFloat = 26
-  static let edgeSpacing: CGFloat = 6
+  static let controlDimension: CGFloat = 20
+  static let capsuleHorizontalPadding: CGFloat = 1
+  static let capsuleWidth = controlDimension + capsuleHorizontalPadding * 2
+  static let edgeSpacing: CGFloat = 4
   static let sideReserveWidth = capsuleWidth + edgeSpacing * 2
 }
 
 nonisolated enum StructuredSectionGroupLayout {
   static let childHorizontalInset: CGFloat = 0
-  static let accentRailWidth: CGFloat = 2
-  static let accentRailLeadingInset =
-    (StructuredSectionGutterLayout.sideReserveWidth - accentRailWidth) / 2
+  static let headerHorizontalInset = StructuredSectionGutterLayout.sideReserveWidth
 }
 
 nonisolated enum StructuredSectionOptionsLayout {
@@ -833,15 +837,6 @@ private struct StructuredSectionGroupContainer: View {
       }
     }
     .padding(.horizontal, StructuredSectionGroupLayout.childHorizontalInset)
-    .overlay(alignment: .leading) {
-      Capsule()
-        .fill(groupBorderColor.opacity(0.7))
-        .frame(width: StructuredSectionGroupLayout.accentRailWidth)
-        .padding(.leading, StructuredSectionGroupLayout.accentRailLeadingInset)
-        .padding(.top, 30)
-        .padding(.bottom, 8)
-        .allowsHitTesting(false)
-    }
     .onHover { isHovering = $0 }
     .accessibilityElement(children: .contain)
     .accessibilityLabel("Group \(rootNodeIndex + 1): \(group.title)")
@@ -871,7 +866,7 @@ private struct StructuredSectionGroupContainer: View {
   }
 
   private var groupHeader: some View {
-    HStack(spacing: 0) {
+    HStack(spacing: 10) {
       ZStack {
         Circle()
           .fill(groupBorderColor.opacity(0.14))
@@ -881,56 +876,62 @@ private struct StructuredSectionGroupContainer: View {
           .font(.system(size: 12, weight: .semibold))
           .foregroundStyle(groupBorderColor)
       }
-      .frame(width: StructuredSectionGutterLayout.sideReserveWidth)
 
-      HStack(spacing: 10) {
-        if group.displaysTypeLabel {
-          VStack(alignment: .leading, spacing: 2) {
-            Text("GROUP")
-              .font(.system(size: 9, weight: .bold))
-              .tracking(1.1)
-              .foregroundStyle(.tertiary)
+      if group.displaysTypeLabel {
+        VStack(alignment: .leading, spacing: 2) {
+          Text("GROUP")
+            .font(.system(size: 9, weight: .bold))
+            .tracking(1.1)
+            .foregroundStyle(.tertiary)
 
-            Text(group.title)
-              .font(.system(size: 18, weight: .semibold))
-              .foregroundStyle(groupHeadingColor)
-          }
-        } else {
           Text(group.title)
             .font(.system(size: 18, weight: .semibold))
             .foregroundStyle(groupHeadingColor)
         }
+      } else {
+        Text(group.title)
+          .font(.system(size: 18, weight: .semibold))
+          .foregroundStyle(groupHeadingColor)
+      }
 
-        if group.displaysSectionCount {
-          Text(sectionCountLabel)
-            .font(.caption)
-            .foregroundStyle(.tertiary)
-        }
+      if group.displaysSectionCount {
+        Text(sectionCountLabel)
+          .font(.caption)
+          .foregroundStyle(.tertiary)
+      }
 
-        Spacer()
+      Spacer()
 
-        StructuredEditorDragHandle(
-          accessibilityLabel: "Move \(group.title) group",
-          helpText: "Drag group"
-        ) {
-          StructuredEditorDragPreview(
-            title: group.title,
-            detail: sectionCountLabel,
-            borderColor: groupBorderColor
-          )
-        } itemProvider: {
-          dragContext.beginDrag(.group(group.id))
-        }
+      StructuredEditorDragHandle(
+        accessibilityLabel: "Move \(group.title) group",
+        helpText: "Drag group"
+      ) {
+        StructuredEditorDragPreview(
+          title: group.title,
+          detail: sectionCountLabel,
+          borderColor: groupBorderColor
+        )
+      } itemProvider: {
+        dragContext.beginDrag(.group(group.id))
+      }
+      .opacity(isHovering || containsFocusedSection ? 1 : 0)
+      .allowsHitTesting(isHovering || containsFocusedSection)
+
+      groupOptionsMenu
         .opacity(isHovering || containsFocusedSection ? 1 : 0)
         .allowsHitTesting(isHovering || containsFocusedSection)
-
-        groupOptionsMenu
-          .opacity(isHovering || containsFocusedSection ? 1 : 0)
-          .allowsHitTesting(isHovering || containsFocusedSection)
-      }
-      .padding(.trailing, StructuredSectionGutterLayout.edgeSpacing)
     }
-    .frame(minHeight: 32)
+    .padding(.horizontal, 12)
+    .frame(minHeight: 40)
+    .background(
+      groupBorderColor.opacity(0.08),
+      in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+    )
+    .overlay {
+      RoundedRectangle(cornerRadius: 12, style: .continuous)
+        .strokeBorder(groupBorderColor.opacity(0.4), lineWidth: 1)
+    }
+    .padding(.horizontal, StructuredSectionGroupLayout.headerHorizontalInset)
   }
 
   private var groupOptionsMenu: some View {
@@ -1414,7 +1415,7 @@ private struct StructuredSectionEditorCard: View {
       }
     }
     .padding(.vertical, 3)
-    .padding(.horizontal, 1)
+    .padding(.horizontal, StructuredSectionGutterLayout.capsuleHorizontalPadding)
     .background(
       themeColors.controlBackground.color.opacity(0.94),
       in: RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -1456,7 +1457,10 @@ private struct StructuredSectionEditorCard: View {
       Image(systemName: "ellipsis")
         .font(.system(size: 13, weight: .semibold))
         .foregroundStyle(.secondary)
-        .frame(width: 24, height: 24)
+        .frame(
+          width: StructuredSectionGutterLayout.controlDimension,
+          height: StructuredSectionGutterLayout.controlDimension
+        )
         .contentShape(Rectangle())
     }
     .buttonStyle(.plain)

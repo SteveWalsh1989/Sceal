@@ -71,20 +71,25 @@ final class StructuredNoteEditorCoordinatorTests: XCTestCase {
   // Keeps the card centered by mirroring the complete measured action reserve.
   func testSectionGutterLayoutUsesEqualInnerAndOuterSpacing() {
     XCTAssertEqual(
+      StructuredSectionGutterLayout.capsuleWidth,
+      StructuredSectionGutterLayout.controlDimension
+        + StructuredSectionGutterLayout.capsuleHorizontalPadding * 2
+    )
+    XCTAssertEqual(
       StructuredSectionGutterLayout.sideReserveWidth,
       StructuredSectionGutterLayout.capsuleWidth
         + StructuredSectionGutterLayout.edgeSpacing * 2
     )
     XCTAssertGreaterThan(StructuredSectionGutterLayout.edgeSpacing, 0)
+    XCTAssertEqual(StructuredSectionGutterLayout.sideReserveWidth, 30)
   }
 
-  // Keeps grouped child cards on the same horizontal bounds as root section cards.
-  func testGroupLayoutDoesNotInsetChildSections() {
+  // Keeps grouped child and header cards on the same horizontal bounds as root section cards.
+  func testGroupLayoutUsesCommonSectionBounds() {
     XCTAssertEqual(StructuredSectionGroupLayout.childHorizontalInset, 0)
     XCTAssertEqual(
-      StructuredSectionGroupLayout.accentRailLeadingInset
-        + StructuredSectionGroupLayout.accentRailWidth / 2,
-      StructuredSectionGutterLayout.sideReserveWidth / 2
+      StructuredSectionGroupLayout.headerHorizontalInset,
+      StructuredSectionGutterLayout.sideReserveWidth
     )
   }
 
