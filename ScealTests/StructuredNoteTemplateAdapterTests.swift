@@ -32,17 +32,42 @@ final class StructuredNoteTemplateAdapterTests: XCTestCase {
 
     XCTAssertEqual(result.sections.count, 3)
     XCTAssertEqual(result.sections[0].id, existingSection.id)
-    XCTAssertEqual(result.sections[0].markdown, "Before\n<!-- section -->\nLiteral")
+    XCTAssertEqual(result.sections[0].markdown, "Before\n<!-- section -->\nLiteral\nAfter")
     XCTAssertEqual(result.sections[0].styleOverrides, existingSection.styleOverrides)
     XCTAssertEqual(result.sections[1].markdown, "# Feature\n\n- Item")
     XCTAssertEqual(result.sections[1].styleOverrides.headingColor, .colorName("purple"))
     XCTAssertEqual(result.sections[1].styleOverrides.borderColor, .colorName("purple"))
     XCTAssertEqual(result.sections[1].styleOverrides.bulletColor, .colorName("purple"))
-    XCTAssertEqual(result.sections[2].markdown, "After")
-    XCTAssertEqual(result.sections[2].styleOverrides, existingSection.styleOverrides)
+    XCTAssertEqual(result.sections[2].markdown, "")
+    XCTAssertEqual(result.sections[2].styleOverrides.headingColor, .colorName("purple"))
     XCTAssertEqual(result.focusSectionID, result.sections[1].id)
     XCTAssertFalse(
       result.sections.contains(where: { $0.markdown.contains("sceal-template-focus") }))
+  }
+
+  // Keeps text after a leading-divider command in the current section instead of splitting it.
+  func testLeadingDividerTemplateAppendsOnlyItsRequestedSections() throws {
+    let existingSection = StructuredNoteSection(markdown: "Before\n/feature\nAfter")
+    let template = NoteTemplate(
+      title: "Feature",
+      command: "feature",
+      body: "# Feature",
+      startsWithDivider: true
+    )
+
+    let result = try StructuredNoteTemplateAdapter.insert(
+      StructuredTemplateInsertionRequest(
+        leadingMarkdown: "Before\n",
+        trailingMarkdown: "After",
+        template: template,
+        preservesReplacedLineBreak: true
+      ),
+      replacing: existingSection
+    )
+
+    XCTAssertEqual(result.sections.map(\.markdown), ["Before\nAfter", "# Feature"])
+    XCTAssertEqual(result.sections.first?.id, existingSection.id)
+    XCTAssertEqual(result.focusSectionID, result.sections.last?.id)
   }
 
   // Replaces a grouped section with multiple children without promoting them to the document root.

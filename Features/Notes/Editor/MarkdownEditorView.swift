@@ -54,7 +54,7 @@ struct MarkdownEditorView: NSViewRepresentable {
   var initialSectionBulletColorName: String? = nil
   var onFocus: (() -> Void)? = nil
   var onTextChange: (() -> Void)? = nil
-  var onStructuredSectionSplit: ((String, Int) -> Void)? = nil
+  var onStructuredSectionInsert: ((String) -> Void)? = nil
   var onStructuredTemplateInsert: ((StructuredTemplateInsertionRequest) -> Void)? = nil
   var onBoundaryNavigation: ((StructuredEditorBoundaryNavigation) -> Bool)? = nil
   var onStructuredUndo: (() -> Bool)? = nil
@@ -1444,13 +1444,13 @@ extension MarkdownEditorView {
       return abs(caretRect.midY - boundaryRect.midY) < 0.5
     }
 
-    // Converts a standalone `/div` or `/section` row into a structural section split.
+    // Removes a standalone `/div` or `/section` row before requesting a sibling section.
     private func handleStructuredSectionSplitCommand(
       textStorage: NSTextStorage,
       fullLineRange: NSRange,
       lineRange: NSRange
     ) -> Bool {
-      guard let splitSection = parent.onStructuredSectionSplit,
+      guard let insertSection = parent.onStructuredSectionInsert,
         let command = EditorSlashCommandHandler.matchedCommand(
           in: textStorage,
           lineRange: lineRange
@@ -1465,32 +1465,16 @@ extension MarkdownEditorView {
         else { return false }
       }
 
-      let nsString = textStorage.string as NSString
-      var removalRange = fullLineRange
-      var splitDisplayLocation = lineRange.location
-      if lineRange.location > 0, nsString.character(at: lineRange.location - 1) == 0x0A {
-        removalRange.location -= 1
-        removalRange.length += 1
-        splitDisplayLocation -= 1
-      }
-
       let updatedDisplay = NSMutableAttributedString(attributedString: textStorage)
-      updatedDisplay.deleteCharacters(in: removalRange)
-      let prefix = updatedDisplay.attributedSubstring(
-        from: NSRange(location: 0, length: splitDisplayLocation)
-      )
+      updatedDisplay.deleteCharacters(in: fullLineRange)
       let markdown = MarkdownEditorFormatter.convertToMarkdown(
         from: updatedDisplay,
         normalizesSectionDirectives: false
       )
-      let splitOffset = MarkdownEditorFormatter.convertToMarkdown(
-        from: prefix,
-        normalizesSectionDirectives: false
-      ).utf16.count
 
       dismissSlashPopup()
       DispatchQueue.main.async {
-        splitSection(markdown, splitOffset)
+        insertSection(markdown)
       }
       return true
     }

@@ -6,13 +6,12 @@ import XCTest
 
 @MainActor
 final class EditorSlashCommandTests: EditorTestCase {
-  // Routes `/div` to a structural split and removes the command row from both section bodies.
-  func testStructuredDividerCommandReturnsMarkdownAndSplitOffset() async throws {
+  // Routes `/div` to one sibling insertion without splitting the surrounding section content.
+  func testStructuredDividerCommandReturnsWholeCurrentSection() async throws {
     let rawMarkdown = "# Before\n/div\nAfter"
     let markdown = MarkdownBox(rawMarkdown)
     var splitMarkdown: String?
-    var splitOffset: Int?
-    let splitExpectation = expectation(description: "Structured split callback")
+    let insertExpectation = expectation(description: "Structured insert callback")
     let editor = MarkdownEditorView(
       noteID: "2026-09-01#section",
       text: Binding(
@@ -22,10 +21,9 @@ final class EditorSlashCommandTests: EditorTestCase {
       appearanceSettings: appearance,
       allowsSlashCommands: false,
       interpretsSectionDirectives: false,
-      onStructuredSectionSplit: { returnedMarkdown, returnedOffset in
+      onStructuredSectionInsert: { returnedMarkdown in
         splitMarkdown = returnedMarkdown
-        splitOffset = returnedOffset
-        splitExpectation.fulfill()
+        insertExpectation.fulfill()
       }
     )
     let coordinator = editor.makeCoordinator()
@@ -44,12 +42,10 @@ final class EditorSlashCommandTests: EditorTestCase {
     XCTAssertTrue(
       coordinator.textView(textView, doCommandBy: #selector(NSResponder.insertNewline(_:)))
     )
-    await fulfillment(of: [splitExpectation], timeout: 1)
+    await fulfillment(of: [insertExpectation], timeout: 1)
 
-    XCTAssertEqual(splitMarkdown, "# BeforeAfter")
-    XCTAssertEqual(splitOffset, "# Before".utf16.count)
+    XCTAssertEqual(splitMarkdown, "# Before\nAfter")
     let resolvedMarkdown = try XCTUnwrap(splitMarkdown)
-    let resolvedOffset = try XCTUnwrap(splitOffset)
 
     let originalStyle = StructuredSectionStyleOverrides(
       headingColor: .colorName("blue")
@@ -70,10 +66,12 @@ final class EditorSlashCommandTests: EditorTestCase {
     guard case .section(let section) = document.nodes[0] else {
       return XCTFail("Expected root section")
     }
-    _ = try document.insertBlankSection(id: section.id, atUTF16Offset: resolvedOffset)
-    XCTAssertEqual(document.nodes.compactMap(sectionMarkdown), ["# Before", "", "After"])
-    XCTAssertEqual(
-      document.nodes.compactMap(sectionStyle), [originalStyle, .inherited, originalStyle])
+    try document.setSectionMarkdown(resolvedMarkdown, sectionID: section.id)
+    try document.insertSection(
+      StructuredNoteSection(),
+      at: StructuredNoteSectionDestination(parent: .root, index: 1)
+    )
+    XCTAssertEqual(document.nodes.compactMap(sectionMarkdown), ["# Before\nAfter", ""])
   }
 
   // Keeps the legacy `/section` alias structural and hidden from persisted section content.
@@ -90,7 +88,7 @@ final class EditorSlashCommandTests: EditorTestCase {
       appearanceSettings: appearance,
       allowsSlashCommands: false,
       interpretsSectionDirectives: false,
-      onStructuredSectionSplit: { returnedMarkdown, _ in
+      onStructuredSectionInsert: { returnedMarkdown in
         splitMarkdown = returnedMarkdown
         splitExpectation.fulfill()
       }
@@ -109,7 +107,7 @@ final class EditorSlashCommandTests: EditorTestCase {
     )
     await fulfillment(of: [splitExpectation], timeout: 1)
 
-    XCTAssertEqual(splitMarkdown, "BeforeAfter")
+    XCTAssertEqual(splitMarkdown, "Before\nAfter")
     XCTAssertFalse(splitMarkdown?.contains("/section") == true)
     XCTAssertFalse(splitMarkdown?.contains("<!-- section") == true)
   }
@@ -128,7 +126,7 @@ final class EditorSlashCommandTests: EditorTestCase {
       appearanceSettings: appearance,
       allowsSlashCommands: true,
       interpretsSectionDirectives: false,
-      onStructuredSectionSplit: { returnedMarkdown, _ in
+      onStructuredSectionInsert: { returnedMarkdown in
         splitMarkdown = returnedMarkdown
         splitExpectation.fulfill()
       }
@@ -150,7 +148,7 @@ final class EditorSlashCommandTests: EditorTestCase {
     )
     await fulfillment(of: [splitExpectation], timeout: 1)
 
-    XCTAssertEqual(splitMarkdown, "BeforeAfter")
+    XCTAssertEqual(splitMarkdown, "Before\nAfter")
     XCTAssertFalse(splitMarkdown?.contains("<!-- section") == true)
   }
 
@@ -230,12 +228,6 @@ final class EditorSlashCommandTests: EditorTestCase {
   private func sectionMarkdown(_ node: StructuredNoteNode) -> String? {
     guard case .section(let section) = node else { return nil }
     return section.markdown
-  }
-
-  // Reads appearance overrides only from section nodes for style-isolation assertions.
-  private func sectionStyle(_ node: StructuredNoteNode) -> StructuredSectionStyleOverrides? {
-    guard case .section(let section) = node else { return nil }
-    return section.styleOverrides
   }
 
   // Finds a rendered prompt boundary by kind for interaction assertions.

@@ -1340,9 +1340,7 @@ private struct StructuredSectionEditorCard: View {
             onTextChange: {
               editorCoordinator.didEditText()
             },
-            onStructuredSectionSplit: { markdown, splitOffset in
-              insertBlankSection(markdown: markdown, atUTF16Offset: splitOffset)
-            },
+            onStructuredSectionInsert: insertBlankSection,
             onStructuredTemplateInsert: insertTemplate,
             onBoundaryNavigation: { direction in
               editorCoordinator.navigate(from: item.id, direction: direction)
@@ -1706,45 +1704,26 @@ private struct StructuredSectionEditorCard: View {
     }
   }
 
-  // Splits current Markdown and focuses the newly inserted section at its beginning.
-  private func splitSection(markdown: String, atUTF16Offset splitOffset: Int) {
+  // Removes the command row and inserts one default-styled sibling after the current section.
+  private func insertBlankSection(markdown: String) {
     guard var previousDocument = currentDocument else { return }
     do {
       try previousDocument.setSectionMarkdown(markdown, sectionID: item.id)
       var updatedDocument = previousDocument
-      let newSectionID = try updatedDocument.splitSection(
-        id: item.id,
-        atUTF16Offset: splitOffset
-      )
-      commitStructuralChange(
-        from: previousDocument,
-        to: updatedDocument,
-        actionName: "Split Section",
-        undoFocusSectionID: item.id,
-        focusSectionID: newSectionID,
-        caretPlacement: .start
-      )
-    } catch {
-      reportStructuralError(error)
-    }
-  }
-
-  // Inserts a default-styled section and keeps both surrounding fragments visually unchanged.
-  private func insertBlankSection(markdown: String, atUTF16Offset splitOffset: Int) {
-    guard var previousDocument = currentDocument else { return }
-    do {
-      try previousDocument.setSectionMarkdown(markdown, sectionID: item.id)
-      var updatedDocument = previousDocument
-      let insertedSectionID = try updatedDocument.insertBlankSection(
-        id: item.id,
-        atUTF16Offset: splitOffset
+      let insertedSection = StructuredNoteSection()
+      try updatedDocument.insertSection(
+        insertedSection,
+        at: StructuredNoteSectionDestination(
+          parent: item.parent,
+          index: item.indexInContainer + 1
+        )
       )
       commitStructuralChange(
         from: previousDocument,
         to: updatedDocument,
         actionName: "Insert Section",
         undoFocusSectionID: item.id,
-        focusSectionID: insertedSectionID,
+        focusSectionID: insertedSection.id,
         caretPlacement: .start
       )
     } catch {
@@ -1754,10 +1733,7 @@ private struct StructuredSectionEditorCard: View {
 
   // Adds a blank sibling after this section and keeps the operation structurally undoable.
   private func addSectionBelow() {
-    splitSection(
-      markdown: item.section.markdown,
-      atUTF16Offset: item.section.markdown.utf16.count
-    )
+    insertBlankSection(markdown: item.section.markdown)
   }
 
   // Replaces a slash row with template content and converts template-owned dividers to sections.

@@ -19,137 +19,76 @@ struct StructuredTemplateInsertionResult: Equatable, Sendable {
 }
 
 enum StructuredNoteTemplateAdapter {
-  // Recreates legacy insertion text, then turns only template-owned dividers into section boundaries.
+  // Keeps existing content whole while turning only template-owned dividers into new sections.
   static func insert(
     _ request: StructuredTemplateInsertionRequest,
     replacing existingSection: StructuredNoteSection
   ) throws -> StructuredTemplateInsertionResult {
-    let protectedLeading = protectLiteralDirectives(in: request.leadingMarkdown, namespace: "lead")
-    let protectedTrailing = protectLiteralDirectives(
-      in: request.trailingMarkdown, namespace: "tail")
     let markedTemplate = markFocusContent(
       in: request.template.resolvedBodyForInsertion,
       placement: request.template.cursorPlacement
     )
-    let provenanceMarkers = provenanceMarkers(for: request)
-    let templateMarkdown = preservingReplacedLineBreak(
-      in: markedTemplate.markdown,
-      when: request.preservesReplacedLineBreak
+    var templateSections = LegacyMarkdownStructuredNoteAdapter.sections(
+      from: markedTemplate.markdown,
+      preservesLeadingEmptySection: false
     )
-    let combinedMarkdown =
-      (provenanceMarkers.leading ?? "") + protectedLeading.markdown + templateMarkdown
-      + protectedTrailing.markdown + (provenanceMarkers.trailing ?? "")
-    var sections = LegacyMarkdownStructuredNoteAdapter.sections(
-      from: combinedMarkdown,
-      preservesLeadingEmptySection: request.template.startsWithDivider
-    )
-    let focusSectionIndex =
+    let focusTemplateIndex =
       request.template.cursorPlacement == .end
-      ? sections.indices.last
-      : sections.firstIndex { $0.markdown.contains(markedTemplate.focusMarker) }
+      ? templateSections.indices.last
+      : templateSections.firstIndex { $0.markdown.contains(markedTemplate.focusMarker) }
 
-    var existingFragmentIndices = Set<Int>()
-    for index in sections.indices {
-      sections[index].markdown = restoreProtectedDirectives(
-        in: sections[index].markdown,
-        replacements: protectedLeading.replacements + protectedTrailing.replacements
-      )
-      sections[index].markdown = sections[index].markdown.replacingOccurrences(
+    for index in templateSections.indices {
+      templateSections[index].markdown = templateSections[index].markdown.replacingOccurrences(
         of: markedTemplate.focusMarker,
         with: ""
       )
-      sections[index].isCollapsed = false
-      linkImportedMainColorRoles(in: &sections[index])
-      if remove(provenanceMarkers.leading, from: &sections[index].markdown) {
-        existingFragmentIndices.insert(index)
-      }
-      if remove(provenanceMarkers.trailing, from: &sections[index].markdown) {
-        existingFragmentIndices.insert(index)
-      }
+      templateSections[index].isCollapsed = false
+      linkImportedMainColorRoles(in: &templateSections[index])
     }
 
-    guard !sections.isEmpty else {
+    guard !templateSections.isEmpty else {
       throw StructuredNoteDocumentError.emptySectionReplacement
     }
 
-    let retainedIdentityIndex = existingFragmentIndices.min() ?? sections.startIndex
-    sections[retainedIdentityIndex].id = existingSection.id
-    for index in existingFragmentIndices {
-      sections[index].styleOverrides = existingSection.styleOverrides
-    }
-    if existingFragmentIndices.isEmpty,
-      sections[retainedIdentityIndex].styleOverrides == .inherited
-    {
-      sections[retainedIdentityIndex].styleOverrides = existingSection.styleOverrides
-    }
+    var retainedSection = existingSection
+    var insertedSections = templateSections
+    let focusSectionID: UUID
 
-    let focusSectionID =
-      focusSectionIndex.flatMap { index in
-        sections.indices.contains(index) ? sections[index].id : nil
-      } ?? sections.last?.id ?? existingSection.id
+    if request.template.startsWithDivider {
+      retainedSection.markdown = request.leadingMarkdown + request.trailingMarkdown
+      focusSectionID =
+        focusTemplateIndex.flatMap { index in
+          insertedSections.indices.contains(index) ? insertedSections[index].id : nil
+        } ?? insertedSections.last?.id ?? retainedSection.id
+    } else {
+      let firstTemplateSection = insertedSections.removeFirst()
+      retainedSection.markdown =
+        request.leadingMarkdown
+        + preservingReplacedLineBreak(
+          in: firstTemplateSection.markdown,
+          when: request.preservesReplacedLineBreak
+        )
+        + request.trailingMarkdown
+      focusSectionID =
+        focusTemplateIndex == templateSections.startIndex
+        ? retainedSection.id
+        : focusTemplateIndex.flatMap { index in
+          let insertedIndex = index - 1
+          return insertedSections.indices.contains(insertedIndex)
+            ? insertedSections[insertedIndex].id
+            : nil
+        } ?? insertedSections.last?.id ?? retainedSection.id
+    }
 
     return StructuredTemplateInsertionResult(
-      sections: sections,
+      sections: [retainedSection] + insertedSections,
       focusSectionID: focusSectionID
     )
-  }
-
-  private struct ProtectedMarkdown {
-    let markdown: String
-    let replacements: [(placeholder: String, directive: String)]
   }
 
   private struct MarkedTemplate {
     let markdown: String
     let focusMarker: String
-  }
-
-  private struct ProvenanceMarkers {
-    let leading: String?
-    let trailing: String?
-  }
-
-  // Marks existing content fragments so template colors cannot leak into them during parsing.
-  private static func provenanceMarkers(
-    for request: StructuredTemplateInsertionRequest
-  ) -> ProvenanceMarkers {
-    ProvenanceMarkers(
-      leading: request.leadingMarkdown.isEmpty
-        ? nil : "sceal-existing-leading-\(UUID().uuidString)",
-      trailing: request.trailingMarkdown.isEmpty
-        ? nil : "sceal-existing-trailing-\(UUID().uuidString)"
-    )
-  }
-
-  // Removes an optional provenance marker and reports whether this section contained it.
-  private static func remove(_ marker: String?, from markdown: inout String) -> Bool {
-    guard let marker, markdown.contains(marker) else { return false }
-    markdown = markdown.replacingOccurrences(of: marker, with: "")
-    return true
-  }
-
-  // Hides section-looking rows already owned by the edited section from the template parser.
-  private static func protectLiteralDirectives(
-    in markdown: String,
-    namespace: String
-  ) -> ProtectedMarkdown {
-    var replacements: [(placeholder: String, directive: String)] = []
-    let lines = markdown.components(separatedBy: "\n").enumerated().map { index, line in
-      guard MarkdownEditorSectionDirectiveMarkdown.parse(line) != nil else { return line }
-      let placeholder = "<!-- sceal-preserved-\(namespace)-\(index) -->"
-      replacements.append((placeholder, line))
-      return placeholder
-    }
-    return ProtectedMarkdown(markdown: lines.joined(separator: "\n"), replacements: replacements)
-  }
-
-  private static func restoreProtectedDirectives(
-    in markdown: String,
-    replacements: [(placeholder: String, directive: String)]
-  ) -> String {
-    replacements.reduce(markdown) { result, replacement in
-      result.replacingOccurrences(of: replacement.placeholder, with: replacement.directive)
-    }
   }
 
   // Marks the section containing the configured cursor target without changing template whitespace.
