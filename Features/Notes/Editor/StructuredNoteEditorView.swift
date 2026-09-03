@@ -1231,6 +1231,11 @@ private struct StructuredSectionEditorCard: View {
 
       sectionCard
 
+      Color.clear
+        .frame(width: StructuredSectionGutterLayout.sideReserveWidth)
+        .accessibilityHidden(true)
+    }
+    .overlay(alignment: .topTrailing) {
       sectionGutter
         .frame(width: StructuredSectionGutterLayout.capsuleWidth)
         .padding(.horizontal, StructuredSectionGutterLayout.edgeSpacing)
@@ -1463,15 +1468,6 @@ private struct StructuredSectionEditorCard: View {
       ) {
         performOptionAction {
           setSectionCollapsed(!item.section.isCollapsed)
-        }
-      }
-
-      StructuredOptionsActionButton(title: "Add Section Below", systemImage: "plus") {
-        performOptionAction {
-          splitSection(
-            markdown: item.section.markdown,
-            atUTF16Offset: item.section.markdown.utf16.count
-          )
         }
       }
 
