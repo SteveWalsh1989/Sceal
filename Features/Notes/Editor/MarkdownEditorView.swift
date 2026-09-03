@@ -106,10 +106,10 @@ struct MarkdownEditorView: NSViewRepresentable {
     context.coordinator.lastInitialSectionHeadingColorName = initialSectionHeadingColorName
     context.coordinator.lastInitialSectionBulletColorName = initialSectionBulletColorName
     context.coordinator.lastFocusRequestID = focusRequestID
-    context.coordinator.lastDividerCount = (textView as MarkdownEditorTextView).sectionDividerCount
+    context.coordinator.lastDividerCount = textView.sectionDividerCount
     context.coordinator.toolbar.appearanceSettings = appearanceSettings
     context.coordinator.toolbar.listMarkerColor = initialListMarkerColor
-    (textView as? MarkdownEditorTextView)?.defaultListMarkerColor = initialListMarkerColor
+    textView.defaultListMarkerColor = initialListMarkerColor
 
     Self.applySearchHighlights(
       to: textView, query: searchText.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -292,7 +292,7 @@ struct MarkdownEditorView: NSViewRepresentable {
     )
   }
 
-  private var initialListMarkerColor: NSColor? {
+  @MainActor private var initialListMarkerColor: NSColor? {
     initialSectionBulletColorName.flatMap(ThemePalette.color(named:))
   }
 
