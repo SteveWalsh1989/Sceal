@@ -31,12 +31,14 @@ enum StructuredNoteTemplateAdapter {
       in: request.template.resolvedBodyForInsertion,
       placement: request.template.cursorPlacement
     )
+    let provenanceMarkers = provenanceMarkers(for: request)
     let templateMarkdown = preservingReplacedLineBreak(
       in: markedTemplate.markdown,
       when: request.preservesReplacedLineBreak
     )
     let combinedMarkdown =
-      protectedLeading.markdown + templateMarkdown + protectedTrailing.markdown
+      (provenanceMarkers.leading ?? "") + protectedLeading.markdown + templateMarkdown
+      + protectedTrailing.markdown + (provenanceMarkers.trailing ?? "")
     var sections = LegacyMarkdownStructuredNoteAdapter.sections(
       from: combinedMarkdown,
       preservesLeadingEmptySection: request.template.startsWithDivider
@@ -46,6 +48,7 @@ enum StructuredNoteTemplateAdapter {
       ? sections.indices.last
       : sections.firstIndex { $0.markdown.contains(markedTemplate.focusMarker) }
 
+    var existingFragmentIndices = Set<Int>()
     for index in sections.indices {
       sections[index].markdown = restoreProtectedDirectives(
         in: sections[index].markdown,
@@ -57,15 +60,27 @@ enum StructuredNoteTemplateAdapter {
       )
       sections[index].isCollapsed = false
       linkImportedMainColorRoles(in: &sections[index])
+      if remove(provenanceMarkers.leading, from: &sections[index].markdown) {
+        existingFragmentIndices.insert(index)
+      }
+      if remove(provenanceMarkers.trailing, from: &sections[index].markdown) {
+        existingFragmentIndices.insert(index)
+      }
     }
 
     guard !sections.isEmpty else {
       throw StructuredNoteDocumentError.emptySectionReplacement
     }
 
-    sections[0].id = existingSection.id
-    if sections[0].styleOverrides == .inherited {
-      sections[0].styleOverrides = existingSection.styleOverrides
+    let retainedIdentityIndex = existingFragmentIndices.min() ?? sections.startIndex
+    sections[retainedIdentityIndex].id = existingSection.id
+    for index in existingFragmentIndices {
+      sections[index].styleOverrides = existingSection.styleOverrides
+    }
+    if existingFragmentIndices.isEmpty,
+      sections[retainedIdentityIndex].styleOverrides == .inherited
+    {
+      sections[retainedIdentityIndex].styleOverrides = existingSection.styleOverrides
     }
 
     let focusSectionID =
@@ -87,6 +102,30 @@ enum StructuredNoteTemplateAdapter {
   private struct MarkedTemplate {
     let markdown: String
     let focusMarker: String
+  }
+
+  private struct ProvenanceMarkers {
+    let leading: String?
+    let trailing: String?
+  }
+
+  // Marks existing content fragments so template colors cannot leak into them during parsing.
+  private static func provenanceMarkers(
+    for request: StructuredTemplateInsertionRequest
+  ) -> ProvenanceMarkers {
+    ProvenanceMarkers(
+      leading: request.leadingMarkdown.isEmpty
+        ? nil : "sceal-existing-leading-\(UUID().uuidString)",
+      trailing: request.trailingMarkdown.isEmpty
+        ? nil : "sceal-existing-trailing-\(UUID().uuidString)"
+    )
+  }
+
+  // Removes an optional provenance marker and reports whether this section contained it.
+  private static func remove(_ marker: String?, from markdown: inout String) -> Bool {
+    guard let marker, markdown.contains(marker) else { return false }
+    markdown = markdown.replacingOccurrences(of: marker, with: "")
+    return true
   }
 
   // Hides section-looking rows already owned by the edited section from the template parser.

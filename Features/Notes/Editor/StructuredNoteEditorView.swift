@@ -1314,7 +1314,7 @@ private struct StructuredSectionEditorCard: View {
               editorCoordinator.didEditText()
             },
             onStructuredSectionSplit: { markdown, splitOffset in
-              splitSection(markdown: markdown, atUTF16Offset: splitOffset)
+              insertBlankSection(markdown: markdown, atUTF16Offset: splitOffset)
             },
             onStructuredTemplateInsert: insertTemplate,
             onBoundaryNavigation: { direction in
@@ -1694,6 +1694,29 @@ private struct StructuredSectionEditorCard: View {
         actionName: "Split Section",
         undoFocusSectionID: item.id,
         focusSectionID: newSectionID,
+        caretPlacement: .start
+      )
+    } catch {
+      reportStructuralError(error)
+    }
+  }
+
+  // Inserts a default-styled section and keeps both surrounding fragments visually unchanged.
+  private func insertBlankSection(markdown: String, atUTF16Offset splitOffset: Int) {
+    guard var previousDocument = currentDocument else { return }
+    do {
+      try previousDocument.setSectionMarkdown(markdown, sectionID: item.id)
+      var updatedDocument = previousDocument
+      let insertedSectionID = try updatedDocument.insertBlankSection(
+        id: item.id,
+        atUTF16Offset: splitOffset
+      )
+      commitStructuralChange(
+        from: previousDocument,
+        to: updatedDocument,
+        actionName: "Insert Section",
+        undoFocusSectionID: item.id,
+        focusSectionID: insertedSectionID,
         caretPlacement: .start
       )
     } catch {

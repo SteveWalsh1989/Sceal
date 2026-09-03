@@ -39,6 +39,7 @@ final class StructuredNoteTemplateAdapterTests: XCTestCase {
     XCTAssertEqual(result.sections[1].styleOverrides.borderColor, .colorName("purple"))
     XCTAssertEqual(result.sections[1].styleOverrides.bulletColor, .colorName("purple"))
     XCTAssertEqual(result.sections[2].markdown, "After")
+    XCTAssertEqual(result.sections[2].styleOverrides, existingSection.styleOverrides)
     XCTAssertEqual(result.focusSectionID, result.sections[1].id)
     XCTAssertFalse(
       result.sections.contains(where: { $0.markdown.contains("sceal-template-focus") }))

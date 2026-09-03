@@ -51,18 +51,29 @@ final class EditorSlashCommandTests: EditorTestCase {
     let resolvedMarkdown = try XCTUnwrap(splitMarkdown)
     let resolvedOffset = try XCTUnwrap(splitOffset)
 
+    let originalStyle = StructuredSectionStyleOverrides(
+      headingColor: .colorName("blue")
+    )
     var document = StructuredNoteDocument(
       id: "2026-09-01",
       date: Date(timeIntervalSince1970: 1_788_220_800),
       title: "",
       tags: [],
-      nodes: [.section(StructuredNoteSection(markdown: resolvedMarkdown))]
+      nodes: [
+        .section(
+          StructuredNoteSection(
+            markdown: resolvedMarkdown,
+            styleOverrides: originalStyle
+          ))
+      ]
     )
     guard case .section(let section) = document.nodes[0] else {
       return XCTFail("Expected root section")
     }
-    _ = try document.splitSection(id: section.id, atUTF16Offset: resolvedOffset)
-    XCTAssertEqual(document.nodes.compactMap(sectionMarkdown), ["# Before", "After"])
+    _ = try document.insertBlankSection(id: section.id, atUTF16Offset: resolvedOffset)
+    XCTAssertEqual(document.nodes.compactMap(sectionMarkdown), ["# Before", "", "After"])
+    XCTAssertEqual(
+      document.nodes.compactMap(sectionStyle), [originalStyle, .inherited, originalStyle])
   }
 
   // Keeps the legacy `/section` alias structural and hidden from persisted section content.
@@ -219,6 +230,12 @@ final class EditorSlashCommandTests: EditorTestCase {
   private func sectionMarkdown(_ node: StructuredNoteNode) -> String? {
     guard case .section(let section) = node else { return nil }
     return section.markdown
+  }
+
+  // Reads appearance overrides only from section nodes for style-isolation assertions.
+  private func sectionStyle(_ node: StructuredNoteNode) -> StructuredSectionStyleOverrides? {
+    guard case .section(let section) = node else { return nil }
+    return section.styleOverrides
   }
 
   // Finds a rendered prompt boundary by kind for interaction assertions.

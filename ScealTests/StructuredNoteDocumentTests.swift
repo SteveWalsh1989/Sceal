@@ -159,6 +159,61 @@ final class StructuredNoteDocumentTests: XCTestCase {
     XCTAssertEqual(updatedGroup.sections.last?.styleOverrides, .inherited)
   }
 
+  // Inserts one default section while both content fragments retain the original appearance.
+  func testInsertBlankSectionInMiddlePreservesSurroundingStyles() throws {
+    let style = StructuredSectionStyleOverrides(
+      borderColor: .colorName("purple"),
+      headingColor: .colorName("purple"),
+      bulletColor: .colorName("purple")
+    )
+    let section = StructuredNoteSection(
+      markdown: "BeforeAfter",
+      styleOverrides: style
+    )
+    var document = makeDocument(nodes: [.section(section)])
+
+    let insertedSectionID = try document.insertBlankSection(
+      id: section.id,
+      atUTF16Offset: "Before".utf16.count
+    )
+
+    XCTAssertEqual(document.nodes.count, 3)
+    XCTAssertEqual(rootSection(in: document, at: 0)?.id, section.id)
+    XCTAssertEqual(rootSection(in: document, at: 0)?.markdown, "Before")
+    XCTAssertEqual(rootSection(in: document, at: 0)?.styleOverrides, style)
+    XCTAssertEqual(rootSection(in: document, at: 1)?.id, insertedSectionID)
+    XCTAssertEqual(rootSection(in: document, at: 1)?.markdown, "")
+    XCTAssertEqual(rootSection(in: document, at: 1)?.styleOverrides, .inherited)
+    XCTAssertEqual(rootSection(in: document, at: 2)?.markdown, "After")
+    XCTAssertEqual(rootSection(in: document, at: 2)?.styleOverrides, style)
+  }
+
+  // Adds exactly one blank section at either content boundary without adding an empty fragment.
+  func testInsertBlankSectionAtContentBoundariesAddsOneSection() throws {
+    let section = StructuredNoteSection(
+      markdown: "Content",
+      styleOverrides: StructuredSectionStyleOverrides(headingColor: .colorName("orange"))
+    )
+    var atStart = makeDocument(nodes: [.section(section)])
+    var atEnd = makeDocument(nodes: [.section(section)])
+
+    _ = try atStart.insertBlankSection(id: section.id, atUTF16Offset: 0)
+    _ = try atEnd.insertBlankSection(
+      id: section.id,
+      atUTF16Offset: section.markdown.utf16.count
+    )
+
+    XCTAssertEqual(atStart.nodes.count, 2)
+    XCTAssertEqual(rootSection(in: atStart, at: 0)?.styleOverrides, .inherited)
+    XCTAssertEqual(rootSection(in: atStart, at: 1)?.id, section.id)
+    XCTAssertEqual(rootSection(in: atStart, at: 1)?.markdown, "Content")
+    XCTAssertEqual(rootSection(in: atStart, at: 1)?.styleOverrides, section.styleOverrides)
+    XCTAssertEqual(atEnd.nodes.count, 2)
+    XCTAssertEqual(rootSection(in: atEnd, at: 0)?.id, section.id)
+    XCTAssertEqual(rootSection(in: atEnd, at: 0)?.markdown, "Content")
+    XCTAssertEqual(rootSection(in: atEnd, at: 1)?.styleOverrides, .inherited)
+  }
+
   // Keeps the previous section's identity when explicitly removing the gap before a section.
   func testMergeWithPreviousKeepsPreviousSectionIDAndContentOrder() throws {
     let first = StructuredNoteSection(markdown: "First")

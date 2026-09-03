@@ -51,6 +51,49 @@ extension StructuredNoteDocument {
     }
   }
 
+  // Inserts one blank section while preserving the original style on surrounding content.
+  @discardableResult
+  mutating func insertBlankSection(id sectionID: UUID, atUTF16Offset offset: Int) throws -> UUID {
+    try applyMutation { document in
+      guard let location = document.sectionLocation(for: sectionID) else {
+        throw StructuredNoteDocumentError.sectionNotFound(sectionID)
+      }
+
+      let existingSection = try document.section(at: location)
+      guard
+        let splitIndex = document.stringIndex(
+          atUTF16Offset: offset,
+          in: existingSection.markdown
+        )
+      else {
+        throw StructuredNoteDocumentError.invalidSplitOffset(offset)
+      }
+
+      let leadingMarkdown = String(existingSection.markdown[..<splitIndex])
+      let trailingMarkdown = String(existingSection.markdown[splitIndex...])
+      let insertedSection = StructuredNoteSection()
+      var replacements: [StructuredNoteSection] = []
+
+      if !leadingMarkdown.isEmpty {
+        var leadingSection = existingSection
+        leadingSection.markdown = leadingMarkdown
+        replacements.append(leadingSection)
+      }
+
+      replacements.append(insertedSection)
+
+      if !trailingMarkdown.isEmpty {
+        var trailingSection = existingSection
+        trailingSection.id = leadingMarkdown.isEmpty ? existingSection.id : UUID()
+        trailingSection.markdown = trailingMarkdown
+        replacements.append(trailingSection)
+      }
+
+      try document.replaceSectionWithoutValidation(at: location, with: replacements)
+      return insertedSection.id
+    }
+  }
+
   // Replaces one section's Markdown without depending on its root or grouped location.
   mutating func setSectionMarkdown(_ markdown: String, sectionID: UUID) throws {
     try applyMutation { document in
@@ -76,23 +119,7 @@ extension StructuredNoteDocument {
         throw StructuredNoteDocumentError.sectionNotFound(sectionID)
       }
 
-      switch location.parent {
-      case .root:
-        document.nodes.replaceSubrange(
-          location.rootNodeIndex...location.rootNodeIndex,
-          with: replacementSections.map(StructuredNoteNode.section)
-        )
-
-      case .group:
-        guard case .group(var group) = document.nodes[location.rootNodeIndex] else {
-          throw StructuredNoteDocumentError.invalidDestinationIndex(location.rootNodeIndex)
-        }
-        group.sections.replaceSubrange(
-          location.index...location.index,
-          with: replacementSections
-        )
-        document.nodes[location.rootNodeIndex] = .group(group)
-      }
+      try document.replaceSectionWithoutValidation(at: location, with: replacementSections)
     }
   }
 
@@ -424,6 +451,30 @@ extension StructuredNoteDocument {
         throw StructuredNoteDocumentError.invalidDestinationIndex(location.rootNodeIndex)
       }
       group.sections[location.index] = section
+      nodes[location.rootNodeIndex] = .group(group)
+    }
+  }
+
+  // Replaces one section with ordered siblings inside its existing parent container.
+  private mutating func replaceSectionWithoutValidation(
+    at location: SectionLocation,
+    with replacementSections: [StructuredNoteSection]
+  ) throws {
+    switch location.parent {
+    case .root:
+      nodes.replaceSubrange(
+        location.rootNodeIndex...location.rootNodeIndex,
+        with: replacementSections.map(StructuredNoteNode.section)
+      )
+
+    case .group:
+      guard case .group(var group) = nodes[location.rootNodeIndex] else {
+        throw StructuredNoteDocumentError.invalidDestinationIndex(location.rootNodeIndex)
+      }
+      group.sections.replaceSubrange(
+        location.index...location.index,
+        with: replacementSections
+      )
       nodes[location.rootNodeIndex] = .group(group)
     }
   }
