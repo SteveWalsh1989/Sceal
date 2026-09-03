@@ -771,6 +771,12 @@ nonisolated enum StructuredSectionGroupLayout {
     (StructuredSectionGutterLayout.sideReserveWidth - accentRailWidth) / 2
 }
 
+nonisolated enum StructuredSectionOptionsLayout {
+  static let contentWidth: CGFloat = 230
+  static let horizontalPadding: CGFloat = 14
+  static let popoverWidth = contentWidth + horizontalPadding * 2
+}
+
 private struct StructuredSectionGroupContainer: View {
   @ObservedObject var store: NotesStore
   @ObservedObject var editorCoordinator: StructuredNoteEditorCoordinator
@@ -1465,9 +1471,11 @@ private struct StructuredSectionEditorCard: View {
   }
 
   private var sectionOptionsPopover: some View {
-    VStack(alignment: .leading, spacing: 10) {
+    VStack(alignment: .leading, spacing: 8) {
       Text("Section options")
         .font(.system(size: 14, weight: .semibold))
+
+      StructuredOptionsSectionTitle("Section")
 
       StructuredOptionsActionButton(
         title: item.section.isCollapsed ? "Expand Section" : "Collapse Section",
@@ -1494,6 +1502,8 @@ private struct StructuredSectionEditorCard: View {
           performOptionAction { moveSection(to: item.indexInContainer + 1) }
         }
       }
+
+      StructuredOptionsSectionTitle("Group and merge")
 
       if item.isGrouped {
         StructuredOptionsActionButton(
@@ -1544,8 +1554,7 @@ private struct StructuredSectionEditorCard: View {
 
       Divider()
 
-      Label("Appearance", systemImage: "paintpalette")
-        .font(.system(size: 12, weight: .semibold))
+      StructuredOptionsSectionTitle("Appearance", systemImage: "paintpalette")
 
       StructuredSectionAppearanceControls(
         styleOverrides: item.section.styleOverrides,
@@ -1554,6 +1563,8 @@ private struct StructuredSectionEditorCard: View {
       )
 
       Divider()
+
+      StructuredOptionsSectionTitle("History")
 
       HStack(spacing: 8) {
         StructuredOptionsActionButton(
@@ -1572,6 +1583,8 @@ private struct StructuredSectionEditorCard: View {
         }
       }
 
+      StructuredOptionsSectionTitle("Delete")
+
       StructuredOptionsActionButton(
         title: "Delete Section",
         systemImage: "trash",
@@ -1581,8 +1594,8 @@ private struct StructuredSectionEditorCard: View {
         performOptionAction(requestSectionDeletion)
       }
     }
-    .padding(14)
-    .frame(width: 300)
+    .padding(StructuredSectionOptionsLayout.horizontalPadding)
+    .frame(width: StructuredSectionOptionsLayout.popoverWidth)
   }
 
   private func performOptionAction(_ action: () -> Void) {
@@ -2074,6 +2087,31 @@ private struct StructuredOptionsActionButton: View {
     .disabled(isDisabled)
     .opacity(isDisabled ? 0.45 : 1)
     .frame(maxWidth: .infinity)
+  }
+}
+
+private struct StructuredOptionsSectionTitle: View {
+  let title: String
+  let systemImage: String?
+
+  init(_ title: String, systemImage: String? = nil) {
+    self.title = title
+    self.systemImage = systemImage
+  }
+
+  var body: some View {
+    Group {
+      if let systemImage {
+        Label(title, systemImage: systemImage)
+      } else {
+        Text(title)
+      }
+    }
+    .font(.system(size: 10, weight: .semibold))
+    .textCase(.uppercase)
+    .tracking(0.7)
+    .foregroundStyle(.secondary)
+    .padding(.top, 2)
   }
 }
 

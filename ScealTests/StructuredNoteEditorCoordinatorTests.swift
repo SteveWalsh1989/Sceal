@@ -88,6 +88,17 @@ final class StructuredNoteEditorCoordinatorTests: XCTestCase {
     )
   }
 
+  // Keeps the section popover fitted to the palette instead of its former broad menu width.
+  func testSectionOptionsPopoverUsesCompactPaletteWidth() {
+    XCTAssertEqual(StructuredSectionOptionsLayout.contentWidth, 230)
+    XCTAssertEqual(
+      StructuredSectionOptionsLayout.popoverWidth,
+      StructuredSectionOptionsLayout.contentWidth
+        + StructuredSectionOptionsLayout.horizontalPadding * 2
+    )
+    XCTAssertLessThan(StructuredSectionOptionsLayout.popoverWidth, 300)
+  }
+
   // Restores complete structural snapshots in both undo and redo directions.
   func testStructuralChangeSupportsUndoAndRedo() {
     let coordinator = StructuredNoteEditorCoordinator()
