@@ -78,6 +78,16 @@ final class StructuredNoteEditorCoordinatorTests: XCTestCase {
     XCTAssertGreaterThan(StructuredSectionGutterLayout.edgeSpacing, 0)
   }
 
+  // Keeps grouped child cards on the same horizontal bounds as root section cards.
+  func testGroupLayoutDoesNotInsetChildSections() {
+    XCTAssertEqual(StructuredSectionGroupLayout.childHorizontalInset, 0)
+    XCTAssertEqual(
+      StructuredSectionGroupLayout.accentRailLeadingInset
+        + StructuredSectionGroupLayout.accentRailWidth / 2,
+      StructuredSectionGutterLayout.sideReserveWidth / 2
+    )
+  }
+
   // Restores complete structural snapshots in both undo and redo directions.
   func testStructuralChangeSupportsUndoAndRedo() {
     let coordinator = StructuredNoteEditorCoordinator()

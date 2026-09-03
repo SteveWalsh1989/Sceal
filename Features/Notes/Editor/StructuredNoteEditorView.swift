@@ -763,6 +763,13 @@ nonisolated enum StructuredSectionGutterLayout {
   static let sideReserveWidth = capsuleWidth + edgeSpacing * 2
 }
 
+nonisolated enum StructuredSectionGroupLayout {
+  static let childHorizontalInset: CGFloat = 0
+  static let accentRailWidth: CGFloat = 2
+  static let accentRailLeadingInset =
+    (StructuredSectionGutterLayout.sideReserveWidth - accentRailWidth) / 2
+}
+
 private struct StructuredSectionGroupContainer: View {
   @ObservedObject var store: NotesStore
   @ObservedObject var editorCoordinator: StructuredNoteEditorCoordinator
@@ -781,7 +788,7 @@ private struct StructuredSectionGroupContainer: View {
   @State private var titleDraft = ""
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 10) {
+    VStack(alignment: .leading, spacing: 4) {
       groupHeader
 
       if group.isCollapsed {
@@ -818,12 +825,16 @@ private struct StructuredSectionGroupContainer: View {
         }
       }
     }
-    .padding(12)
-    .background(groupBackground)
-    .overlay(
-      RoundedRectangle(cornerRadius: 28, style: .continuous)
-        .strokeBorder(groupBorderColor, lineWidth: 1.5)
-    )
+    .padding(.horizontal, StructuredSectionGroupLayout.childHorizontalInset)
+    .overlay(alignment: .leading) {
+      Capsule()
+        .fill(groupBorderColor.opacity(0.7))
+        .frame(width: StructuredSectionGroupLayout.accentRailWidth)
+        .padding(.leading, StructuredSectionGroupLayout.accentRailLeadingInset)
+        .padding(.top, 30)
+        .padding(.bottom, 8)
+        .allowsHitTesting(false)
+    }
     .onHover { isHovering = $0 }
     .accessibilityElement(children: .contain)
     .accessibilityLabel("Group \(rootNodeIndex + 1): \(group.title)")
@@ -853,53 +864,63 @@ private struct StructuredSectionGroupContainer: View {
   }
 
   private var groupHeader: some View {
-    HStack(spacing: 10) {
-      Image(systemName: "square.stack.3d.up.fill")
-        .font(.system(size: 13, weight: .semibold))
-        .foregroundStyle(groupBorderColor)
+    HStack(spacing: 0) {
+      ZStack {
+        Circle()
+          .fill(groupBorderColor.opacity(0.14))
+          .frame(width: 24, height: 24)
 
-      if group.displaysTypeLabel {
-        VStack(alignment: .leading, spacing: 2) {
-          Text("GROUP")
-            .font(.system(size: 9, weight: .bold))
-            .tracking(1.1)
-            .foregroundStyle(.tertiary)
+        Image(systemName: "square.stack.3d.up.fill")
+          .font(.system(size: 12, weight: .semibold))
+          .foregroundStyle(groupBorderColor)
+      }
+      .frame(width: StructuredSectionGutterLayout.sideReserveWidth)
 
+      HStack(spacing: 10) {
+        if group.displaysTypeLabel {
+          VStack(alignment: .leading, spacing: 2) {
+            Text("GROUP")
+              .font(.system(size: 9, weight: .bold))
+              .tracking(1.1)
+              .foregroundStyle(.tertiary)
+
+            Text(group.title)
+              .font(.system(size: 18, weight: .semibold))
+              .foregroundStyle(groupHeadingColor)
+          }
+        } else {
           Text(group.title)
             .font(.system(size: 18, weight: .semibold))
             .foregroundStyle(groupHeadingColor)
         }
-      } else {
-        Text(group.title)
-          .font(.system(size: 18, weight: .semibold))
-          .foregroundStyle(groupHeadingColor)
-      }
 
-      if group.displaysSectionCount {
-        Text(sectionCountLabel)
-          .font(.caption)
-          .foregroundStyle(.tertiary)
-      }
+        if group.displaysSectionCount {
+          Text(sectionCountLabel)
+            .font(.caption)
+            .foregroundStyle(.tertiary)
+        }
 
-      Spacer()
+        Spacer()
 
-      StructuredEditorDragHandle(accessibilityLabel: "Move \(group.title) group") {
-        StructuredEditorDragPreview(
-          title: group.title,
-          detail: sectionCountLabel,
-          borderColor: groupBorderColor
-        )
-      } itemProvider: {
-        dragContext.beginDrag(.group(group.id))
-      }
-      .opacity(isHovering || containsFocusedSection ? 1 : 0)
-      .allowsHitTesting(isHovering || containsFocusedSection)
-
-      groupOptionsMenu
+        StructuredEditorDragHandle(accessibilityLabel: "Move \(group.title) group") {
+          StructuredEditorDragPreview(
+            title: group.title,
+            detail: sectionCountLabel,
+            borderColor: groupBorderColor
+          )
+        } itemProvider: {
+          dragContext.beginDrag(.group(group.id))
+        }
         .opacity(isHovering || containsFocusedSection ? 1 : 0)
         .allowsHitTesting(isHovering || containsFocusedSection)
+
+        groupOptionsMenu
+          .opacity(isHovering || containsFocusedSection ? 1 : 0)
+          .allowsHitTesting(isHovering || containsFocusedSection)
+      }
+      .padding(.trailing, StructuredSectionGutterLayout.edgeSpacing)
     }
-    .frame(minHeight: 30)
+    .frame(minHeight: 32)
   }
 
   private var groupOptionsMenu: some View {
@@ -984,12 +1005,16 @@ private struct StructuredSectionGroupContainer: View {
 
         Spacer(minLength: 0)
       }
-      .padding(.leading, 38)
-      .padding(.trailing, 8)
-      .padding(.bottom, 4)
+      .padding(.horizontal, 12)
+      .frame(minHeight: 38)
+      .background(
+        themeColors.sectionCardFill.color.opacity(0.45),
+        in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+      )
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
+    .padding(.horizontal, StructuredSectionGutterLayout.sideReserveWidth)
     .accessibilityLabel("Expand \(group.title). Preview: \(collapsedGroupPreview)")
   }
 
@@ -1022,19 +1047,6 @@ private struct StructuredSectionGroupContainer: View {
 
   private var themeColors: ThemeColorSet {
     store.effectiveAppearanceSettings.resolvedColors
-  }
-
-  private var groupBackground: some View {
-    ZStack {
-      RoundedRectangle(cornerRadius: 28, style: .continuous)
-        .fill(themeColors.sectionCardFill.color.opacity(0.45))
-      if let colorName = group.style.backgroundColorName,
-        let color = ThemePalette.color(named: colorName)
-      {
-        RoundedRectangle(cornerRadius: 28, style: .continuous)
-          .fill(Color(nsColor: color).opacity(0.12))
-      }
-    }
   }
 
   private var groupBorderColor: Color {
