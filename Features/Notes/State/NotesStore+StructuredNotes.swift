@@ -103,6 +103,16 @@ extension NotesStore {
   // Switches daily-note storage without resetting or rewriting either isolated library.
   func updateDailyNoteStorageMode(_ mode: DailyNoteStorageMode) {
     guard dailyNoteStorageMode != mode else { return }
+    if enforcesStructuredCutover,
+      mode == .structuredExperimental,
+      structuredNotesCutoverStatus != .completed
+    {
+      userMessage = (
+        text: "Back up and convert the legacy library before enabling Structured Notes V2.",
+        kind: .info
+      )
+      return
+    }
 
     flushPendingSaves()
 

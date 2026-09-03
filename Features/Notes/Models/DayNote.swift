@@ -32,6 +32,14 @@ struct DayNote: Identifiable, Equatable, Sendable {
     self.body = body
   }
 
+  nonisolated static func == (lhs: DayNote, rhs: DayNote) -> Bool {
+    lhs.date == rhs.date
+      && lhs.id == rhs.id
+      && lhs.title == rhs.title
+      && lhs.tags == rhs.tags
+      && lhs.body == rhs.body
+  }
+
   // Markdown filename derived from the date-based ID.
   nonisolated var fileName: String {
     "\(id).md"

@@ -16,6 +16,7 @@ struct SettingsRepository {
     static let noteTemplates = "sceal.noteTemplates"
     static let noteTemplatesSeeded = "sceal.noteTemplatesSeeded"
     static let dailyNoteStorageMode = "sceal.dailyNoteStorageMode"
+    static let structuredNotesCutoverStatus = "sceal.structuredNotesCutoverStatus"
     static let settingsSidebarWidth = "settings.sidebarWidth"
     static let templatesListWidth = "settings.templates.listWidth"
     static let templatesListCollapsed = "settings.templates.isListCollapsed"
@@ -87,6 +88,20 @@ struct SettingsRepository {
   // Persists the explicit experimental selection between isolated daily-note stores.
   func saveDailyNoteStorageMode(_ mode: DailyNoteStorageMode) {
     userDefaults.set(mode.rawValue, forKey: Keys.dailyNoteStorageMode)
+  }
+
+  // Reads the production conversion gate without inferring success from an old mode toggle.
+  func loadStructuredNotesCutoverStatus() -> StructuredNotesCutoverStatus {
+    guard
+      let rawValue = userDefaults.string(forKey: Keys.structuredNotesCutoverStatus),
+      let status = StructuredNotesCutoverStatus(rawValue: rawValue)
+    else { return .notStarted }
+    return status
+  }
+
+  // Persists conversion progress only after the corresponding validation transition.
+  func saveStructuredNotesCutoverStatus(_ status: StructuredNotesCutoverStatus) {
+    userDefaults.set(status.rawValue, forKey: Keys.structuredNotesCutoverStatus)
   }
 
   // Captures safe settings-window layout preferences for full-library archives.

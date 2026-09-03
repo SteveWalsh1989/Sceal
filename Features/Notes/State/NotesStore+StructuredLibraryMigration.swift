@@ -34,9 +34,11 @@ extension NotesStore {
     do {
       let createdAt = Date.now
       let snapshot = try makeLibrarySnapshot()
-      let safetyArchiveURL = try writeStructuredUpgradeSafetyArchive(
+      let safetyArchiveURL = try StructuredLibraryCutover.writeSafetyArchive(
         snapshot: snapshot,
-        createdAt: createdAt
+        createdAt: createdAt,
+        libraryLocation: libraryLocation,
+        fileManager: fileManager
       )
 
       let sourceDailyDocuments = try structuredNoteRepository.prepareLegacyDocuments()
@@ -107,38 +109,4 @@ extension NotesStore {
     }
   }
 
-  // Writes and retains the complete pre-upgrade state before any structured import begins.
-  private func writeStructuredUpgradeSafetyArchive(
-    snapshot: ScealLibrarySnapshot,
-    createdAt: Date
-  ) throws -> URL {
-    let temporaryArchiveURL = try archiveService.exportBackup(
-      dailyNotes: snapshot.legacyDailyNotes,
-      listNotes: snapshot.legacyListNotes,
-      manifest: snapshot.legacyListManifest,
-      templates: snapshot.templates,
-      structuredDailyNotes: snapshot.structuredDailyNotes,
-      structuredListNotes: snapshot.structuredListNotes,
-      structuredListManifest: snapshot.structuredListManifest,
-      settings: snapshot.settings,
-      kind: .manual,
-      createdAt: createdAt,
-      attachmentsRootURL: libraryRepository.attachmentsRootURL
-    )
-    defer {
-      archiveService.cleanUp(zipURL: temporaryArchiveURL)
-    }
-
-    let safetyDirectoryURL = try libraryRepository.restoreSafetyArchiveDirectoryURL()
-    var destinationURL = safetyDirectoryURL.appendingPathComponent(
-      temporaryArchiveURL.lastPathComponent
-    )
-    if fileManager.fileExists(atPath: destinationURL.path) {
-      destinationURL = safetyDirectoryURL.appendingPathComponent(
-        "\(temporaryArchiveURL.deletingPathExtension().lastPathComponent)-\(UUID().uuidString).zip"
-      )
-    }
-    try fileManager.moveItem(at: temporaryArchiveURL, to: destinationURL)
-    return destinationURL
-  }
 }

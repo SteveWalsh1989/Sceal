@@ -81,14 +81,16 @@ class NotesStoreTestCase: XCTestCase {
   func makeStore(
     previewNotes: [DayNote] = [],
     userDefaults: UserDefaults? = nil,
-    libraryLocation: ScealLibraryLocation? = nil
+    libraryLocation: ScealLibraryLocation? = nil,
+    enforcesStructuredCutover: Bool = false
   ) -> NotesStore {
     let resolvedUserDefaults = userDefaults ?? makeUserDefaults()
     return NotesStore(
       calendar: Calendar(identifier: .gregorian),
       userDefaults: resolvedUserDefaults,
       libraryLocation: libraryLocation ?? makeLibraryLocation(),
-      previewNotes: previewNotes
+      previewNotes: previewNotes,
+      enforcesStructuredCutover: enforcesStructuredCutover
     )
   }
 }

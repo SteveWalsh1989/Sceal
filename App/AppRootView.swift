@@ -5,6 +5,7 @@
 
 // Root NavigationSplitView combining the sidebar and note editor.
 
+import AppKit
 import SwiftUI
 
 struct AppRootView: View {
@@ -69,12 +70,35 @@ struct AppRootView: View {
     .navigationSplitViewStyle(.balanced)
     .task {
       if !isRunningUnitTests {
-        store.loadIfNeeded()
+        #if DEBUG
+          store.loadIfNeeded()
+        #else
+          store.prepareStructuredCutoverForProductionLaunch()
+        #endif
       }
 
       #if DEBUG
         applyLaunchDemoModeIfNeeded()
       #endif
+    }
+    .alert(
+      structuredCutoverAlertTitle,
+      isPresented: structuredCutoverPromptBinding
+    ) {
+      Button("Back Up and Convert") {
+        store.backUpAndConvertLegacyLibrary()
+      }
+      .keyboardShortcut(.defaultAction)
+
+      Button("Use Legacy for Now", role: .cancel) {
+        store.continueUsingLegacyForNow()
+      }
+
+      Button("Quit") {
+        NSApplication.shared.terminate(nil)
+      }
+    } message: {
+      Text(structuredCutoverAlertMessage)
     }
     .alert("Delete this note?", isPresented: isShowingDeleteConfirmation) {
       Button("Delete", role: .destructive) {
@@ -183,6 +207,27 @@ struct AppRootView: View {
         }
       }
     )
+  }
+
+  private var structuredCutoverPromptBinding: Binding<Bool> {
+    Binding(
+      get: { store.isStructuredCutoverPromptPresented },
+      set: { _ in }
+    )
+  }
+
+  private var structuredCutoverAlertTitle: String {
+    store.structuredNotesCutoverStatus == .failedValidation
+      ? "Conversion needs attention" : "Upgrade notes for Structured Notes V2?"
+  }
+
+  private var structuredCutoverAlertMessage: String {
+    if let failure = store.structuredNotesCutoverFailureDescription {
+      return
+        "Scéal did not activate the structured library because validation failed: \(failure) Your Markdown notes remain unchanged. You can retry or continue with the legacy editor."
+    }
+    return
+      "Scéal will first create a complete restorable backup, convert every daily and list note in staging, and validate the result before activating it. Your existing Markdown files will remain unchanged. Any experimental structured copies will be replaced by the verified conversion and retained in the safety backup."
   }
 
   // Resolves the editor background from the active theme.

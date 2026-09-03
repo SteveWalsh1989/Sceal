@@ -27,6 +27,7 @@ final class SettingsRepositoryTests: NotesStoreTestCase {
     repository.saveContinuousSpellCheckingEnabled(false)
     repository.saveNewNoteDefault(.template(template.id))
     repository.saveDailyNoteStorageMode(.structuredExperimental)
+    repository.saveStructuredNotesCutoverStatus(.completed)
     repository.saveDeveloperPlan(.free)
     try repository.saveBackupSettings(backupSettings)
     try repository.saveNoteTemplates([template])
@@ -47,6 +48,7 @@ final class SettingsRepositoryTests: NotesStoreTestCase {
       "structuredExperimental"
     )
     XCTAssertEqual(repository.loadDailyNoteStorageMode(), .structuredExperimental)
+    XCTAssertEqual(repository.loadStructuredNotesCutoverStatus(), .completed)
     XCTAssertEqual(userDefaults.string(forKey: "sceal.developer.plan"), "free")
     XCTAssertEqual(
       try JSONDecoder().decode(BackupSettings.self, from: savedBackupData), backupSettings)
@@ -61,10 +63,14 @@ final class SettingsRepositoryTests: NotesStoreTestCase {
     let repository = SettingsRepository(userDefaults: userDefaults)
 
     XCTAssertEqual(repository.loadDailyNoteStorageMode(), .legacyMarkdown)
+    XCTAssertEqual(repository.loadStructuredNotesCutoverStatus(), .notStarted)
 
     userDefaults.set("future-mode", forKey: "sceal.dailyNoteStorageMode")
 
     XCTAssertEqual(repository.loadDailyNoteStorageMode(), .legacyMarkdown)
+
+    userDefaults.set("future-status", forKey: "sceal.structuredNotesCutoverStatus")
+    XCTAssertEqual(repository.loadStructuredNotesCutoverStatus(), .notStarted)
   }
 
   // Starter templates seed once, then respect the existing seeded marker.

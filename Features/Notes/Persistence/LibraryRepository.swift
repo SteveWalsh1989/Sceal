@@ -7,18 +7,18 @@
 import Foundation
 import OSLog
 
-struct LibraryListNotesSnapshot: Equatable, Sendable {
+nonisolated struct LibraryListNotesSnapshot: Equatable, Sendable {
   let notes: [DayNote]
   let manifest: ListNotesManifest
 }
 
-struct LibraryArchiveSourceSnapshot: Equatable, Sendable {
+nonisolated struct LibraryArchiveSourceSnapshot: Equatable, Sendable {
   let dailyNotes: [DayNote]
   let listNotes: [DayNote]
   let listManifest: ListNotesManifest
 }
 
-struct LibraryRepository {
+nonisolated struct LibraryRepository {
   private static let logger = Logger(subsystem: "com.sceal.app", category: "libraryRepository")
   private static let manifestFileName = "groups.json"
 

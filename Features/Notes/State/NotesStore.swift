@@ -83,6 +83,8 @@ final class NotesStore: ObservableObject {
   @Published var backupHealth: BackupHealth
   @Published var isBackupRunning = false
   @Published var dailyNoteStorageMode: DailyNoteStorageMode
+  @Published var structuredNotesCutoverStatus: StructuredNotesCutoverStatus
+  @Published var structuredNotesCutoverFailureDescription: String?
   @Published var structuredNotes: [StructuredNoteDocument] = []
   @Published var selectedStructuredNoteID: String?
   @Published var structuredSearchText = ""
@@ -106,6 +108,7 @@ final class NotesStore: ObservableObject {
 
   let fileManager: FileManager
   let calendar: Calendar
+  let enforcesStructuredCutover: Bool
   let libraryLocation: ScealLibraryLocation
   let libraryRepository: LibraryRepository
   let structuredNoteRepository: StructuredNoteRepository
@@ -136,18 +139,34 @@ final class NotesStore: ObservableObject {
 
   static let logger = Logger(subsystem: "com.sceal.app", category: "store")
 
+  nonisolated static var defaultEnforcesStructuredCutover: Bool {
+    #if DEBUG
+      return false
+    #else
+      return true
+    #endif
+  }
+
   init(
     fileManager: FileManager = .default,
     calendar: Calendar = .current,
     userDefaults: UserDefaults = .standard,
     libraryLocation: ScealLibraryLocation? = nil,
-    previewNotes: [DayNote] = []
+    previewNotes: [DayNote] = [],
+    enforcesStructuredCutover: Bool = NotesStore.defaultEnforcesStructuredCutover
   ) {
     self.fileManager = fileManager
     self.calendar = calendar
+    self.enforcesStructuredCutover = enforcesStructuredCutover
     let resolvedSettingsRepository = SettingsRepository(userDefaults: userDefaults)
     self.settingsRepository = resolvedSettingsRepository
-    self.dailyNoteStorageMode = resolvedSettingsRepository.loadDailyNoteStorageMode()
+    let loadedCutoverStatus = resolvedSettingsRepository.loadStructuredNotesCutoverStatus()
+    let loadedStorageMode = resolvedSettingsRepository.loadDailyNoteStorageMode()
+    self.dailyNoteStorageMode =
+      enforcesStructuredCutover && loadedCutoverStatus != .completed
+      ? .legacyMarkdown : loadedStorageMode
+    self.structuredNotesCutoverStatus = loadedCutoverStatus
+    self.structuredNotesCutoverFailureDescription = nil
     self.appearanceSettingsStore = AppearanceSettingsStore(
       settingsRepository: resolvedSettingsRepository
     )

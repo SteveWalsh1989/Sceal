@@ -34,10 +34,21 @@ struct SettingsExperimentalView: View {
             }
           )
         )
+        .disabled(
+          store.enforcesStructuredCutover
+            && store.structuredNotesCutoverStatus != .completed
+        )
 
         LabeledContent("Active mode") {
           Text(store.dailyNoteStorageMode.displayName)
             .foregroundStyle(.secondary)
+        }
+
+        if store.enforcesStructuredCutover {
+          LabeledContent("Conversion") {
+            Text(cutoverStatusLabel)
+              .foregroundStyle(.secondary)
+          }
         }
 
         Text(
@@ -48,7 +59,7 @@ struct SettingsExperimentalView: View {
       }
 
       Section("Full-library upgrade") {
-        Button("Upgrade full library to Structured Notes V2...") {
+        Button(fullLibraryUpgradeButtonTitle) {
           isShowingUpgradeConfirmation = true
         }
         .disabled(store.isPerformingFileOperation || store.isBackupRunning)
@@ -98,14 +109,44 @@ struct SettingsExperimentalView: View {
       titleVisibility: .visible
     ) {
       Button("Create Safety Backup and Upgrade") {
-        store.upgradeFullLibraryToStructured()
+        if store.enforcesStructuredCutover {
+          store.backUpAndConvertLegacyLibrary()
+        } else {
+          store.upgradeFullLibraryToStructured()
+        }
       }
       Button("Cancel", role: .cancel) {}
     } message: {
-      Text(
-        "Scéal will keep all legacy Markdown files for rollback. Structured mode remains off until you enable it after reviewing the migration report."
-      )
+      Text(fullLibraryUpgradeConfirmationMessage)
     }
+  }
+
+  private var fullLibraryUpgradeButtonTitle: String {
+    store.enforcesStructuredCutover
+      ? "Back Up and Convert to Structured Notes V2..."
+      : "Upgrade full library to Structured Notes V2..."
+  }
+
+  private var cutoverStatusLabel: String {
+    switch store.structuredNotesCutoverStatus {
+    case .notStarted:
+      return "Not started"
+    case .conversionRequired:
+      return "Required"
+    case .completed:
+      return "Validated"
+    case .failedValidation:
+      return "Needs attention"
+    }
+  }
+
+  private var fullLibraryUpgradeConfirmationMessage: String {
+    if store.enforcesStructuredCutover {
+      return
+        "Scéal will keep all legacy Markdown files for rollback and activate structured mode only after the staged conversion passes exact validation. Existing experimental structured copies will be retained in the safety backup before being replaced."
+    }
+    return
+      "Scéal will keep all legacy Markdown files for rollback. Structured mode remains off until you enable it after reviewing the migration report."
   }
 
   private func storagePath(_ title: String, url: URL) -> some View {
