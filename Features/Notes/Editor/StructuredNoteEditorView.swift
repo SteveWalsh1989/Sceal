@@ -17,6 +17,7 @@ struct StructuredNoteEditorView: View {
   @State private var activeDropTarget: StructuredNoteDropTarget?
   @State private var hoveredSectionID: UUID?
   @State private var sectionOptionsID: UUID?
+  @State private var pointerIsInsideSectionArea = false
   @State private var isShowingAppearancePopover = false
   @State private var fontPanelController = FontPanelController()
 
@@ -84,6 +85,7 @@ struct StructuredNoteEditorView: View {
           }
           .frame(maxWidth: .infinity)
           .padding(.vertical, 2)
+          .onHover { pointerIsInsideSectionArea = $0 }
         }
         .scrollIndicators(.hidden)
         .onChange(of: editorCoordinator.focusRequest) { _, request in
@@ -118,6 +120,7 @@ struct StructuredNoteEditorView: View {
       activeDropTarget = nil
       hoveredSectionID = nil
       sectionOptionsID = nil
+      pointerIsInsideSectionArea = false
     }
   }
 
@@ -242,7 +245,8 @@ struct StructuredNoteEditorView: View {
           item: item,
           dragContext: dragContext,
           hoveredSectionID: $hoveredSectionID,
-          sectionOptionsID: $sectionOptionsID
+          sectionOptionsID: $sectionOptionsID,
+          pointerIsInsideSectionArea: pointerIsInsideSectionArea
         )
         .id(item.id)
       }
@@ -258,7 +262,8 @@ struct StructuredNoteEditorView: View {
         dragContext: dragContext,
         accentColor: accentColor,
         hoveredSectionID: $hoveredSectionID,
-        sectionOptionsID: $sectionOptionsID
+        sectionOptionsID: $sectionOptionsID,
+        pointerIsInsideSectionArea: pointerIsInsideSectionArea
       )
       .id(group.id)
     }
@@ -743,10 +748,19 @@ nonisolated enum StructuredSectionGutterSelection {
   static func activeSectionID(
     hoveredSectionID: UUID?,
     optionsSectionID: UUID?,
-    focusedSectionID: UUID?
+    focusedSectionID: UUID?,
+    pointerIsInsideSectionArea: Bool
   ) -> UUID? {
-    hoveredSectionID ?? optionsSectionID ?? focusedSectionID
+    if let hoveredSectionID { return hoveredSectionID }
+    if let optionsSectionID { return optionsSectionID }
+    return pointerIsInsideSectionArea ? nil : focusedSectionID
   }
+}
+
+nonisolated enum StructuredSectionGutterLayout {
+  static let capsuleWidth: CGFloat = 26
+  static let edgeSpacing: CGFloat = 6
+  static let sideReserveWidth = capsuleWidth + edgeSpacing * 2
 }
 
 private struct StructuredSectionGroupContainer: View {
@@ -760,6 +774,7 @@ private struct StructuredSectionGroupContainer: View {
   let accentColor: Color
   @Binding var hoveredSectionID: UUID?
   @Binding var sectionOptionsID: UUID?
+  let pointerIsInsideSectionArea: Bool
   @State private var isHovering = false
   @State private var isRenaming = false
   @State private var isConfirmingDeletion = false
@@ -788,7 +803,8 @@ private struct StructuredSectionGroupContainer: View {
               item: item,
               dragContext: dragContext,
               hoveredSectionID: $hoveredSectionID,
-              sectionOptionsID: $sectionOptionsID
+              sectionOptionsID: $sectionOptionsID,
+              pointerIsInsideSectionArea: pointerIsInsideSectionArea
             )
             .id(item.id)
 
@@ -1188,6 +1204,7 @@ private struct StructuredSectionEditorCard: View {
   let dragContext: StructuredEditorDragContext
   @Binding var hoveredSectionID: UUID?
   @Binding var sectionOptionsID: UUID?
+  let pointerIsInsideSectionArea: Bool
   @State private var editorHeight: CGFloat = 132
   @State private var isConfirmingClear = false
   @State private var isConfirmingDeletion = false
@@ -1197,13 +1214,14 @@ private struct StructuredSectionEditorCard: View {
   var body: some View {
     HStack(alignment: .top, spacing: 0) {
       Color.clear
-        .frame(width: sectionGutterWidth)
+        .frame(width: StructuredSectionGutterLayout.sideReserveWidth)
         .accessibilityHidden(true)
 
       sectionCard
 
       sectionGutter
-        .frame(width: sectionGutterWidth)
+        .frame(width: StructuredSectionGutterLayout.capsuleWidth)
+        .padding(.horizontal, StructuredSectionGutterLayout.edgeSpacing)
     }
     .contentShape(Rectangle())
     .onHover(perform: updateHoverState)
@@ -1376,7 +1394,6 @@ private struct StructuredSectionEditorCard: View {
     .padding(.top, 8)
     .opacity(showsSectionGutter ? 1 : 0)
     .allowsHitTesting(showsSectionGutter)
-    .animation(.easeOut(duration: 0.12), value: showsSectionGutter)
   }
 
   private var collapsedSectionSummary: some View {
@@ -1593,15 +1610,14 @@ private struct StructuredSectionEditorCard: View {
     StructuredSectionGutterSelection.activeSectionID(
       hoveredSectionID: hoveredSectionID,
       optionsSectionID: sectionOptionsID,
-      focusedSectionID: editorCoordinator.focusedSectionID
+      focusedSectionID: editorCoordinator.focusedSectionID,
+      pointerIsInsideSectionArea: pointerIsInsideSectionArea
     ) == item.id
   }
 
   private var sectionIsEmpty: Bool {
     item.section.markdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
-
-  private var sectionGutterWidth: CGFloat { 30 }
 
   private var themeColors: ThemeColorSet {
     store.effectiveAppearanceSettings.resolvedColors

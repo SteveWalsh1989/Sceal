@@ -35,15 +35,25 @@ final class StructuredNoteEditorCoordinatorTests: XCTestCase {
       StructuredSectionGutterSelection.activeSectionID(
         hoveredSectionID: nil,
         optionsSectionID: nil,
-        focusedSectionID: focusedSectionID
+        focusedSectionID: focusedSectionID,
+        pointerIsInsideSectionArea: false
       ),
       focusedSectionID
+    )
+    XCTAssertNil(
+      StructuredSectionGutterSelection.activeSectionID(
+        hoveredSectionID: nil,
+        optionsSectionID: nil,
+        focusedSectionID: focusedSectionID,
+        pointerIsInsideSectionArea: true
+      )
     )
     XCTAssertEqual(
       StructuredSectionGutterSelection.activeSectionID(
         hoveredSectionID: nil,
         optionsSectionID: optionsSectionID,
-        focusedSectionID: focusedSectionID
+        focusedSectionID: focusedSectionID,
+        pointerIsInsideSectionArea: true
       ),
       optionsSectionID
     )
@@ -51,10 +61,21 @@ final class StructuredNoteEditorCoordinatorTests: XCTestCase {
       StructuredSectionGutterSelection.activeSectionID(
         hoveredSectionID: hoveredSectionID,
         optionsSectionID: optionsSectionID,
-        focusedSectionID: focusedSectionID
+        focusedSectionID: focusedSectionID,
+        pointerIsInsideSectionArea: true
       ),
       hoveredSectionID
     )
+  }
+
+  // Keeps the card centered by mirroring the complete measured action reserve.
+  func testSectionGutterLayoutUsesEqualInnerAndOuterSpacing() {
+    XCTAssertEqual(
+      StructuredSectionGutterLayout.sideReserveWidth,
+      StructuredSectionGutterLayout.capsuleWidth
+        + StructuredSectionGutterLayout.edgeSpacing * 2
+    )
+    XCTAssertGreaterThan(StructuredSectionGutterLayout.edgeSpacing, 0)
   }
 
   // Restores complete structural snapshots in both undo and redo directions.
