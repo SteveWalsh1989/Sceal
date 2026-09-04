@@ -27,12 +27,7 @@ final class MigrationStorageFixtureTests: MarkdownPreservationTestCase {
   // Prevents formatter refactors from changing the supported composite body format.
   func testCompositeDailyNoteBodyRoundTripsThroughEditorFormatter() throws {
     let note = try decodeFixtureNote("Notes/2026-05-10-composite.md")
-    let expected = note.body
-      .replacingOccurrences(
-        of: "```\n\n<!-- hcolor:turquoise -->",
-        with: "```\n\n\n<!-- hcolor:turquoise -->"
-      )
-      .trimmingSingleTrailingNewline()
+    let expected = note.body.trimmingSingleTrailingNewline()
 
     XCTAssertEqual(preservedMarkdown(note.body), expected)
   }
