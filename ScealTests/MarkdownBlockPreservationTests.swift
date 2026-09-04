@@ -31,6 +31,53 @@ final class MarkdownBlockPreservationTests: MarkdownPreservationTestCase {
     XCTAssertEqual(preservedMarkdown("<!-- section -->"), "<!-- section -->")
   }
 
+  // Keeps hidden heading-color metadata from creating persistent leading blank lines.
+  func testFirstLineHeadingColorDoesNotGainBlankLinesAcrossReloads() {
+    let markdown = "<!-- hcolor:orange -->\n# Feature: Dashboards"
+    let firstDisplay = MarkdownEditorFormatter.formatForDisplay(
+      markdown,
+      appearance: appearance,
+      interpretsSectionDirectives: false
+    )
+    let firstSave = MarkdownEditorFormatter.convertToMarkdown(
+      from: firstDisplay,
+      normalizesSectionDirectives: false
+    )
+    let secondDisplay = MarkdownEditorFormatter.formatForDisplay(
+      firstSave,
+      appearance: appearance,
+      interpretsSectionDirectives: false
+    )
+    let secondSave = MarkdownEditorFormatter.convertToMarkdown(
+      from: secondDisplay,
+      normalizesSectionDirectives: false
+    )
+
+    XCTAssertEqual(firstDisplay.string, "Feature: Dashboards")
+    XCTAssertEqual(firstSave, markdown)
+    XCTAssertEqual(secondDisplay.string, "Feature: Dashboards")
+    XCTAssertEqual(secondSave, markdown)
+  }
+
+  // Preserves the real separator before hidden heading-color metadata within a section.
+  func testHeadingColorAfterBodyKeepsOneLineSeparator() {
+    let markdown = "Overview\n<!-- hcolor:orange -->\n# Feature: Dashboards"
+    let display = MarkdownEditorFormatter.formatForDisplay(
+      markdown,
+      appearance: appearance,
+      interpretsSectionDirectives: false
+    )
+
+    XCTAssertEqual(display.string, "Overview\nFeature: Dashboards")
+    XCTAssertEqual(
+      MarkdownEditorFormatter.convertToMarkdown(
+        from: display,
+        normalizesSectionDirectives: false
+      ),
+      markdown
+    )
+  }
+
   // Treats a legacy divider marker as ordinary content inside a structured section editor.
   func testStructuredSectionPreservesLiteralDividerMarkerAndFollowingBlankLine() {
     let markdown = "Before\n<!-- section -->\n\nAfter"

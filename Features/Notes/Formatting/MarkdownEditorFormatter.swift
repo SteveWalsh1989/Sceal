@@ -234,6 +234,7 @@ enum MarkdownEditorFormatter {
     var justEmittedDivider = false
     var pendingImageWidth: CGFloat? = nil
     var skippedPreviousImageWidthMarker = false
+    var skippedPreviousHeadingColorMarker = false
 
     func flushPendingHeadingColorMarker() {
       guard let colorName = pendingHeadingColorName else { return }
@@ -264,10 +265,11 @@ enum MarkdownEditorFormatter {
       justEmittedDivider = false
 
       if let tableBlock = tableBlocks[index], !insideCodeBlock, !insidePromptBlock {
-        if index > 0, !skippedPreviousImageWidthMarker {
+        if index > 0, !skippedPreviousImageWidthMarker, !skippedPreviousHeadingColorMarker {
           result.append(NSAttributedString(string: "\n", attributes: newlineAttrs))
         }
         skippedPreviousImageWidthMarker = false
+        skippedPreviousHeadingColorMarker = false
         skippingTableUntilIndex = tableBlock.endIndex
 
         flushPendingHeadingColorMarker()
@@ -275,10 +277,11 @@ enum MarkdownEditorFormatter {
         continue
       }
 
-      if index > 0, !skippedPreviousImageWidthMarker {
+      if index > 0, !skippedPreviousImageWidthMarker, !skippedPreviousHeadingColorMarker {
         result.append(NSAttributedString(string: "\n", attributes: newlineAttrs))
       }
       skippedPreviousImageWidthMarker = false
+      skippedPreviousHeadingColorMarker = false
 
       if !insideCodeBlock,
         MarkdownEditorPromptBlockMarkdown.boundaryKind(for: line) == promptBoundaryStartKind
@@ -304,15 +307,15 @@ enum MarkdownEditorFormatter {
         continue
       }
 
-      // Check for heading color comment
+      // Hide heading-color metadata and suppress its separator before the following line.
       if !insideCodeBlock,
-        let colorName = MarkdownEditorHeadingColorMarkdown.parseColorName(line)
+        let colorName = MarkdownEditorHeadingColorMarkdown.parseColorName(line),
+        let color = headingColor(named: colorName)
       {
-        if let color = headingColor(named: colorName) {
-          pendingHeadingColor = color
-          pendingHeadingColorName = colorName
-          continue
-        }
+        pendingHeadingColor = color
+        pendingHeadingColorName = colorName
+        skippedPreviousHeadingColorMarker = true
+        continue
       }
 
       // Allow blank lines between a heading color comment and its heading
