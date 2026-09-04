@@ -136,7 +136,10 @@ nonisolated enum ScealBackupArchiveExporter {
       structuredDailyNoteCount: structuredDailyNotes.count,
       structuredListNoteCount: structuredListNotes.count,
       includesStructuredManifest: isStructuredArchive,
-      includesSettings: settings != nil
+      includesSettings: settings != nil,
+      structuredStorageIsAuthoritative: isStructuredArchive
+        ? settings?.dailyNoteStorageModeRawValue
+          == DailyNoteStorageMode.structuredExperimental.rawValue : nil
     )
     try encoder.encode(metadata).write(to: metadataURL, options: .atomic)
 
@@ -264,6 +267,7 @@ nonisolated struct BackupArchiveMetadata: Codable, Equatable, Sendable {
   let structuredListNoteCount: Int
   let includesStructuredManifest: Bool
   let includesSettings: Bool
+  let structuredStorageIsAuthoritative: Bool?
 
   init(
     appVersion: String,
@@ -278,7 +282,8 @@ nonisolated struct BackupArchiveMetadata: Codable, Equatable, Sendable {
     structuredDailyNoteCount: Int = 0,
     structuredListNoteCount: Int = 0,
     includesStructuredManifest: Bool = false,
-    includesSettings: Bool = false
+    includesSettings: Bool = false,
+    structuredStorageIsAuthoritative: Bool? = nil
   ) {
     self.appVersion = appVersion
     self.backupFormatVersion = backupFormatVersion
@@ -293,6 +298,7 @@ nonisolated struct BackupArchiveMetadata: Codable, Equatable, Sendable {
     self.structuredListNoteCount = structuredListNoteCount
     self.includesStructuredManifest = includesStructuredManifest
     self.includesSettings = includesSettings
+    self.structuredStorageIsAuthoritative = structuredStorageIsAuthoritative
   }
 
   private enum CodingKeys: String, CodingKey {
@@ -309,6 +315,7 @@ nonisolated struct BackupArchiveMetadata: Codable, Equatable, Sendable {
     case structuredListNoteCount
     case includesStructuredManifest
     case includesSettings
+    case structuredStorageIsAuthoritative
   }
 
   init(from decoder: Decoder) throws {
@@ -335,7 +342,10 @@ nonisolated struct BackupArchiveMetadata: Codable, Equatable, Sendable {
         Bool.self,
         forKey: .includesStructuredManifest
       ) ?? false,
-      includesSettings: try container.decodeIfPresent(Bool.self, forKey: .includesSettings) ?? false
+      includesSettings: try container.decodeIfPresent(Bool.self, forKey: .includesSettings)
+        ?? false,
+      structuredStorageIsAuthoritative:
+        try container.decodeIfPresent(Bool.self, forKey: .structuredStorageIsAuthoritative)
     )
   }
 }

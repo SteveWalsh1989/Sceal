@@ -139,6 +139,32 @@ nonisolated struct StructuredNoteRepository {
     )
   }
 
+  // Imports a new source set only when no stable ID already exists in structured storage.
+  func importNewDocuments(_ documents: [StructuredNoteDocument]) throws {
+    try validateUniqueDocumentIDs(documents)
+    let existingDocumentIDs = Set(try loadDocuments().map(\.id))
+    if let conflictingID = documents.lazy.map(\.id).first(where: existingDocumentIDs.contains) {
+      throw StructuredNoteRepositoryError.documentAlreadyExists(conflictingID)
+    }
+    var savedDocumentIDs: [String] = []
+    do {
+      for document in documents {
+        try save(document)
+        savedDocumentIDs.append(document.id)
+      }
+    } catch {
+      let importError = error
+      do {
+        for documentID in savedDocumentIDs {
+          try delete(documentID: documentID)
+        }
+      } catch {
+        throw StructuredNoteRepositoryError.importRollbackFailed(error.localizedDescription)
+      }
+      throw importError
+    }
+  }
+
   // Resolves the canonical structured document URL for a stable storage ID.
   func fileURL(for documentID: String) -> URL {
     storageDirectoryURL
@@ -237,6 +263,8 @@ nonisolated enum StructuredNoteRepositoryError: LocalizedError, Equatable, Senda
   case invalidDocument(URL, reason: String)
   case fileNameDoesNotMatchDocumentID(URL, documentID: String)
   case duplicateLegacyDocumentID(String)
+  case documentAlreadyExists(String)
+  case importRollbackFailed(String)
 
   var errorDescription: String? {
     switch self {
@@ -252,6 +280,10 @@ nonisolated enum StructuredNoteRepositoryError: LocalizedError, Equatable, Senda
       return "Structured note \(fileURL.lastPathComponent) contains mismatched ID \(documentID)."
     case .duplicateLegacyDocumentID(let documentID):
       return "More than one legacy note resolves to daily note ID \(documentID)."
+    case .documentAlreadyExists(let documentID):
+      return "Structured note \(documentID) already exists; import did not overwrite it."
+    case .importRollbackFailed(let reason):
+      return "Structured import failed and its partial-file cleanup also failed. \(reason)"
     }
   }
 }

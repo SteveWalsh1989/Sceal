@@ -113,4 +113,37 @@ final class NoteImageAttachmentStoreTests: XCTestCase {
       FileManager.default.fileExists(atPath: destinationURL.appendingPathComponent("new.png").path)
     )
   }
+
+  func testCopyingAttachmentFoldersRejectsConflictWithoutReplacingExistingFolder() throws {
+    let rootURL = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let sourceRootURL = rootURL.appendingPathComponent("source", isDirectory: true)
+    let destinationRootURL = rootURL.appendingPathComponent("destination", isDirectory: true)
+    let noteID = "2026-09-04"
+    let sourceURL = sourceRootURL.appendingPathComponent(noteID, isDirectory: true)
+    let destinationURL = destinationRootURL.appendingPathComponent(noteID, isDirectory: true)
+    try FileManager.default.createDirectory(at: sourceURL, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: destinationURL, withIntermediateDirectories: true)
+    addTeardownBlock { try? FileManager.default.removeItem(at: rootURL) }
+    try Data("source".utf8).write(to: sourceURL.appendingPathComponent("conflict.png"))
+    try Data("destination".utf8).write(
+      to: destinationURL.appendingPathComponent("conflict.png")
+    )
+    try Data("keep".utf8).write(to: destinationURL.appendingPathComponent("keep.png"))
+
+    XCTAssertThrowsError(
+      try NoteImageAttachmentStore.copyAttachmentFolders(
+        for: [noteID],
+        from: sourceRootURL,
+        to: destinationRootURL
+      )
+    )
+    XCTAssertEqual(
+      try Data(contentsOf: destinationURL.appendingPathComponent("conflict.png")),
+      Data("destination".utf8)
+    )
+    XCTAssertTrue(
+      FileManager.default.fileExists(atPath: destinationURL.appendingPathComponent("keep.png").path)
+    )
+  }
 }

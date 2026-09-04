@@ -78,6 +78,21 @@ nonisolated struct ScealArchiveSettings: Codable, Equatable, Sendable {
     }
   }
 
+  // Restores portable preferences while making structured storage the active runtime.
+  func normalizedForStructuredRuntime() -> ScealArchiveSettings {
+    ScealArchiveSettings(
+      appearanceSettingsData: appearanceSettingsData,
+      continuousSpellCheckingEnabled: continuousSpellCheckingEnabled,
+      newNoteDefaultRawValue: newNoteDefaultRawValue,
+      dailyNoteStorageModeRawValue: DailyNoteStorageMode.structuredExperimental.rawValue,
+      backupScheduleRawValue: backupScheduleRawValue,
+      backupOnInactive: backupOnInactive,
+      themeID: themeID,
+      includesCustomThemeColors: includesCustomThemeColors,
+      layoutSettings: layoutSettings
+    )
+  }
+
   private static func isValidNewNoteDefault(_ rawValue: String) -> Bool {
     rawValue == "blank" || rawValue == "copyPrevious"
       || (rawValue.hasPrefix("template:") && rawValue.count > "template:".count)

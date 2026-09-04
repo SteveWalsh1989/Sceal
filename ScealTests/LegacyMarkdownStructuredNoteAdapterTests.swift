@@ -4,6 +4,26 @@ import XCTest
 @testable import Sceal
 
 final class LegacyMarkdownStructuredNoteAdapterTests: XCTestCase {
+  // Converts importers' decoded compatibility values without another file round trip.
+  func testDecodedDayNoteConvertsDirectlyToStructuredDocument() throws {
+    let note = DayNote(
+      date: Date(timeIntervalSince1970: 1_788_220_800),
+      id: "2026-09-01",
+      title: "Imported",
+      tags: ["archive"],
+      body: "First\n<!-- section heading:orange -->\nSecond"
+    )
+
+    let document = try LegacyMarkdownStructuredNoteAdapter.importDocument(note)
+
+    XCTAssertEqual(document.id, note.id)
+    XCTAssertEqual(document.title, note.title)
+    XCTAssertEqual(document.tags, note.tags)
+    XCTAssertEqual(document.nodes.count, 2)
+    XCTAssertEqual(
+      try rootSection(in: document, at: 1).styleOverrides.headingColor, .colorName("orange"))
+  }
+
   // Imports the representative migration fixture without losing metadata or rich body markers.
   func testCompositeFixtureImportsMetadataContentAndSectionColor() throws {
     let sourceURL = try fixtureURL("Notes/2026-05-10-composite.md")

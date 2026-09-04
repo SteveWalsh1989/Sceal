@@ -55,6 +55,22 @@ final class StructuredNoteRepositoryTests: XCTestCase {
     XCTAssertEqual(try sourceURLs.map { try Data(contentsOf: $0) }, sourceData)
   }
 
+  // Refuses a stale import snapshot rather than silently keeping or replacing a same-ID note.
+  func testNewDocumentImportReportsConflictWithoutOverwrite() throws {
+    let fixture = makeRepository()
+    let existingDocument = makeDocument(year: 2026, month: 5, day: 12, title: "Existing")
+    let importedDocument = makeDocument(year: 2026, month: 5, day: 12, title: "Imported")
+    try fixture.repository.save(existingDocument)
+
+    XCTAssertThrowsError(try fixture.repository.importNewDocuments([importedDocument])) { error in
+      XCTAssertEqual(
+        error as? StructuredNoteRepositoryError,
+        .documentAlreadyExists(existingDocument.id)
+      )
+    }
+    XCTAssertEqual(try fixture.repository.loadDocuments(), [existingDocument])
+  }
+
   // Validates every legacy source before writing any structured copy.
   func testMalformedLegacySourcePreventsPartialCopy() throws {
     let fixture = makeRepository()

@@ -380,6 +380,7 @@ final class StructuredLibraryStage10Tests: NotesStoreTestCase {
     )
 
     XCTAssertEqual(result.metadata.backupFormatVersion, 2)
+    XCTAssertEqual(result.metadata.structuredStorageIsAuthoritative, true)
     XCTAssertEqual(result.dailyNotes.map(\.id), [legacyDaily.id])
     XCTAssertEqual(result.dailyNotes.map(\.title), [legacyDaily.title])
     XCTAssertEqual(result.dailyNotes.map(\.body), [legacyDaily.body])

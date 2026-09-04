@@ -7,6 +7,26 @@
 import Foundation
 
 nonisolated enum LegacyMarkdownStructuredNoteAdapter {
+  // Converts an already decoded compatibility note into the structured domain.
+  static func importDocument(_ note: DayNote) throws -> StructuredNoteDocument {
+    do {
+      let document = StructuredNoteDocument(
+        id: note.id,
+        date: note.date,
+        title: note.title,
+        tags: note.tags,
+        nodes: sections(from: note.body).map(StructuredNoteNode.section)
+      )
+      try document.validate()
+      return document
+    } catch {
+      throw LegacyMarkdownStructuredNoteAdapterError.invalidNote(
+        note.id,
+        reason: error.localizedDescription
+      )
+    }
+  }
+
   // Decodes one legacy note and adds source-specific context to any import failure.
   static func importDocument(
     contents: String,
@@ -19,15 +39,7 @@ nonisolated enum LegacyMarkdownStructuredNoteAdapter {
         sourceURL: sourceURL,
         idOverride: idOverride
       )
-      let document = StructuredNoteDocument(
-        id: note.id,
-        date: note.date,
-        title: note.title,
-        tags: note.tags,
-        nodes: sections(from: note.body).map(StructuredNoteNode.section)
-      )
-      try document.validate()
-      return document
+      return try importDocument(note)
     } catch {
       throw LegacyMarkdownStructuredNoteAdapterError.invalidSource(
         sourceURL,
@@ -167,11 +179,14 @@ nonisolated enum LegacyMarkdownStructuredNoteAdapter {
 
 nonisolated enum LegacyMarkdownStructuredNoteAdapterError: LocalizedError, Equatable, Sendable {
   case invalidSource(URL, reason: String)
+  case invalidNote(String, reason: String)
 
   var errorDescription: String? {
     switch self {
     case .invalidSource(let sourceURL, let reason):
       return "Scéal could not import \(sourceURL.lastPathComponent). \(reason)"
+    case .invalidNote(let noteID, let reason):
+      return "Scéal could not convert note \(noteID). \(reason)"
     }
   }
 }

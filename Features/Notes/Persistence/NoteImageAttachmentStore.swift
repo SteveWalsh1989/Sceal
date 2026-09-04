@@ -231,16 +231,53 @@ enum NoteImageAttachmentStore {
     guard !noteIDs.isEmpty, fileManager.fileExists(atPath: sourceRootURL.path) else { return }
     try fileManager.createDirectory(at: targetRootURL, withIntermediateDirectories: true)
 
-    for noteID in noteIDs {
+    let folders = noteIDs.compactMap { noteID -> (String, URL, URL)? in
       let folderName = safePathComponent(noteID)
       let sourceURL = sourceRootURL.appendingPathComponent(folderName, isDirectory: true)
-      guard fileManager.fileExists(atPath: sourceURL.path) else { continue }
+      guard fileManager.fileExists(atPath: sourceURL.path) else { return nil }
 
       let destinationURL = targetRootURL.appendingPathComponent(folderName, isDirectory: true)
-      if fileManager.fileExists(atPath: destinationURL.path) {
-        try fileManager.removeItem(at: destinationURL)
+      return (noteID, sourceURL, destinationURL)
+    }
+
+    for (noteID, sourceURL, destinationURL) in folders
+    where fileManager.fileExists(atPath: destinationURL.path) {
+      let sourceFileURLs = try fileManager.contentsOfDirectory(
+        at: sourceURL,
+        includingPropertiesForKeys: nil,
+        options: [.skipsHiddenFiles]
+      )
+      for sourceFileURL in sourceFileURLs {
+        let destinationFileURL = destinationURL.appendingPathComponent(
+          sourceFileURL.lastPathComponent
+        )
+        guard fileManager.fileExists(atPath: destinationFileURL.path) else { continue }
+        guard try Data(contentsOf: sourceFileURL) == Data(contentsOf: destinationFileURL) else {
+          throw NoteImageAttachmentStoreError.conflictingAttachment(
+            sourceFileURL.lastPathComponent,
+            noteID: noteID
+          )
+        }
       }
-      try fileManager.copyItem(at: sourceURL, to: destinationURL)
+    }
+
+    for (_, sourceURL, destinationURL) in folders {
+      guard fileManager.fileExists(atPath: destinationURL.path) else {
+        try fileManager.copyItem(at: sourceURL, to: destinationURL)
+        continue
+      }
+      let sourceFileURLs = try fileManager.contentsOfDirectory(
+        at: sourceURL,
+        includingPropertiesForKeys: nil,
+        options: [.skipsHiddenFiles]
+      )
+      for sourceFileURL in sourceFileURLs {
+        let destinationFileURL = destinationURL.appendingPathComponent(
+          sourceFileURL.lastPathComponent
+        )
+        guard !fileManager.fileExists(atPath: destinationFileURL.path) else { continue }
+        try fileManager.copyItem(at: sourceFileURL, to: destinationFileURL)
+      }
     }
   }
 

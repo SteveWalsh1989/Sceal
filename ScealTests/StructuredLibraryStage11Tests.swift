@@ -205,4 +205,261 @@ final class StructuredLibraryStage11Tests: NotesStoreTestCase {
       "Back up and convert the legacy library before enabling Structured Notes V2."
     )
   }
+
+  func testLegacyOnlyVersionTwoArchiveConvertsBeforeReplacingStructuredStorage() throws {
+    let sourceLocation = makeLibraryLocation()
+    let legacyNote = makeDailyNote(
+      year: 2026,
+      month: 9,
+      day: 1,
+      title: "Legacy-only backup",
+      body: "First\n<!-- section heading:orange -->\nSecond"
+    )
+    let sourceStore = makeStore(
+      userDefaults: makeUserDefaults(),
+      libraryLocation: sourceLocation
+    )
+    let legacySettings = try sourceStore.makeArchiveSettings()
+    let archiveURL = try ScealBackupArchiveExporter.exportBackup(
+      dailyNotes: [legacyNote],
+      listNotes: [],
+      manifest: .empty,
+      structuredDailyNotes: [],
+      structuredListNotes: [],
+      structuredListManifest: .empty,
+      settings: legacySettings,
+      kind: .manual
+    )
+    defer { ZipArchiveWriter.cleanUp(zipURL: archiveURL) }
+    let destinationLocation = makeLibraryLocation()
+    let destinationRepository = LibraryRepository(libraryLocation: destinationLocation)
+
+    let result = try ScealBackupArchiveImporter.restoreLibrary(
+      from: archiveURL,
+      currentDailyNotes: [],
+      currentListNotes: [],
+      currentManifest: .empty,
+      destinationURLs: destinationRepository.storageURLs(),
+      safetyArchiveDirectoryURL: destinationLocation.restoreSafetyArchiveDirectoryURL()
+    )
+
+    XCTAssertEqual(result.metadata.structuredStorageIsAuthoritative, false)
+    XCTAssertEqual(result.structuredDailyNotes.map(\.id), [legacyNote.id])
+    XCTAssertEqual(result.structuredDailyNotes.first?.nodes.count, 2)
+    XCTAssertEqual(
+      result.settings?.dailyNoteStorageModeRawValue,
+      DailyNoteStorageMode.structuredExperimental.rawValue
+    )
+    XCTAssertEqual(
+      try StructuredNoteRepository(libraryLocation: destinationLocation).loadDocuments(),
+      result.structuredDailyNotes
+    )
+  }
+
+  func testAuthoritativeVersionTwoArchiveDoesNotReintroduceDeletedLegacyNotes() throws {
+    let sourceLocation = makeLibraryLocation()
+    let legacyNote = makeDailyNote(year: 2026, month: 9, day: 1, body: "Deleted in V2")
+    let defaults = makeUserDefaults()
+    let sourceStore = makeStore(userDefaults: defaults, libraryLocation: sourceLocation)
+    sourceStore.updateDailyNoteStorageMode(.structuredExperimental)
+    let structuredSettings = try sourceStore.makeArchiveSettings()
+    let archiveURL = try ScealBackupArchiveExporter.exportBackup(
+      dailyNotes: [legacyNote],
+      listNotes: [],
+      manifest: .empty,
+      structuredDailyNotes: [],
+      structuredListNotes: [],
+      structuredListManifest: .empty,
+      settings: structuredSettings,
+      kind: .manual
+    )
+    defer { ZipArchiveWriter.cleanUp(zipURL: archiveURL) }
+    let destinationLocation = makeLibraryLocation()
+    let destinationRepository = LibraryRepository(libraryLocation: destinationLocation)
+
+    let result = try ScealBackupArchiveImporter.restoreLibrary(
+      from: archiveURL,
+      currentDailyNotes: [],
+      currentListNotes: [],
+      currentManifest: .empty,
+      destinationURLs: destinationRepository.storageURLs(),
+      safetyArchiveDirectoryURL: destinationLocation.restoreSafetyArchiveDirectoryURL()
+    )
+
+    XCTAssertEqual(result.metadata.structuredStorageIsAuthoritative, true)
+    XCTAssertTrue(result.structuredDailyNotes.isEmpty)
+    XCTAssertTrue(
+      try StructuredNoteRepository(libraryLocation: destinationLocation).loadDocuments().isEmpty
+    )
+  }
+
+  func testLegacyAuthoritativeVersionTwoArchiveReplacesStaleCopiesAndConvertsMissingNotes()
+    throws
+  {
+    let sourceLocation = makeLibraryLocation()
+    let retainedLegacyNote = makeDailyNote(
+      year: 2026,
+      month: 9,
+      day: 1,
+      title: "Legacy title",
+      body: "Legacy source"
+    )
+    let missingLegacyNote = makeDailyNote(
+      year: 2026,
+      month: 9,
+      day: 2,
+      title: "Missing copy",
+      body: "Convert me"
+    )
+    let retainedStructuredDocument = StructuredNoteDocument(
+      id: retainedLegacyNote.id,
+      date: retainedLegacyNote.date,
+      title: "Exact structured title",
+      tags: ["structured"],
+      nodes: [.section(StructuredNoteSection(markdown: "Edited structured content"))]
+    )
+    let sourceStore = makeStore(
+      userDefaults: makeUserDefaults(),
+      libraryLocation: sourceLocation
+    )
+    let archiveURL = try ScealBackupArchiveExporter.exportBackup(
+      dailyNotes: [retainedLegacyNote, missingLegacyNote],
+      listNotes: [],
+      manifest: .empty,
+      structuredDailyNotes: [retainedStructuredDocument],
+      structuredListNotes: [],
+      structuredListManifest: .empty,
+      settings: try sourceStore.makeArchiveSettings(),
+      kind: .manual
+    )
+    defer { ZipArchiveWriter.cleanUp(zipURL: archiveURL) }
+    let destinationLocation = makeLibraryLocation()
+    let destinationRepository = LibraryRepository(libraryLocation: destinationLocation)
+
+    let result = try ScealBackupArchiveImporter.restoreLibrary(
+      from: archiveURL,
+      currentDailyNotes: [],
+      currentListNotes: [],
+      currentManifest: .empty,
+      destinationURLs: destinationRepository.storageURLs(),
+      safetyArchiveDirectoryURL: destinationLocation.restoreSafetyArchiveDirectoryURL()
+    )
+
+    XCTAssertEqual(result.metadata.structuredStorageIsAuthoritative, false)
+    XCTAssertEqual(
+      Set(result.structuredDailyNotes.map(\.id)),
+      [
+        retainedLegacyNote.id, missingLegacyNote.id,
+      ])
+    XCTAssertEqual(
+      result.structuredDailyNotes.first(where: { $0.id == retainedLegacyNote.id })?.title,
+      retainedLegacyNote.title
+    )
+    XCTAssertEqual(
+      result.structuredDailyNotes.first(where: { $0.id == missingLegacyNote.id })?.title,
+      missingLegacyNote.title
+    )
+  }
+
+  func testUnmarkedHistoricalVersionTwoArchivePreservesExactCopiesAndConvertsMissingNotes()
+    throws
+  {
+    let sourceLocation = makeLibraryLocation()
+    let retainedLegacyNote = makeDailyNote(
+      year: 2026,
+      month: 9,
+      day: 1,
+      title: "Legacy title",
+      body: "Legacy source"
+    )
+    let missingLegacyNote = makeDailyNote(
+      year: 2026,
+      month: 9,
+      day: 2,
+      title: "Missing copy",
+      body: "Convert me"
+    )
+    let retainedStructuredDocument = StructuredNoteDocument(
+      id: retainedLegacyNote.id,
+      date: retainedLegacyNote.date,
+      title: "Exact structured title",
+      tags: ["structured"],
+      nodes: [.section(StructuredNoteSection(markdown: "Edited structured content"))]
+    )
+    let sourceStore = makeStore(
+      userDefaults: makeUserDefaults(),
+      libraryLocation: sourceLocation
+    )
+    let archiveURL = try ScealBackupArchiveExporter.exportBackup(
+      dailyNotes: [retainedLegacyNote, missingLegacyNote],
+      listNotes: [],
+      manifest: .empty,
+      structuredDailyNotes: [retainedStructuredDocument],
+      structuredListNotes: [],
+      structuredListManifest: .empty,
+      settings: try sourceStore.makeArchiveSettings(),
+      kind: .manual
+    )
+    defer { ZipArchiveWriter.cleanUp(zipURL: archiveURL) }
+    let historicalArchiveURL = try archiveWithoutStructuredAuthorityMarker(archiveURL)
+    let destinationLocation = makeLibraryLocation()
+    let destinationRepository = LibraryRepository(libraryLocation: destinationLocation)
+
+    let result = try ScealBackupArchiveImporter.restoreLibrary(
+      from: historicalArchiveURL,
+      currentDailyNotes: [],
+      currentListNotes: [],
+      currentManifest: .empty,
+      destinationURLs: destinationRepository.storageURLs(),
+      safetyArchiveDirectoryURL: destinationLocation.restoreSafetyArchiveDirectoryURL()
+    )
+
+    XCTAssertNil(result.metadata.structuredStorageIsAuthoritative)
+    XCTAssertEqual(
+      result.structuredDailyNotes.first(where: { $0.id == retainedLegacyNote.id }),
+      retainedStructuredDocument
+    )
+    XCTAssertEqual(
+      result.structuredDailyNotes.first(where: { $0.id == missingLegacyNote.id })?.title,
+      missingLegacyNote.title
+    )
+  }
+
+  // Recreates a historical version 2 fixture written before authority metadata existed.
+  private func archiveWithoutStructuredAuthorityMarker(_ archiveURL: URL) throws -> URL {
+    let baseURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "StructuredStage11-Historical-\(UUID().uuidString)",
+      isDirectory: true
+    )
+    let extractionURL = baseURL.appendingPathComponent("Extracted", isDirectory: true)
+    try FileManager.default.createDirectory(at: extractionURL, withIntermediateDirectories: true)
+    addTeardownBlock { try? FileManager.default.removeItem(at: baseURL) }
+    try ZipArchiveWriter.extractZip(from: archiveURL, to: extractionURL)
+    let managedRootURL = extractionURL.appendingPathComponent(
+      ScealBackupArchiveExporter.managedFolderName,
+      isDirectory: true
+    )
+    let rootURL =
+      FileManager.default.fileExists(
+        atPath: managedRootURL.appendingPathComponent("backup-metadata.json").path
+      ) ? managedRootURL : extractionURL
+    let metadataURL = rootURL.appendingPathComponent("backup-metadata.json")
+    guard
+      var metadata = try JSONSerialization.jsonObject(
+        with: Data(contentsOf: metadataURL)
+      ) as? [String: Any]
+    else {
+      throw StructuredLibraryStage11TestError.invalidMetadataFixture
+    }
+    metadata.removeValue(forKey: "structuredStorageIsAuthoritative")
+    try JSONSerialization.data(withJSONObject: metadata, options: [.prettyPrinted, .sortedKeys])
+      .write(to: metadataURL, options: .atomic)
+    let outputURL = baseURL.appendingPathComponent("historical-v2.zip")
+    try ZipArchiveWriter.createZip(from: rootURL, to: outputURL)
+    return outputURL
+  }
+}
+
+private enum StructuredLibraryStage11TestError: Error {
+  case invalidMetadataFixture
 }

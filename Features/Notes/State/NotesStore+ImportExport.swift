@@ -381,15 +381,9 @@ extension NotesStore {
           self.notes = result.dailyNotes
           self.listNotes = result.listNotes
           self.listNoteManifest = result.manifest
-          if result.metadata.backupFormatVersion >= 2 {
-            self.structuredNotes = result.structuredDailyNotes
-            self.structuredListNotes = result.structuredListNotes
-            self.structuredListNoteManifest = result.structuredListManifest
-          } else {
-            self.structuredNotes = currentSnapshot.structuredDailyNotes
-            self.structuredListNotes = currentSnapshot.structuredListNotes
-            self.structuredListNoteManifest = currentSnapshot.structuredListManifest
-          }
+          self.structuredNotes = result.structuredDailyNotes
+          self.structuredListNotes = result.structuredListNotes
+          self.structuredListNoteManifest = result.structuredListManifest
           self.replaceNoteTemplates(result.templates)
           self.rebuildNoteIndex()
           self.rebuildListNoteIndex()
@@ -415,7 +409,7 @@ extension NotesStore {
 
           self.userMessage = (
             text:
-              "Restored \(result.dailyNotes.count) daily notes and \(result.listNotes.count) list notes. Safety backup: \(result.safetyArchiveURL.lastPathComponent).",
+              "Restored and validated \(result.structuredDailyNotes.count) daily notes and \(result.structuredListNotes.count) list notes for Structured Notes V2. Safety backup: \(result.safetyArchiveURL.lastPathComponent).",
             kind: .info
           )
           self.checkAndRunBackupIfDue(trigger: .postImport)
@@ -451,15 +445,6 @@ extension NotesStore {
       @Sendable @escaping (_ sourceURL: URL, _ existingNoteIDs: Set<DayNote.ID>) throws ->
       ImportOutcome
   ) {
-    guard !isStructuredDailyNoteMode else {
-      userMessage = (
-        text:
-          "Switch to Legacy Markdown to use the existing importers. Structured copy import is available in Experimental Settings.",
-        kind: .info
-      )
-      return
-    }
-
     guard let folderURL = selectImportFolder(title: panelTitle, message: panelMessage) else {
       return
     }
@@ -483,15 +468,6 @@ extension NotesStore {
       @Sendable @escaping (_ sourceURL: URL, _ existingNoteIDs: Set<DayNote.ID>) throws ->
       ImportOutcome
   ) {
-    guard !isStructuredDailyNoteMode else {
-      userMessage = (
-        text:
-          "Switch to Legacy Markdown to use the existing importers. Structured copy import is available in Experimental Settings.",
-        kind: .info
-      )
-      return
-    }
-
     guard
       let fileURL = selectImportFile(
         title: panelTitle,
@@ -519,13 +495,16 @@ extension NotesStore {
       @Sendable @escaping (_ sourceURL: URL, _ existingNoteIDs: Set<DayNote.ID>) throws ->
       ImportOutcome
   ) {
-    let existingIDs = Set(notes.map(\.id))
+    let importsIntoStructuredStorage = isStructuredDailyNoteMode
+    let existingIDs = Set(
+      importsIntoStructuredStorage ? structuredNotes.map(\.id) : notes.map(\.id)
+    )
 
-    // Resolve notes directory on main actor and start background work.
-    let notesDir: URL
+    // Resolve storage on the main actor before starting background work.
+    let notesDir: URL?
     let attachmentsDir: URL
     do {
-      notesDir = try notesDirectoryURL()
+      notesDir = importsIntoStructuredStorage ? nil : try notesDirectoryURL()
       attachmentsDir = try libraryRepository.attachmentsRootDirectoryURL()
     } catch {
       report(error, context: context)
@@ -535,6 +514,7 @@ extension NotesStore {
     isPerformingFileOperation = true
     progressMessage = "Importing…"
     let fm = fileManager
+    let structuredRepository = structuredNoteRepository
 
     // Explicitly acquire security-scoped access so the detached task can
     // read the user-selected source inside the App Sandbox.
@@ -560,21 +540,37 @@ extension NotesStore {
         }
 
         // Step 2: Write imported notes to disk off the main thread.
+        var importedStructuredDocuments: [StructuredNoteDocument] = []
         if !outcome.imported.isEmpty {
-          for (idx, note) in outcome.imported.enumerated() {
-            let fileURL = notesDir.appendingPathComponent(note.fileName)
-            let contents = try MarkdownNoteCodec.encode(note)
-            try contents.write(to: fileURL, atomically: true, encoding: .utf8)
+          if importsIntoStructuredStorage {
+            importedStructuredDocuments = try outcome.imported.map(
+              LegacyMarkdownStructuredNoteAdapter.importDocument
+            )
+            if let sourceRootURL = outcome.attachmentSourceRootURL {
+              try NoteImageAttachmentStore.copyAttachmentFolders(
+                for: Set(outcome.imported.map(\.id)),
+                from: sourceRootURL,
+                to: attachmentsDir,
+                fileManager: fm
+              )
+            }
+            try structuredRepository.importNewDocuments(importedStructuredDocuments)
+          } else if let notesDir {
+            for (index, note) in outcome.imported.enumerated() {
+              let fileURL = notesDir.appendingPathComponent(note.fileName)
+              let contents = try MarkdownNoteCodec.encode(note)
+              try contents.write(to: fileURL, atomically: true, encoding: .utf8)
 
-            if idx % 10 == 0 || idx == outcome.imported.count - 1 {
-              await MainActor.run { [weak self] in
-                self?.progressMessage = "Saving \(idx + 1)/\(outcome.imported.count)…"
+              if index % 10 == 0 || index == outcome.imported.count - 1 {
+                await MainActor.run { [weak self] in
+                  self?.progressMessage = "Saving \(index + 1)/\(outcome.imported.count)…"
+                }
               }
             }
           }
         }
 
-        if let sourceRootURL = outcome.attachmentSourceRootURL {
+        if !importsIntoStructuredStorage, let sourceRootURL = outcome.attachmentSourceRootURL {
           try NoteImageAttachmentStore.copyAttachmentFolders(
             for: Set(outcome.imported.map(\.id)),
             from: sourceRootURL,
@@ -582,12 +578,21 @@ extension NotesStore {
             fileManager: fm
           )
         }
+        let structuredDocumentsForState = importedStructuredDocuments
 
         // Step 3: Update in-memory state and notify the user on the main actor.
         await MainActor.run { [weak self] in
           guard let self else { return }
-          self.notes = (self.notes + outcome.imported).sorted(by: { $0.date > $1.date })
-          self.rebuildNoteIndex()
+          if importsIntoStructuredStorage {
+            self.structuredNotes = (self.structuredNotes + structuredDocumentsForState).sorted(
+              by: { $0.date > $1.date }
+            )
+            self.selectedStructuredNoteID = structuredDocumentsForState.first?.id
+            self.cachedMonthSections = nil
+          } else {
+            self.notes = (self.notes + outcome.imported).sorted(by: { $0.date > $1.date })
+            self.rebuildNoteIndex()
+          }
           self.mergeImportedNoteTemplates(outcome.templates)
           self.showImportMessage(outcome, emptyMessage: emptyMessage)
           self.checkAndRunBackupIfDue(trigger: .postImport)
@@ -687,7 +692,11 @@ extension NotesStore {
       userMessage = (text: "Imported \(outcome.imported.count) notes.\(suffix)", kind: .info)
     }
     if let firstImportedNoteID = outcome.imported.first?.id {
-      selectedNoteID = firstImportedNoteID
+      if isStructuredDailyNoteMode {
+        selectedStructuredNoteID = firstImportedNoteID
+      } else {
+        selectedNoteID = firstImportedNoteID
+      }
     }
   }
 }

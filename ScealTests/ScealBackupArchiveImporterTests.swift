@@ -86,6 +86,9 @@ final class ScealBackupArchiveImporterTests: NotesStoreTestCase {
     XCTAssertEqual(result.listNotes.first?.title, restoredListNote.title)
     XCTAssertEqual(result.listNotes.first?.body, restoredListNote.body)
     XCTAssertEqual(result.manifest, restoredManifest)
+    XCTAssertEqual(result.structuredDailyNotes.map(\.id), [restoredDailyNote.id])
+    XCTAssertEqual(result.structuredListNotes.map(\.id), [restoredListNote.id])
+    XCTAssertEqual(result.structuredListManifest, restoredManifest)
     XCTAssertTrue(
       FileManager.default.fileExists(
         atPath: storageURLs.notesDirectoryURL.appendingPathComponent(
@@ -120,6 +123,14 @@ final class ScealBackupArchiveImporterTests: NotesStoreTestCase {
       try JSONDecoder().decode(ListNotesManifest.self, from: restoredManifestData), restoredManifest
     )
     XCTAssertTrue(FileManager.default.fileExists(atPath: result.safetyArchiveURL.path))
+    XCTAssertEqual(
+      try StructuredNoteDocumentCodec.read(
+        from: storageURLs.structuredNotesDirectoryURL
+          .appendingPathComponent(restoredDailyNote.id)
+          .appendingPathExtension(StructuredNoteRepository.fileExtension)
+      ).title,
+      restoredDailyNote.title
+    )
 
     let safetyExtractURL = try makeTemporaryDirectory()
     try ZipArchiveWriter.extractZip(from: result.safetyArchiveURL, to: safetyExtractURL)
