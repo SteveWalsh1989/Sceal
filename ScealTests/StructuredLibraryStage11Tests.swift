@@ -206,6 +206,24 @@ final class StructuredLibraryStage11Tests: NotesStoreTestCase {
     )
   }
 
+  func testValidatedRestoreCompletesCutoverAndPersistsStructuredMode() {
+    let defaults = makeUserDefaults()
+    let settings = SettingsRepository(userDefaults: defaults)
+    settings.saveStructuredNotesCutoverStatus(.conversionRequired)
+    settings.saveDailyNoteStorageMode(.legacyMarkdown)
+    let store = makeStore(
+      userDefaults: defaults,
+      enforcesStructuredCutover: true
+    )
+
+    store.completeStructuredCutoverAfterValidatedRestore()
+
+    XCTAssertEqual(store.structuredNotesCutoverStatus, .completed)
+    XCTAssertEqual(store.dailyNoteStorageMode, .structuredExperimental)
+    XCTAssertEqual(settings.loadStructuredNotesCutoverStatus(), .completed)
+    XCTAssertEqual(settings.loadDailyNoteStorageMode(), .structuredExperimental)
+  }
+
   func testLegacyOnlyVersionTwoArchiveConvertsBeforeReplacingStructuredStorage() throws {
     let sourceLocation = makeLibraryLocation()
     let legacyNote = makeDailyNote(

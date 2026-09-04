@@ -56,6 +56,12 @@ extension NotesStore {
     loadIfNeeded()
   }
 
+  // Records that a full-library restore installed and reloaded valid structured storage.
+  func completeStructuredCutoverAfterValidatedRestore() {
+    setStructuredCutoverStatus(.completed)
+    activateStructuredLibraryAfterCutover()
+  }
+
   // Starts a conversion whose only live-library mutation is the validated structured-folder swap.
   func backUpAndConvertLegacyLibrary() {
     guard !isPerformingFileOperation, !isBackupRunning else {

@@ -399,6 +399,8 @@ extension NotesStore {
           self.searchText = ""
           self.listSearchText = ""
 
+          self.completeStructuredCutoverAfterValidatedRestore()
+
           if self.sidebarMode == .list, self.activeListNoteSummaries.isEmpty {
             self.sidebarMode = .daily
           } else if self.sidebarMode != .list, self.dailyNotesForDisplay.isEmpty,
