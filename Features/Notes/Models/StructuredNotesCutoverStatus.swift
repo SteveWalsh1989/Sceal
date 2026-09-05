@@ -11,4 +11,5 @@ nonisolated enum StructuredNotesCutoverStatus: String, Codable, Equatable, Senda
   case conversionRequired
   case completed
   case failedValidation
+  case recoveryRequired
 }

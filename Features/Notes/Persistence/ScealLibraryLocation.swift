@@ -18,6 +18,11 @@ struct ScealLibraryLocation: Equatable, Sendable {
 
   let rootURL: URL
 
+  // Kept outside preferences so a settings reset cannot trigger destructive reconversion.
+  nonisolated var structuredLibraryStateURL: URL {
+    rootURL.appendingPathComponent("structured-library.json")
+  }
+
   nonisolated static func defaultForCurrentBuild(
     fileManager: FileManager = .default
   ) -> ScealLibraryLocation {

@@ -27,6 +27,12 @@ nonisolated enum StructuredLibraryCutover {
     fileManager: FileManager = .default,
     createdAt: Date = .now
   ) throws -> StructuredLibraryCutoverResult {
+    guard try !StructuredLibraryState.isCompleted(at: libraryLocation) else {
+      throw StructuredLibraryStateError.alreadyCompleted
+    }
+    guard snapshot.structuredDailyNotes.isEmpty, snapshot.structuredListNotes.isEmpty else {
+      throw StructuredLibraryStateError.ambiguousLibraries
+    }
     let safetyArchiveURL = try writeSafetyArchive(
       snapshot: snapshot,
       createdAt: createdAt,
@@ -268,7 +274,9 @@ nonisolated enum StructuredLibraryCutover {
         to: libraryLocation.migrationReportsDirectoryURL(fileManager: fileManager),
         fileManager: fileManager
       )
-      try fileManager.removeItem(at: rollbackRootURL)
+      try StructuredLibraryState.markCompleted(at: libraryLocation)
+      // Cleanup failure must not roll back an installation already committed on disk.
+      try? fileManager.removeItem(at: rollbackRootURL)
       return (dailyDocuments, listDocuments, listManifest, reportURL)
     } catch {
       let installationError = error

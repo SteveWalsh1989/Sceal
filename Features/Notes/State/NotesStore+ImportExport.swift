@@ -400,7 +400,14 @@ extension NotesStore {
           self.searchText = ""
           self.listSearchText = ""
 
-          self.completeStructuredCutoverAfterValidatedRestore()
+          do {
+            try self.completeStructuredCutoverAfterValidatedRestore()
+          } catch {
+            self.report(error, context: "Recording restored library completion failed")
+            self.isPerformingFileOperation = false
+            self.progressMessage = nil
+            return
+          }
 
           if self.sidebarMode == .list, self.activeListNoteSummaries.isEmpty {
             self.sidebarMode = .daily

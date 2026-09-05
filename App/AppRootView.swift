@@ -85,8 +85,15 @@ struct AppRootView: View {
       structuredCutoverAlertTitle,
       isPresented: structuredCutoverPromptBinding
     ) {
-      Button("Back Up and Convert") {
-        store.backUpAndConvertLegacyLibrary()
+      Button(
+        store.structuredNotesCutoverStatus == .recoveryRequired
+          ? "Retry Opening Library" : "Back Up and Convert"
+      ) {
+        if store.structuredNotesCutoverStatus == .recoveryRequired {
+          store.prepareStructuredCutoverForProductionLaunch()
+        } else {
+          store.backUpAndConvertLegacyLibrary()
+        }
       }
       .keyboardShortcut(.defaultAction)
 
@@ -217,17 +224,23 @@ struct AppRootView: View {
   }
 
   private var structuredCutoverAlertTitle: String {
-    store.structuredNotesCutoverStatus == .failedValidation
-      ? "Conversion needs attention" : "Upgrade notes for Structured Notes V2?"
+    switch store.structuredNotesCutoverStatus {
+    case .recoveryRequired:
+      return "Library needs recovery"
+    case .failedValidation:
+      return "Conversion needs attention"
+    default:
+      return "Upgrade notes for Structured Notes V2?"
+    }
   }
 
   private var structuredCutoverAlertMessage: String {
     if let failure = store.structuredNotesCutoverFailureDescription {
       return
-        "Scéal did not activate the structured library because validation failed: \(failure) Your Markdown notes remain unchanged. You can retry or continue with the legacy editor."
+        "Scéal did not activate the structured library because validation failed: \(failure) Your notes have not been overwritten by this validation check. You can retry after addressing the problem or restore a known full-library backup."
     }
     return
-      "Scéal will first create a complete restorable backup, convert every daily and list note in staging, and validate the result before activating it. Your existing Markdown files will remain unchanged. Any experimental structured copies will be replaced by the verified conversion and retained in the safety backup."
+      "Scéal will first create a complete restorable backup, convert every daily and list note in staging, and validate the result before activating it. Your existing Markdown files will remain unchanged. Existing structured notes will not be overwritten by conversion."
   }
 
   // Resolves the editor background from the active theme.

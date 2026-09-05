@@ -75,11 +75,16 @@ struct SettingsRepository {
 
   // Reads the experimental daily-note storage mode, defaulting to the legacy app behavior.
   func loadDailyNoteStorageMode() -> DailyNoteStorageMode {
+    loadSavedDailyNoteStorageMode() ?? .legacyMarkdown
+  }
+
+  // Distinguishes the temporary explicit rollback choice from lost or absent preferences.
+  func loadSavedDailyNoteStorageMode() -> DailyNoteStorageMode? {
     guard
       let rawValue = userDefaults.string(forKey: Keys.dailyNoteStorageMode),
       let mode = DailyNoteStorageMode(rawValue: rawValue)
     else {
-      return .legacyMarkdown
+      return nil
     }
 
     return mode

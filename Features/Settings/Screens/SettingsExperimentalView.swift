@@ -137,13 +137,15 @@ struct SettingsExperimentalView: View {
       return "Validated"
     case .failedValidation:
       return "Needs attention"
+    case .recoveryRequired:
+      return "Recovery required"
     }
   }
 
   private var fullLibraryUpgradeConfirmationMessage: String {
     if store.enforcesStructuredCutover {
       return
-        "Scéal will keep all legacy Markdown files for rollback and activate structured mode only after the staged conversion passes exact validation. Existing experimental structured copies will be retained in the safety backup before being replaced."
+        "Scéal will keep all legacy Markdown files and activate structured mode only after staged conversion passes exact validation. Existing structured notes will not be overwritten."
     }
     return
       "Scéal will keep all legacy Markdown files for rollback. Structured mode remains off until you enable it after reviewing the migration report."

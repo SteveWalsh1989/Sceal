@@ -206,7 +206,7 @@ final class StructuredLibraryStage11Tests: NotesStoreTestCase {
     )
   }
 
-  func testValidatedRestoreCompletesCutoverAndPersistsStructuredMode() {
+  func testValidatedRestoreCompletesCutoverAndPersistsStructuredMode() throws {
     let defaults = makeUserDefaults()
     let settings = SettingsRepository(userDefaults: defaults)
     settings.saveStructuredNotesCutoverStatus(.conversionRequired)
@@ -216,12 +216,15 @@ final class StructuredLibraryStage11Tests: NotesStoreTestCase {
       enforcesStructuredCutover: true
     )
 
-    store.completeStructuredCutoverAfterValidatedRestore()
+    _ = try store.structuredNoteRepository.loadDocuments()
+    _ = try store.structuredListNoteRepository.loadDocuments()
+    try store.completeStructuredCutoverAfterValidatedRestore()
 
     XCTAssertEqual(store.structuredNotesCutoverStatus, .completed)
     XCTAssertEqual(store.dailyNoteStorageMode, .structuredExperimental)
     XCTAssertEqual(settings.loadStructuredNotesCutoverStatus(), .completed)
     XCTAssertEqual(settings.loadDailyNoteStorageMode(), .structuredExperimental)
+    XCTAssertTrue(try StructuredLibraryState.isCompleted(at: store.libraryLocation))
   }
 
   func testLegacyOnlyVersionTwoArchiveConvertsBeforeReplacingStructuredStorage() throws {
