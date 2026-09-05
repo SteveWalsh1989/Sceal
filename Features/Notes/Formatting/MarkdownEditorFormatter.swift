@@ -235,6 +235,7 @@ enum MarkdownEditorFormatter {
     var pendingImageWidth: CGFloat? = nil
     var skippedPreviousImageWidthMarker = false
     var skippedPreviousHeadingColorMarker = false
+    var previousLineWasPromptStartBoundary = false
 
     func flushPendingHeadingColorMarker() {
       guard let colorName = pendingHeadingColorName else { return }
@@ -278,10 +279,15 @@ enum MarkdownEditorFormatter {
       }
 
       if index > 0, !skippedPreviousImageWidthMarker, !skippedPreviousHeadingColorMarker {
-        result.append(NSAttributedString(string: "\n", attributes: newlineAttrs))
+        if insidePromptBlock, !previousLineWasPromptStartBoundary {
+          result.append(styledPromptBlockLine("\n", appearance: appearance))
+        } else {
+          result.append(NSAttributedString(string: "\n", attributes: newlineAttrs))
+        }
       }
       skippedPreviousImageWidthMarker = false
       skippedPreviousHeadingColorMarker = false
+      previousLineWasPromptStartBoundary = false
 
       if !insideCodeBlock,
         MarkdownEditorPromptBlockMarkdown.boundaryKind(for: line) == promptBoundaryStartKind
@@ -290,6 +296,7 @@ enum MarkdownEditorFormatter {
         insidePromptBlock = true
         result.append(
           styledPromptBoundaryLine(kind: promptBoundaryStartKind, appearance: appearance))
+        previousLineWasPromptStartBoundary = true
         continue
       }
 

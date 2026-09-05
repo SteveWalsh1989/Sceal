@@ -242,6 +242,51 @@ final class EditorLayoutTests: EditorTestCase {
     XCTAssertLessThanOrEqual(contentRect.maxX, promptContentRightEdge + 1)
   }
 
+  // Keeps live typing constrained after an empty prompt block is reloaded.
+  func testReloadedEmptyPromptBlockTypingStaysInsidePromptContentArea() {
+    let markdown = MarkdownBox(MarkdownEditorPromptBlockMarkdown.emptyBlock)
+    let coordinator = makeCoordinator(markdown: markdown)
+    let fixture = makeEditorFixture(markdown: markdown.value)
+    let textView = fixture.textView
+    guard let textStorage = textView.textStorage else {
+      return XCTFail("Expected editor text storage.")
+    }
+    let startBoundaryRange = firstPromptStartBoundaryRange(in: textStorage)
+    let startLineRange = (textView.string as NSString).lineRange(for: startBoundaryRange)
+    let insertionRange = NSRange(location: NSMaxRange(startLineRange), length: 0)
+
+    textView.delegate = coordinator
+    textView.setSelectedRange(insertionRange)
+    coordinator.syncTypingAttributesToCurrentSelection(in: textView)
+
+    XCTAssertEqual(textView.typingAttributes[.markdownPromptBlock] as? Bool, true)
+
+    let longToken = String(repeating: "abcdefghijklmnopqrstuvwxyz", count: 8)
+    textView.insertText(longToken, replacementRange: insertionRange)
+
+    let narrowWidth: CGFloat = 260
+    textView.setFrameSize(NSSize(width: narrowWidth, height: textView.frame.height))
+    textView.textContainer?.containerSize = NSSize(
+      width: max(narrowWidth - textView.textContainerInset.width * 2, 1),
+      height: CGFloat.greatestFiniteMagnitude
+    )
+    textView.ensureEditorLayoutForEntireDocument()
+    textView.layoutSubtreeIfNeeded()
+
+    guard
+      let contentRect = textView.editorRectInViewCoordinates(
+        forCharacterRange: firstPromptContentRange(in: textStorage))
+    else {
+      return XCTFail("Expected prompt content layout rect.")
+    }
+
+    let promptContentRightEdge =
+      narrowWidth - MarkdownEditorPromptBlockLayout.blockHorizontalInset
+      - MarkdownEditorPromptBlockLayout.closeButtonLaneWidth
+      - MarkdownEditorPromptBlockLayout.textHorizontalInset
+    XCTAssertLessThanOrEqual(contentRect.maxX, promptContentRightEdge + 1)
+  }
+
   private func firstPromptContentRange(
     in textStorage: NSTextStorage,
     file: StaticString = #filePath,
