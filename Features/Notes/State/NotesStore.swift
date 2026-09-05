@@ -437,6 +437,13 @@ final class NotesStore: ObservableObject {
       guard enabled != isDemoModeEnabled else { return }
 
       if enabled {
+        guard canBeginLibraryFileOperation() else { return }
+        do {
+          try flushPendingSavesForLibraryOperation()
+        } catch {
+          report(error, context: "Opening demo library failed")
+          return
+        }
         enableDemoMode(relativeTo: referenceDate)
       } else {
         disableDemoMode()
@@ -445,6 +452,7 @@ final class NotesStore: ObservableObject {
 
     // Replaces the active DEBUG file-backed library with deterministic throwaway data.
     func resetDeveloperLibrary(referenceDate: Date = .now) {
+      guard canBeginLibraryFileOperation() else { return }
       guard canResetDeveloperLibrary else {
         userMessage = (
           text: "Developer library reset is not available for this storage location.",
@@ -460,9 +468,8 @@ final class NotesStore: ObservableObject {
         progressMessage = nil
       }
 
-      flushPendingSaves()
-
       do {
+        try flushPendingSavesForLibraryOperation()
         if isDemoModeEnabled {
           disableDemoMode()
         }
@@ -482,6 +489,7 @@ final class NotesStore: ObservableObject {
 
     // Copies the production library into DEBUG storage so local testing can use real data safely.
     func copyProductionLibraryToDeveloperLibrary() {
+      guard canBeginLibraryFileOperation() else { return }
       guard canCopyProductionLibraryToDeveloper else {
         userMessage = (
           text: "Production library copy is not available for this storage location.",
@@ -497,9 +505,8 @@ final class NotesStore: ObservableObject {
         progressMessage = nil
       }
 
-      flushPendingSaves()
-
       do {
+        try flushPendingSavesForLibraryOperation()
         if isDemoModeEnabled {
           disableDemoMode()
         }
@@ -795,6 +802,28 @@ final class NotesStore: ObservableObject {
 
     flushAllPendingStructuredNoteSaves()
     flushAllPendingListNoteSaves()
+  }
+
+  // A file operation must not snapshot old disk content or replace retryable unsaved edits.
+  func flushPendingSavesForLibraryOperation() throws {
+    flushPendingSaves()
+    guard pendingSaveTasks.isEmpty,
+      pendingStructuredNoteSaveTasks.isEmpty,
+      pendingListNoteSaveTasks.isEmpty
+    else {
+      throw LibraryOperationError.pendingChanges
+    }
+  }
+
+  // Shared admission check also covers automatic backups, which have no blocking progress UI.
+  func canBeginLibraryFileOperation() -> Bool {
+    guard !isPerformingFileOperation, !isBackupRunning else {
+      userMessage = (
+        text: LibraryOperationError.operationInProgress.localizedDescription, kind: .info
+      )
+      return false
+    }
+    return true
   }
 
   // Flushes pending saves every 5 seconds as a safety net against data loss on crash.
@@ -1164,14 +1193,14 @@ final class NotesStore: ObservableObject {
 
   // Writes a single pending note to disk.
   private func persistPendingSave(for noteID: DayNote.ID) {
-    pendingSaveTasks[noteID] = nil
-
     guard let note = note(withID: noteID) else {
+      pendingSaveTasks[noteID] = nil
       return
     }
 
     do {
       try save(note)
+      pendingSaveTasks[noteID] = nil
     } catch {
       report(error, context: "Saving note failed")
     }
@@ -1179,19 +1208,9 @@ final class NotesStore: ObservableObject {
 
   // Cancels debounce and immediately writes a single note.
   private func flushPendingSave(for noteID: DayNote.ID) {
-    let hadPendingSave = pendingSaveTasks[noteID] != nil
-    pendingSaveTasks[noteID]?.cancel()
-    pendingSaveTasks[noteID] = nil
-
-    guard hadPendingSave, let note = note(withID: noteID) else {
-      return
-    }
-
-    do {
-      try save(note)
-    } catch {
-      report(error, context: "Saving note before delete failed")
-    }
+    guard let pendingTask = pendingSaveTasks[noteID] else { return }
+    pendingTask.cancel()
+    persistPendingSave(for: noteID)
   }
 
   // Encodes and writes a note to its markdown file.

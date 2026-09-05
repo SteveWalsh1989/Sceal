@@ -105,10 +105,11 @@ extension NotesStore {
 
   // Exports notes within a date range to a zip file at a user-chosen location.
   func exportNotes(startDate: Date, endDate: Date) {
-    flushPendingSaves()
+    guard canBeginLibraryFileOperation() else { return }
 
     let filtered: [DayNote]
     do {
+      try flushPendingSavesForLibraryOperation()
       if isStructuredDailyNoteMode {
         filtered =
           try structuredNotes
@@ -141,6 +142,7 @@ extension NotesStore {
     panel.allowedContentTypes = [.zip]
 
     guard panel.runModal() == .OK, let saveURL = panel.url else { return }
+    guard canBeginLibraryFileOperation() else { return }
 
     isPerformingFileOperation = true
     progressMessage = "Exporting…"
@@ -191,10 +193,7 @@ extension NotesStore {
       }
     #endif
 
-    guard !isPerformingFileOperation else {
-      userMessage = (text: "Wait for the current file operation to finish.", kind: .info)
-      return
-    }
+    guard canBeginLibraryFileOperation() else { return }
 
     let snapshot: ScealLibrarySnapshot
     do {
@@ -217,6 +216,7 @@ extension NotesStore {
     panel.allowedContentTypes = [.zip]
 
     guard panel.runModal() == .OK, let saveURL = panel.url else { return }
+    guard canBeginLibraryFileOperation() else { return }
 
     let attachmentsRootURL = libraryRepository.attachmentsRootURL
 
@@ -325,6 +325,7 @@ extension NotesStore {
     guard confirmLibraryRestore() else {
       return
     }
+    guard canBeginLibraryFileOperation() else { return }
 
     let storageURLs: ScealLibraryStorageURLs
     let safetyArchiveDirectoryURL: URL
@@ -414,9 +415,9 @@ extension NotesStore {
               "Restored and validated \(result.structuredDailyNotes.count) daily notes and \(result.structuredListNotes.count) list notes for Structured Notes V2. Safety backup: \(result.safetyArchiveURL.lastPathComponent).",
             kind: .info
           )
-          self.checkAndRunBackupIfDue(trigger: .postImport)
           self.isPerformingFileOperation = false
           self.progressMessage = nil
+          self.checkAndRunBackupIfDue(trigger: .postImport)
         }
       } catch {
         await MainActor.run { [weak self] in
@@ -447,6 +448,7 @@ extension NotesStore {
       @Sendable @escaping (_ sourceURL: URL, _ existingNoteIDs: Set<DayNote.ID>) throws ->
       ImportOutcome
   ) {
+    guard canBeginLibraryFileOperation() else { return }
     guard let folderURL = selectImportFolder(title: panelTitle, message: panelMessage) else {
       return
     }
@@ -470,6 +472,7 @@ extension NotesStore {
       @Sendable @escaping (_ sourceURL: URL, _ existingNoteIDs: Set<DayNote.ID>) throws ->
       ImportOutcome
   ) {
+    guard canBeginLibraryFileOperation() else { return }
     guard
       let fileURL = selectImportFile(
         title: panelTitle,
@@ -497,6 +500,7 @@ extension NotesStore {
       @Sendable @escaping (_ sourceURL: URL, _ existingNoteIDs: Set<DayNote.ID>) throws ->
       ImportOutcome
   ) {
+    guard canBeginLibraryFileOperation() else { return }
     let importsIntoStructuredStorage = isStructuredDailyNoteMode
     let existingIDs = Set(
       importsIntoStructuredStorage ? structuredNotes.map(\.id) : notes.map(\.id)
@@ -506,6 +510,7 @@ extension NotesStore {
     let notesDir: URL?
     let attachmentsDir: URL
     do {
+      try flushPendingSavesForLibraryOperation()
       notesDir = importsIntoStructuredStorage ? nil : try notesDirectoryURL()
       attachmentsDir = try libraryRepository.attachmentsRootDirectoryURL()
     } catch {
@@ -597,9 +602,9 @@ extension NotesStore {
           }
           self.mergeImportedNoteTemplates(outcome.templates)
           self.showImportMessage(outcome, emptyMessage: emptyMessage)
-          self.checkAndRunBackupIfDue(trigger: .postImport)
           self.isPerformingFileOperation = false
           self.progressMessage = nil
+          self.checkAndRunBackupIfDue(trigger: .postImport)
         }
       } catch {
         await MainActor.run { [weak self] in

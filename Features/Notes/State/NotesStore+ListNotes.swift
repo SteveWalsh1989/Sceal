@@ -211,10 +211,13 @@ extension NotesStore {
 
   // Writes a single pending list note to disk.
   private func persistPendingListNoteSave(for noteID: DayNote.ID) {
-    pendingListNoteSaveTasks[noteID] = nil
-    guard let note = listNote(withID: noteID) else { return }
+    guard let note = listNote(withID: noteID) else {
+      pendingListNoteSaveTasks[noteID] = nil
+      return
+    }
     do {
       try saveListNote(note)
+      pendingListNoteSaveTasks[noteID] = nil
     } catch {
       report(error, context: "Saving list note failed")
     }
@@ -222,15 +225,9 @@ extension NotesStore {
 
   // Cancels debounce and immediately writes a single list note.
   func flushPendingListNoteSave(for noteID: DayNote.ID) {
-    let hadPending = pendingListNoteSaveTasks[noteID] != nil
-    pendingListNoteSaveTasks[noteID]?.cancel()
-    pendingListNoteSaveTasks[noteID] = nil
-    guard hadPending, let note = listNote(withID: noteID) else { return }
-    do {
-      try saveListNote(note)
-    } catch {
-      report(error, context: "Flushing list note save failed")
-    }
+    guard let pendingTask = pendingListNoteSaveTasks[noteID] else { return }
+    pendingTask.cancel()
+    persistPendingListNoteSave(for: noteID)
   }
 
   // Immediately writes all pending list note saves.

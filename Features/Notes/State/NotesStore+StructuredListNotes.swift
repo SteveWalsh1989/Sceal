@@ -74,6 +74,10 @@ extension NotesStore {
 
   // Copies legacy list notes and their top-level library grouping without changing either source.
   func copyLegacyListNotesToStructuredLibrary() throws -> StructuredNoteImportResult {
+    guard !isPerformingFileOperation, !isBackupRunning else {
+      throw LibraryOperationError.operationInProgress
+    }
+    try flushPendingSavesForLibraryOperation()
     let legacySnapshot = try libraryRepository.loadArchiveSourceSnapshot()
     let preparedDocuments = try structuredListNoteRepository.prepareLegacyDocuments()
     let existingDocuments = try structuredListNoteRepository.loadDocuments()

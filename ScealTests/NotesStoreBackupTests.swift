@@ -5,6 +5,248 @@ import XCTest
 
 @MainActor
 final class NotesStoreBackupTests: NotesStoreTestCase {
+  // A failed disk write must not let a snapshot silently use the previous saved document.
+  func testSnapshotRejectsFailedStructuredSaveAndRetriesLatestEdits() throws {
+    for isListNote in [false, true] {
+      let location = makeLibraryLocation()
+      let repository =
+        isListNote
+        ? StructuredNoteRepository.listNotes(libraryLocation: location)
+        : StructuredNoteRepository(libraryLocation: location)
+      let document = StructuredNoteDocument.empty(
+        id: "2026-09-05", date: makeDate(year: 2026, month: 9, day: 5)
+      )
+      try repository.save(document)
+      let store = makeStore(libraryLocation: location)
+      store.updateDailyNoteStorageMode(.structuredExperimental)
+      store.sidebarMode = isListNote ? .list : .daily
+      if isListNote {
+        try store.loadStructuredListNotesIfNeeded()
+      } else {
+        try store.loadStructuredDailyNotesIfNeeded()
+      }
+      store.structuredTitleBinding(for: document.id).wrappedValue = "Latest edit"
+
+      try withReadOnlyDirectory(repository.storageDirectoryURL) {
+        XCTAssertThrowsError(try store.makeLibrarySnapshot())
+        XCTAssertThrowsError(try store.makeLibrarySnapshot())
+        XCTAssertEqual(try repository.loadDocuments().first?.title, document.title)
+        store.structuredTitleBinding(for: document.id).wrappedValue = "Latest edit after failure"
+        XCTAssertThrowsError(try store.makeLibrarySnapshot())
+        store.updateDailyNoteStorageMode(.legacyMarkdown)
+        XCTAssertEqual(store.dailyNoteStorageMode, .structuredExperimental)
+        let cutoverStatus = store.structuredNotesCutoverStatus
+        store.backUpAndConvertLegacyLibrary()
+        XCTAssertEqual(store.dailyNoteStorageMode, .structuredExperimental)
+        XCTAssertEqual(store.structuredNotesCutoverStatus, cutoverStatus)
+        XCTAssertFalse(store.isPerformingFileOperation)
+      }
+
+      let snapshot = try store.makeLibrarySnapshot()
+      let documents = isListNote ? snapshot.structuredListNotes : snapshot.structuredDailyNotes
+      XCTAssertEqual(documents.first?.title, "Latest edit after failure")
+      XCTAssertTrue(store.pendingStructuredNoteSaveTasks.isEmpty)
+    }
+  }
+
+  // Legacy notes still need safe flushing while the rollout retains both storage modes.
+  func testSnapshotRejectsFailedLegacyDailyAndListSaves() throws {
+    let location = makeLibraryLocation()
+    let repository = LibraryRepository(libraryLocation: location)
+    let daily = makeDailyNote(year: 2026, month: 9, day: 5, body: "Old daily")
+    let list = makeListNote(id: daily.id, year: 2026, month: 9, day: 5, body: "Old list")
+    try repository.saveDailyNote(daily)
+    try repository.saveListNote(list)
+    let store = makeStore(previewNotes: [daily], libraryLocation: location)
+    store.loadListNotesIfNeeded()
+    store.bodyBinding(for: daily.id).wrappedValue = "Latest daily"
+    store.listNoteBodyBinding(for: list.id).wrappedValue = "Latest list"
+
+    try withReadOnlyDirectory(location.legacyNotesDirectoryURL) {
+      try withReadOnlyDirectory(try repository.listNotesDirectoryURL()) {
+        XCTAssertThrowsError(try store.makeLibrarySnapshot())
+        XCTAssertThrowsError(try store.makeLibrarySnapshot())
+      }
+    }
+
+    let snapshot = try store.makeLibrarySnapshot()
+    XCTAssertEqual(snapshot.legacyDailyNotes.first?.body, "Latest daily")
+    XCTAssertEqual(snapshot.legacyListNotes.first?.body, "Latest list")
+  }
+
+  // The debounce path must retain failed edits too, not only an explicit flush attempt.
+  func testFailedDebouncedSaveRemainsRetryable() async throws {
+    let location = makeLibraryLocation()
+    let repository = StructuredNoteRepository(libraryLocation: location)
+    let document = StructuredNoteDocument.empty(
+      id: "2026-09-05", date: makeDate(year: 2026, month: 9, day: 5)
+    )
+    try repository.save(document)
+    let store = makeStore(libraryLocation: location)
+    store.updateDailyNoteStorageMode(.structuredExperimental)
+    try store.loadStructuredDailyNotesIfNeeded()
+    let directoryURL = repository.storageDirectoryURL
+    let attributes = try FileManager.default.attributesOfItem(atPath: directoryURL.path)
+    let permissions = try XCTUnwrap(attributes[.posixPermissions])
+    defer {
+      try? FileManager.default.setAttributes(
+        [.posixPermissions: permissions], ofItemAtPath: directoryURL.path
+      )
+    }
+    try FileManager.default.setAttributes(
+      [.posixPermissions: 0o500], ofItemAtPath: directoryURL.path)
+    store.structuredTitleBinding(for: document.id).wrappedValue = "Debounced edit"
+    for _ in 0..<100 where store.userMessage?.kind != .error {
+      try await Task.sleep(nanoseconds: 20_000_000)
+    }
+    XCTAssertEqual(store.userMessage?.kind, .error)
+    XCTAssertThrowsError(try store.makeLibrarySnapshot())
+    try FileManager.default.setAttributes(
+      [.posixPermissions: permissions], ofItemAtPath: directoryURL.path
+    )
+    store.flushPendingSaves()
+    XCTAssertEqual(try repository.loadDocuments().first?.title, "Debounced edit")
+    XCTAssertTrue(store.pendingStructuredNoteSaveTasks.isEmpty)
+  }
+
+  // No backup may report success or write an archive after its save barrier fails.
+  func testManualAndAutomaticBackupsReportSnapshotSaveFailure() throws {
+    for trigger in [BackupTrigger.manual, .periodicTimer] {
+      let location = makeLibraryLocation()
+      let repository = StructuredNoteRepository(libraryLocation: location)
+      let document = StructuredNoteDocument.empty(
+        id: "2026-09-05", date: makeDate(year: 2026, month: 9, day: 5)
+      )
+      try repository.save(document)
+      let store = makeStore(libraryLocation: location)
+      store.updateDailyNoteStorageMode(.structuredExperimental)
+      try store.loadStructuredDailyNotesIfNeeded()
+      let backupFolder = try configureBackup(for: store)
+      store.structuredTitleBinding(for: document.id).wrappedValue = "Unsaved edit"
+
+      try withReadOnlyDirectory(repository.storageDirectoryURL) {
+        startBackup(store, trigger: trigger)
+        XCTAssertFalse(store.isBackupRunning)
+        XCTAssertFalse(store.isPerformingFileOperation)
+        XCTAssertNil(store.backupSettings.lastSuccessfulBackupAt)
+        XCTAssertNotNil(store.backupSettings.lastAttemptedBackupAt)
+        XCTAssertNotNil(store.backupSettings.lastBackupErrorDescription)
+        XCTAssertEqual(store.userMessage?.kind, .error)
+        XCTAssertTrue(
+          try FileManager.default.contentsOfDirectory(atPath: backupFolder.path).isEmpty
+        )
+      }
+      XCTAssertEqual(
+        try store.makeLibrarySnapshot().structuredDailyNotes.first?.title, "Unsaved edit")
+    }
+  }
+
+  // Restoring real generated ZIPs proves both triggers use the latest daily/list snapshots.
+  func testManualScheduledAndPostImportBackupsRestoreLatestMatchingIDs() async throws {
+    for trigger in [BackupTrigger.manual, .periodicTimer, .postImport] {
+      let location = makeLibraryLocation()
+      let document = StructuredNoteDocument.empty(
+        id: "2026-09-05", date: makeDate(year: 2026, month: 9, day: 5)
+      )
+      try StructuredNoteRepository(libraryLocation: location).save(document)
+      try StructuredNoteRepository.listNotes(libraryLocation: location).save(document)
+      let store = makeStore(libraryLocation: location)
+      store.updateDailyNoteStorageMode(.structuredExperimental)
+      try store.loadStructuredDailyNotesIfNeeded()
+      try store.loadStructuredListNotesIfNeeded()
+      let backupFolder = try configureBackup(for: store)
+      store.sidebarMode = .daily
+      store.structuredTitleBinding(for: document.id).wrappedValue = "Newest daily title"
+      store.sidebarMode = .list
+      store.structuredTitleBinding(for: document.id).wrappedValue = "Newest list title"
+
+      startBackup(store, trigger: trigger)
+      XCTAssertTrue(store.isBackupRunning)
+      for _ in 0..<250 where store.isBackupRunning {
+        try await Task.sleep(nanoseconds: 20_000_000)
+      }
+      XCTAssertFalse(store.isBackupRunning)
+      XCTAssertNil(store.backupSettings.lastBackupErrorDescription)
+      let archiveName = try XCTUnwrap(store.backupSettings.lastBackupArchiveName)
+      let target = makeLibraryLocation()
+      let result = try ScealBackupArchiveImporter.restoreLibrary(
+        from: backupFolder.appendingPathComponent(archiveName),
+        currentDailyNotes: [], currentListNotes: [], currentManifest: .empty,
+        destinationURLs: LibraryRepository(libraryLocation: target).storageURLs(),
+        safetyArchiveDirectoryURL: target.restoreSafetyArchiveDirectoryURL()
+      )
+      XCTAssertEqual(result.structuredDailyNotes, store.structuredNotes)
+      XCTAssertEqual(result.structuredListNotes, store.structuredListNotes)
+      XCTAssertEqual(result.structuredListManifest, store.structuredListNoteManifest)
+      XCTAssertEqual(result.metadata.structuredStorageIsAuthoritative, true)
+    }
+  }
+
+  // Busy operations retain their progress state and defer backups without marking an attempt.
+  func testBackupsDoNotOverlapLibraryFileOperations() throws {
+    let store = makeStore()
+    _ = try configureBackup(for: store)
+    store.isPerformingFileOperation = true
+    store.progressMessage = "Restoring library..."
+    for trigger in [BackupTrigger.manual, .periodicTimer, .postImport] {
+      startBackup(store, trigger: trigger)
+      XCTAssertFalse(store.isBackupRunning)
+      XCTAssertTrue(store.isPerformingFileOperation)
+      XCTAssertEqual(store.progressMessage, "Restoring library...")
+      XCTAssertNil(store.backupSettings.lastAttemptedBackupAt)
+    }
+  }
+
+  // These public entry points must reject an active automatic backup before opening a panel.
+  func testImportExportAndRestoreDoNotStartDuringAutomaticBackup() {
+    let store = makeStore()
+    store.isBackupRunning = true
+    store.importFromSceal()
+    store.exportFullLibrary()
+    store.exportNotes(startDate: .now, endDate: .now)
+    store.restoreFullLibraryFromArchive()
+    XCTAssertTrue(store.isBackupRunning)
+    XCTAssertFalse(store.isPerformingFileOperation)
+    XCTAssertNotNil(store.userMessage)
+  }
+
+  // Uses an isolated security-scoped folder just like the real backup destination.
+  private func configureBackup(for store: NotesStore) throws -> URL {
+    let folder = makeLibraryLocation().rootURL
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    let bookmark = try folder.bookmarkData(
+      options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil
+    )
+    store.backupSettingsStore.configureFolder(bookmarkData: bookmark, displayPath: folder.path)
+    store.updateBackupSchedule(.hourly)
+    let managedFolder = ScealBackupArchiveExporter.managedBackupDirectoryURL(in: folder)
+    try FileManager.default.createDirectory(at: managedFolder, withIntermediateDirectories: true)
+    return managedFolder
+  }
+
+  // Exercises the same public trigger entry points as the app and periodic scheduler.
+  private func startBackup(_ store: NotesStore, trigger: BackupTrigger) {
+    if trigger == .manual {
+      store.runBackupNow()
+    } else {
+      store.checkAndRunBackupIfDue(trigger: trigger)
+    }
+  }
+
+  // Uses real filesystem permissions to fail writes without mocking persistence behavior.
+  private func withReadOnlyDirectory(_ directoryURL: URL, perform: () throws -> Void) throws {
+    let attributes = try FileManager.default.attributesOfItem(atPath: directoryURL.path)
+    let permissions = try XCTUnwrap(attributes[.posixPermissions])
+    try FileManager.default.setAttributes(
+      [.posixPermissions: 0o500], ofItemAtPath: directoryURL.path)
+    defer {
+      try? FileManager.default.setAttributes(
+        [.posixPermissions: permissions], ofItemAtPath: directoryURL.path
+      )
+    }
+    try perform()
+  }
+
   // Confirms successful backup feedback clears itself after its display interval.
   func testTransientBackupMessageDismissesItself() async {
     let store = makeStore()

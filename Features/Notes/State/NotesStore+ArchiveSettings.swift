@@ -10,7 +10,7 @@ import Foundation
 extension NotesStore {
   // Strictly captures both rollback libraries and all portable configuration from disk.
   func makeLibrarySnapshot() throws -> ScealLibrarySnapshot {
-    flushPendingSaves()
+    try flushPendingSavesForLibraryOperation()
     let legacy = try libraryRepository.loadArchiveSourceSnapshot()
     let structuredDaily = try structuredNoteRepository.loadDocuments()
     let structuredList = try structuredListNoteRepository.loadDocuments()

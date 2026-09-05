@@ -48,10 +48,7 @@ extension NotesStore {
 
   // Opens a folder picker, stores bookmark access, and creates the initial backup snapshot.
   func chooseBackupFolder() {
-    guard !isBackupRunning else {
-      userMessage = (text: "A backup is already running.", kind: .info)
-      return
-    }
+    guard canBeginLibraryFileOperation() else { return }
 
     let panel = NSOpenPanel()
     panel.title = "Choose Backup Folder"
@@ -64,6 +61,7 @@ extension NotesStore {
     guard panel.runModal() == .OK, let selectedFolderURL = panel.url else {
       return
     }
+    guard canBeginLibraryFileOperation() else { return }
 
     do {
       let bookmarkData = try bookmarkData(for: selectedFolderURL)
@@ -204,6 +202,13 @@ extension NotesStore {
       return
     }
 
+    guard !isPerformingFileOperation else {
+      if trigger == .manual || trigger == .locationConfigured {
+        userMessage = (text: "Wait for the current file operation to finish.", kind: .info)
+      }
+      return
+    }
+
     if respectSchedule && !isBackupDue() {
       refreshBackupHealth()
       return
@@ -216,24 +221,28 @@ extension NotesStore {
     }
 
     let librarySnapshot: ScealLibrarySnapshot
+    let backupDate = Date.now
+    objectWillChange.send()
+    backupSettingsStore.markBackupAttempted(at: backupDate)
+    persistBackupSettings()
     do {
       librarySnapshot = try makeLibrarySnapshot()
     } catch {
+      objectWillChange.send()
+      backupSettingsStore.markBackupFailed(error.localizedDescription)
+      persistBackupSettings()
       report(error, context: "Preparing backup failed")
       isPerformingFileOperation = false
       progressMessage = nil
+      refreshBackupHealth()
       return
     }
     let backupSettingsSnapshot = backupSettings
-    let backupDate = Date.now
     let attachmentsRootURL = libraryRepository.attachmentsRootURL
     let service = archiveService
 
     isBackupRunning = true
     backupHealth = .running
-    objectWillChange.send()
-    backupSettingsStore.markBackupAttempted(at: backupDate)
-    persistBackupSettings()
 
     let fm = fileManager
     Task.detached { [weak self] in

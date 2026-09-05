@@ -114,7 +114,13 @@ extension NotesStore {
       return
     }
 
-    flushPendingSaves()
+    guard canBeginLibraryFileOperation() else { return }
+    do {
+      try flushPendingSavesForLibraryOperation()
+    } catch {
+      report(error, context: "Switching daily-note storage failed")
+      return
+    }
 
     #if DEBUG
       if mode == .structuredExperimental, isDemoModeEnabled {
@@ -145,10 +151,7 @@ extension NotesStore {
 
   // Explicitly copies legacy Markdown notes into the isolated structured repository.
   func copyLegacyDailyNotesToStructuredLibrary() {
-    guard !isPerformingFileOperation else {
-      userMessage = (text: "Wait for the current file operation to finish.", kind: .info)
-      return
-    }
+    guard canBeginLibraryFileOperation() else { return }
 
     isPerformingFileOperation = true
     progressMessage = "Copying legacy notes into Structured Notes V2..."
@@ -157,9 +160,8 @@ extension NotesStore {
       progressMessage = nil
     }
 
-    flushPendingSaves()
-
     do {
+      try flushPendingSavesForLibraryOperation()
       let result = try structuredNoteRepository.copyLegacyDailyNotes()
       hasLoadedStructuredNotes = false
       try loadStructuredDailyNotesIfNeeded()
@@ -530,13 +532,15 @@ extension NotesStore {
 
   // Writes the latest validated structured document to its isolated repository.
   private func persistPendingStructuredNoteSave(for saveKey: StructuredNoteSaveKey) {
-    pendingStructuredNoteSaveTasks[saveKey] = nil
     guard
       let document = structuredDocument(
         withID: saveKey.documentID,
         repositoryKind: saveKey.repositoryKind
       )
-    else { return }
+    else {
+      pendingStructuredNoteSaveTasks[saveKey] = nil
+      return
+    }
 
     do {
       if saveKey.repositoryKind == .list {
@@ -544,6 +548,7 @@ extension NotesStore {
       } else {
         try structuredNoteRepository.save(document)
       }
+      pendingStructuredNoteSaveTasks[saveKey] = nil
     } catch {
       report(error, context: "Saving structured note failed")
     }

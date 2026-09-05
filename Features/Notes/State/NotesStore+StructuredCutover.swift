@@ -69,6 +69,13 @@ extension NotesStore {
       return
     }
 
+    do {
+      try flushPendingSavesForLibraryOperation()
+    } catch {
+      report(error, context: "Preparing library conversion failed")
+      return
+    }
+
     let templates = noteTemplates
     let settings: ScealArchiveSettings
     do {
