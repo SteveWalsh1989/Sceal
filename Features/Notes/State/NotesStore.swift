@@ -79,6 +79,7 @@ final class NotesStore: ObservableObject {
   @Published private(set) var isLoading = false
   @Published var userMessage: (text: String, kind: UserMessageKind)?
   @Published var isPerformingFileOperation = false
+  @Published var isLibraryRecoveryBlocked = false
   @Published var progressMessage: String?
   @Published var backupHealth: BackupHealth
   @Published var isBackupRunning = false
@@ -671,6 +672,7 @@ final class NotesStore: ObservableObject {
       return
     }
 
+    guard recoverLibraryInstallationBeforeLoading() else { return }
     isLoading = true
 
     loadSelectedDailyNoteStore()
@@ -794,6 +796,7 @@ final class NotesStore: ObservableObject {
 
   // Immediately writes all debounced saves to disk.
   func flushPendingSaves() {
+    guard !isLibraryRecoveryBlocked else { return }
     let noteIDs = Array(pendingSaveTasks.keys)
 
     for noteID in noteIDs {
@@ -806,6 +809,10 @@ final class NotesStore: ObservableObject {
 
   // A file operation must not snapshot old disk content or replace retryable unsaved edits.
   func flushPendingSavesForLibraryOperation() throws {
+    guard !isLibraryRecoveryBlocked,
+      try LibraryInstallTransaction.read(at: libraryLocation.rootURL, fileManager: fileManager)
+        == nil
+    else { throw LibraryInstallTransactionError.pendingRecovery }
     flushPendingSaves()
     guard pendingSaveTasks.isEmpty,
       pendingStructuredNoteSaveTasks.isEmpty,
@@ -817,6 +824,12 @@ final class NotesStore: ObservableObject {
 
   // Shared admission check also covers automatic backups, which have no blocking progress UI.
   func canBeginLibraryFileOperation() -> Bool {
+    guard !isLibraryRecoveryBlocked else {
+      userMessage = (
+        text: LibraryInstallTransactionError.pendingRecovery.localizedDescription, kind: .error
+      )
+      return false
+    }
     guard !isPerformingFileOperation, !isBackupRunning else {
       userMessage = (
         text: LibraryOperationError.operationInProgress.localizedDescription, kind: .info

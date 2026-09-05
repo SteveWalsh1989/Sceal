@@ -16,7 +16,6 @@ nonisolated struct StructuredLibraryCutoverResult: Sendable {
 
 nonisolated enum StructuredLibraryCutover {
   private static let stagingPrefix = ".sceal-structured-cutover-"
-  private static let rollbackPrefix = ".sceal-structured-rollback-"
 
   // Creates a restorable archive before installing an exact, staged legacy conversion.
   static func perform(
@@ -27,6 +26,12 @@ nonisolated enum StructuredLibraryCutover {
     fileManager: FileManager = .default,
     createdAt: Date = .now
   ) throws -> StructuredLibraryCutoverResult {
+    guard
+      try LibraryInstallTransaction.read(at: libraryLocation.rootURL, fileManager: fileManager)
+        == nil
+    else {
+      throw LibraryInstallTransactionError.pendingRecovery
+    }
     guard try !StructuredLibraryState.isCompleted(at: libraryLocation) else {
       throw StructuredLibraryStateError.alreadyCompleted
     }
@@ -200,33 +205,27 @@ nonisolated enum StructuredLibraryCutover {
     listManifest: ListNotesManifest,
     reportURL: URL
   ) {
-    let rollbackRootURL = libraryLocation.rootURL.appendingPathComponent(
-      "\(rollbackPrefix)\(UUID().uuidString)",
-      isDirectory: true
-    )
-    try fileManager.createDirectory(at: rollbackRootURL, withIntermediateDirectories: true)
     let items = [
       (
         name: ScealLibraryLocation.structuredNotesFolderName,
-        stagedURL: stagingLocation.structuredNotesDirectoryURL,
-        destinationURL: libraryLocation.structuredNotesDirectoryURL
+        stagedURL: stagingLocation.structuredNotesDirectoryURL
       ),
       (
         name: ScealLibraryLocation.structuredListNotesFolderName,
-        stagedURL: stagingLocation.structuredListNotesDirectoryURL,
-        destinationURL: libraryLocation.structuredListNotesDirectoryURL
+        stagedURL: stagingLocation.structuredListNotesDirectoryURL
       ),
     ]
-    var movedOriginals: [(destinationURL: URL, rollbackURL: URL)] = []
+    var transaction = try LibraryInstallTransaction.prepare(
+      at: libraryLocation.rootURL,
+      replacements: Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.stagedURL) }),
+      configuration: LibraryInstallTransaction.Configuration(
+        settings: snapshot.settings.normalizedForStructuredRuntime(), templates: snapshot.templates
+      ), fileManager: fileManager
+    )
 
     do {
-      for item in items where fileManager.fileExists(atPath: item.destinationURL.path) {
-        let rollbackURL = rollbackRootURL.appendingPathComponent(item.name, isDirectory: true)
-        try fileManager.moveItem(at: item.destinationURL, to: rollbackURL)
-        movedOriginals.append((item.destinationURL, rollbackURL))
-      }
       for item in items {
-        try fileManager.moveItem(at: item.stagedURL, to: item.destinationURL)
+        try transaction.installFolder(named: item.name)
       }
 
       let dailyRepository = StructuredNoteRepository(
@@ -276,20 +275,17 @@ nonisolated enum StructuredLibraryCutover {
         to: libraryLocation.migrationReportsDirectoryURL(fileManager: fileManager),
         fileManager: fileManager
       )
-      try StructuredLibraryState.markCompleted(at: libraryLocation)
-      // Cleanup failure must not roll back an installation already committed on disk.
-      try? fileManager.removeItem(at: rollbackRootURL)
+      try transaction.markAwaitingConfiguration()
       return (dailyDocuments, listDocuments, listManifest, reportURL)
     } catch {
       let installationError = error
       do {
-        for item in items where fileManager.fileExists(atPath: item.destinationURL.path) {
-          try fileManager.removeItem(at: item.destinationURL)
+        if let pending = try LibraryInstallTransaction.read(
+          at: libraryLocation.rootURL, fileManager: fileManager),
+          pending.record.phase == .installing
+        {
+          try pending.rollback()
         }
-        for original in movedOriginals.reversed() {
-          try fileManager.moveItem(at: original.rollbackURL, to: original.destinationURL)
-        }
-        try fileManager.removeItem(at: rollbackRootURL)
       } catch {
         throw StructuredLibraryCutoverError.rollbackFailed(error.localizedDescription)
       }

@@ -539,7 +539,7 @@ final class NotesStoreStructuredModeTests: NotesStoreTestCase {
     )
     let store = makeStore(userDefaults: userDefaults, libraryLocation: libraryLocation)
     store.loadIfNeeded()
-    store.replaceNoteTemplates([template])
+    try store.replaceNoteTemplates([template])
     store.updateNewNoteDefault(.template(template.id))
 
     store.selectToday()

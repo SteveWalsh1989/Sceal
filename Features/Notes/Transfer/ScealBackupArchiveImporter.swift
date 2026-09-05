@@ -91,6 +91,13 @@ nonisolated enum ScealBackupArchiveImporter {
     createdAt: Date = .now,
     fileManager: FileManager = .default
   ) throws -> RestoreResult {
+    guard
+      try LibraryInstallTransaction.read(
+        at: destinationURLs.notesDirectoryURL.deletingLastPathComponent(), fileManager: fileManager)
+        == nil
+    else {
+      throw LibraryInstallTransactionError.pendingRecovery
+    }
     let archive = try validateArchive(at: archiveURL, fileManager: fileManager)
     defer {
       try? fileManager.removeItem(at: archive.extractionBaseURL)
@@ -192,6 +199,8 @@ nonisolated enum ScealBackupArchiveImporter {
       expectedStructuredDailyNotes: structuredContent.dailyNotes,
       expectedStructuredListNotes: structuredContent.listNotes,
       expectedStructuredListManifest: structuredContent.listManifest,
+      configuration: LibraryInstallTransaction.Configuration(
+        settings: restoredSettings, templates: archive.templates),
       fileManager: fileManager
     )
 
@@ -809,6 +818,7 @@ nonisolated enum ScealBackupArchiveImporter {
     expectedStructuredDailyNotes: [StructuredNoteDocument],
     expectedStructuredListNotes: [StructuredNoteDocument],
     expectedStructuredListManifest: ListNotesManifest,
+    configuration: LibraryInstallTransaction.Configuration,
     fileManager: FileManager
   ) throws {
     guard
@@ -817,56 +827,41 @@ nonisolated enum ScealBackupArchiveImporter {
         fileManager: fileManager
       ) == originalSources
     else { throw LibraryArchiveFilesError.sourceChanged }
-    let rollbackBaseURL = fileManager.temporaryDirectory
-      .appendingPathComponent("sceal-restore-rollback-\(UUID().uuidString)", isDirectory: true)
-    try fileManager.createDirectory(at: rollbackBaseURL, withIntermediateDirectories: true)
-
-    var items = [
+    let rootURL = destinationURLs.notesDirectoryURL.deletingLastPathComponent()
+    let items = [
       (
         name: NoteImageAttachmentStore.attachmentsFolderName,
         replacementURL: replacementURLs.attachmentsRootURL,
         destinationURL: destinationURLs.attachmentsRootURL
-      )
-    ]
-    items.append(
+      ),
       (
         name: structuredDailyNotesFolderName,
         replacementURL: replacementURLs.structuredNotesDirectoryURL,
         destinationURL: destinationURLs.structuredNotesDirectoryURL
-      )
-    )
-    items.append(
+      ),
       (
         name: structuredListNotesFolderName,
         replacementURL: replacementURLs.structuredListNotesDirectoryURL,
         destinationURL: destinationURLs.structuredListNotesDirectoryURL
-      )
+      ),
+    ]
+    guard
+      items.allSatisfy({
+        $0.destinationURL.standardizedFileURL
+          == rootURL.appendingPathComponent($0.name, isDirectory: true).standardizedFileURL
+      })
+    else {
+      throw LibraryInstallTransactionError.invalidJournal
+    }
+    var transaction = try LibraryInstallTransaction.prepare(
+      at: rootURL,
+      replacements: Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.replacementURL) }),
+      configuration: configuration, fileManager: fileManager
     )
-    var movedOriginals: [(originalURL: URL, rollbackURL: URL)] = []
-    var installedURLs: [URL] = []
 
     do {
       for item in items {
-        try fileManager.createDirectory(
-          at: item.destinationURL.deletingLastPathComponent(),
-          withIntermediateDirectories: true
-        )
-
-        guard fileManager.fileExists(atPath: item.destinationURL.path) else {
-          continue
-        }
-
-        let rollbackURL = rollbackBaseURL.appendingPathComponent(
-          item.name,
-          isDirectory: true
-        )
-        try fileManager.moveItem(at: item.destinationURL, to: rollbackURL)
-        movedOriginals.append((item.destinationURL, rollbackURL))
-      }
-
-      for item in items {
-        try fileManager.moveItem(at: item.replacementURL, to: item.destinationURL)
-        installedURLs.append(item.destinationURL)
+        try transaction.installFolder(named: item.name)
       }
 
       try validateReplacementStorage(
@@ -884,21 +879,15 @@ nonisolated enum ScealBackupArchiveImporter {
           fileManager: fileManager
         ) == originalSources
       else { throw LibraryArchiveFilesError.sourceChanged }
-      try? fileManager.removeItem(at: rollbackBaseURL)
+      try transaction.markAwaitingConfiguration()
     } catch {
       let replacementError = error
       do {
-        for installedURL in installedURLs.reversed() {
-          try fileManager.removeItem(at: installedURL)
+        if let pending = try LibraryInstallTransaction.read(at: rootURL, fileManager: fileManager),
+          pending.record.phase == .installing
+        {
+          try pending.rollback()
         }
-
-        for original in movedOriginals.reversed() {
-          if fileManager.fileExists(atPath: original.rollbackURL.path) {
-            try fileManager.moveItem(at: original.rollbackURL, to: original.originalURL)
-          }
-        }
-
-        try fileManager.removeItem(at: rollbackBaseURL)
       } catch {
         throw ScealBackupArchiveImporterError.rollbackFailed(error.localizedDescription)
       }

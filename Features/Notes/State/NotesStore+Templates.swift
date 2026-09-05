@@ -69,10 +69,10 @@ extension NotesStore {
   }
 
   // Replaces all templates after a full-library restore.
-  func replaceNoteTemplates(_ templates: [NoteTemplate]) {
+  func replaceNoteTemplates(_ templates: [NoteTemplate]) throws {
     objectWillChange.send()
     noteTemplatesStore.replaceTemplates(templates)
-    persistNoteTemplates()
+    try noteTemplatesStore.persistTemplates()
     resetNewNoteDefaultIfTemplateMissing()
   }
 

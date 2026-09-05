@@ -38,6 +38,7 @@ struct ScealApp: App {
 
     Window("Sceal Settings", id: "settings") {
       SettingsRootView(store: noteStore)
+        .disabled(noteStore.isLibraryRecoveryBlocked || noteStore.isPerformingFileOperation)
         .preferredColorScheme(noteStore.effectiveAppearanceSettings.preferredColorScheme)
     }
     .defaultSize(width: 1080, height: 780)

@@ -30,9 +30,18 @@ struct AppRootView: View {
         notePendingDateChangeID = noteID
       }
       .navigationSplitViewColumnWidth(min: 240, ideal: 290, max: 360)
+      .disabled(store.isLibraryRecoveryBlocked || store.isPerformingFileOperation)
     } detail: {
       Group {
-        if store.isStructuredEditorActive {
+        if store.isPerformingFileOperation {
+          ProgressView(store.progressMessage ?? "Working...")
+        } else if store.isLibraryRecoveryBlocked {
+          ContentUnavailableView(
+            "Library recovery required", systemImage: "externaldrive.badge.exclamationmark",
+            description: Text(
+              store.structuredNotesCutoverFailureDescription
+                ?? "Retry opening the library before editing. Recovery copies have been retained."))
+        } else if store.isStructuredEditorActive {
           StructuredNoteEditorView(
             store: store,
             sidebarCollapsed: columnVisibility == .detailOnly,
@@ -97,8 +106,10 @@ struct AppRootView: View {
       }
       .keyboardShortcut(.defaultAction)
 
-      Button("Use Legacy for Now", role: .cancel) {
-        store.continueUsingLegacyForNow()
+      if !store.isLibraryRecoveryBlocked {
+        Button("Use Legacy for Now", role: .cancel) {
+          store.continueUsingLegacyForNow()
+        }
       }
 
       Button("Quit") {
@@ -251,6 +262,7 @@ struct AppRootView: View {
   #if DEBUG
     // Applies the DEBUG launch default once, after real notes have been loaded.
     private func applyLaunchDemoModeIfNeeded() {
+      guard !store.isLibraryRecoveryBlocked else { return }
       guard enablesDemoModeOnLaunch,
         !hasAppliedLaunchDemoMode,
         store.dailyNoteStorageMode != .structuredExperimental

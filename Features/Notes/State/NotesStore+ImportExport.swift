@@ -373,15 +373,14 @@ extension NotesStore {
 
         await MainActor.run { [weak self] in
           guard let self else { return }
-          if let settings = result.settings {
-            do {
-              try self.applyArchiveSettings(settings)
-            } catch {
-              self.report(error, context: "Applying restored settings failed")
-              self.isPerformingFileOperation = false
-              self.progressMessage = nil
-              return
-            }
+          do {
+            try self.completeStructuredCutoverAfterValidatedRestore()
+          } catch {
+            self.report(error, context: "Completing restored library failed")
+            self.blockEditingIfLibraryRecoveryIsPending()
+            self.isPerformingFileOperation = false
+            self.progressMessage = nil
+            return
           }
           self.notes = result.dailyNotes
           self.listNotes = result.listNotes
@@ -389,7 +388,6 @@ extension NotesStore {
           self.structuredNotes = result.structuredDailyNotes
           self.structuredListNotes = result.structuredListNotes
           self.structuredListNoteManifest = result.structuredListManifest
-          self.replaceNoteTemplates(result.templates)
           self.rebuildNoteIndex()
           self.rebuildListNoteIndex()
           self.hasLoadedLegacyNotes = false
@@ -403,15 +401,6 @@ extension NotesStore {
             ?? self.structuredListNotes.first?.id
           self.searchText = ""
           self.listSearchText = ""
-
-          do {
-            try self.completeStructuredCutoverAfterValidatedRestore()
-          } catch {
-            self.report(error, context: "Recording restored library completion failed")
-            self.isPerformingFileOperation = false
-            self.progressMessage = nil
-            return
-          }
 
           if self.sidebarMode == .list, self.activeListNoteSummaries.isEmpty {
             self.sidebarMode = .daily
@@ -433,6 +422,7 @@ extension NotesStore {
       } catch {
         await MainActor.run { [weak self] in
           self?.report(error, context: "Restoring library failed")
+          self?.blockEditingIfLibraryRecoveryIsPending()
           self?.isPerformingFileOperation = false
           self?.progressMessage = nil
         }

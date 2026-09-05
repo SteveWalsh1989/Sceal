@@ -17,6 +17,7 @@ extension NotesStore {
   // Inspects storage before a production launch can create or expose editable notes.
   func prepareStructuredCutoverForProductionLaunch() {
     guard !hasLoaded else { return }
+    guard recoverLibraryInstallationBeforeLoading() else { return }
 
     do {
       let hasCompletionRecord = try StructuredLibraryState.isCompleted(at: libraryLocation)
@@ -58,11 +59,13 @@ extension NotesStore {
       settingsRepository.saveDailyNoteStorageMode(.legacyMarkdown)
     } catch {
       markStructuredCutoverFailed(error)
+      blockEditingIfLibraryRecoveryIsPending()
     }
   }
 
   // Keeps the current legacy editor available without treating conversion as complete.
   func continueUsingLegacyForNow() {
+    guard recoverLibraryInstallationBeforeLoading() else { return }
     dailyNoteStorageMode = .legacyMarkdown
     settingsRepository.saveDailyNoteStorageMode(.legacyMarkdown)
     structuredNotesCutoverFailureDescription = nil
@@ -71,6 +74,12 @@ extension NotesStore {
 
   // Records that a full-library restore installed and reloaded valid structured storage.
   func completeStructuredCutoverAfterValidatedRestore() throws {
+    if try LibraryInstallTransaction.read(at: libraryLocation.rootURL, fileManager: fileManager)
+      != nil
+    {
+      try recoverPendingLibraryInstallation()
+      return
+    }
     try validateCompletedStructuredCutover()
     try StructuredLibraryState.markCompleted(at: libraryLocation)
     setStructuredCutoverStatus(.completed)
@@ -152,6 +161,7 @@ extension NotesStore {
         }.value
 
         guard let self else { return }
+        try self.recoverPendingLibraryInstallation()
         self.structuredNotes = result.dailyDocuments
         self.structuredListNotes = result.listDocuments
         self.structuredListNoteManifest = result.listManifest
@@ -175,11 +185,12 @@ extension NotesStore {
         self.isPerformingFileOperation = false
         self.progressMessage = nil
         self.markStructuredCutoverFailed(error)
+        self.blockEditingIfLibraryRecoveryIsPending()
       }
     }
   }
 
-  private func validateCompletedStructuredCutover() throws {
+  func validateCompletedStructuredCutover() throws {
     try StructuredLibraryState.requireStorageDirectories(at: libraryLocation)
     let listDocuments = try structuredListNoteRepository.loadDocuments()
     _ = try structuredNoteRepository.loadDocuments()
@@ -188,12 +199,12 @@ extension NotesStore {
     )
   }
 
-  private func activateStructuredLibraryAfterCutover() {
+  func activateStructuredLibraryAfterCutover() {
     dailyNoteStorageMode = .structuredExperimental
     settingsRepository.saveDailyNoteStorageMode(.structuredExperimental)
   }
 
-  private func setStructuredCutoverStatus(_ status: StructuredNotesCutoverStatus) {
+  func setStructuredCutoverStatus(_ status: StructuredNotesCutoverStatus) {
     structuredNotesCutoverStatus = status
     settingsRepository.saveStructuredNotesCutoverStatus(status)
     if status != .failedValidation, status != .recoveryRequired {
