@@ -23,12 +23,15 @@ nonisolated enum ScealBackupArchiveExporter {
     structuredListNotes: [StructuredNoteDocument] = [],
     structuredListManifest: ListNotesManifest? = nil,
     settings: ScealArchiveSettings? = nil,
+    authority: ScealArchiveAuthority = .legacy,
+    legacySourceFiles: LegacyArchiveSourceFiles? = nil,
     kind: BackupArchiveKind,
     createdAt: Date = .now,
     attachmentsRootURL: URL? = nil
   ) throws -> URL {
     let isStructuredArchive =
-      settings != nil || structuredListManifest != nil || !structuredDailyNotes.isEmpty
+      authority == .structured || settings != nil || structuredListManifest != nil
+      || !structuredDailyNotes.isEmpty
       || !structuredListNotes.isEmpty
     if isStructuredArchive {
       guard let settings else {
@@ -61,16 +64,18 @@ nonisolated enum ScealBackupArchiveExporter {
     try FileManager.default.createDirectory(
       at: listNotesDirectoryURL, withIntermediateDirectories: true)
 
-    for note in dailyNotes {
-      let fileURL = dailyNotesDirectoryURL.appendingPathComponent(note.fileName)
-      let contents = try MarkdownNoteCodec.encode(note)
-      try contents.write(to: fileURL, atomically: true, encoding: .utf8)
-    }
+    if legacySourceFiles == nil {
+      for note in dailyNotes {
+        let fileURL = dailyNotesDirectoryURL.appendingPathComponent(note.fileName)
+        let contents = try MarkdownNoteCodec.encode(note)
+        try contents.write(to: fileURL, atomically: true, encoding: .utf8)
+      }
 
-    for note in listNotes {
-      let fileURL = listNotesDirectoryURL.appendingPathComponent(note.fileName)
-      let contents = try MarkdownNoteCodec.encode(note)
-      try contents.write(to: fileURL, atomically: true, encoding: .utf8)
+      for note in listNotes {
+        let fileURL = listNotesDirectoryURL.appendingPathComponent(note.fileName)
+        let contents = try MarkdownNoteCodec.encode(note)
+        try contents.write(to: fileURL, atomically: true, encoding: .utf8)
+      }
     }
 
     let manifestURL = listNotesDirectoryURL.appendingPathComponent(manifestFileName)
@@ -78,6 +83,10 @@ nonisolated enum ScealBackupArchiveExporter {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     try encoder.encode(manifest).write(to: manifestURL, options: .atomic)
+    if let legacySourceFiles {
+      try legacySourceFiles.daily.write(to: dailyNotesDirectoryURL)
+      try legacySourceFiles.list.write(to: listNotesDirectoryURL)
+    }
     try NoteTemplateArchive.write(templates, to: stagingDirectoryURL)
 
     if isStructuredArchive {
@@ -103,23 +112,13 @@ nonisolated enum ScealBackupArchiveExporter {
       }
     }
 
-    if let sourceAttachmentRootURL = try? NoteImageAttachmentStore.attachmentRootDirectoryURL(
-      rootURL: attachmentsRootURL,
-      createIfNeeded: false
-    ) {
+    if let attachmentsRootURL {
       let targetAttachmentRootURL = stagingDirectoryURL.appendingPathComponent(
         NoteImageAttachmentStore.attachmentsFolderName,
         isDirectory: true
       )
-      try NoteImageAttachmentStore.copyAttachmentFolders(
-        for: Set(
-          (dailyNotes + listNotes).map(\.id)
-            + structuredDailyNotes.map(\.id)
-            + structuredListNotes.map(\.id)
-        ),
-        from: sourceAttachmentRootURL,
-        to: targetAttachmentRootURL
-      )
+      // Recovery attachments may outlive active notes and must remain in full backups.
+      try LibraryArchiveFiles.read(from: attachmentsRootURL).write(to: targetAttachmentRootURL)
     }
 
     let metadata = BackupArchiveMetadata(
@@ -129,17 +128,15 @@ nonisolated enum ScealBackupArchiveExporter {
       backupKind: kind,
       createdAt: createdAt,
       sourceStoreDescription: "~/Library/Application Support/Sceal",
-      dailyNoteCount: dailyNotes.count,
-      listNoteCount: listNotes.count,
+      dailyNoteCount: legacySourceFiles?.daily.markdownFileCount ?? dailyNotes.count,
+      listNoteCount: legacySourceFiles?.list.markdownFileCount ?? listNotes.count,
       templateCount: templates.count,
       includesManifest: true,
       structuredDailyNoteCount: structuredDailyNotes.count,
       structuredListNoteCount: structuredListNotes.count,
       includesStructuredManifest: isStructuredArchive,
       includesSettings: settings != nil,
-      structuredStorageIsAuthoritative: isStructuredArchive
-        ? settings?.dailyNoteStorageModeRawValue
-          == DailyNoteStorageMode.structuredExperimental.rawValue : nil
+      structuredStorageIsAuthoritative: isStructuredArchive ? authority == .structured : nil
     )
     try encoder.encode(metadata).write(to: metadataURL, options: .atomic)
 

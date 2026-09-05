@@ -257,6 +257,8 @@ extension NotesStore {
           structuredListNotes: librarySnapshot.structuredListNotes,
           structuredListManifest: librarySnapshot.structuredListManifest,
           settings: librarySnapshot.settings,
+          authority: librarySnapshot.authority,
+          legacySourceFiles: librarySnapshot.legacySourceFiles,
           bookmarkData: bookmarkData,
           kind: trigger.archiveKind,
           schedule: backupSettingsSnapshot.schedule,

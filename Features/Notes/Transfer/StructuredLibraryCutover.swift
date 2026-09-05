@@ -141,6 +141,8 @@ nonisolated enum StructuredLibraryCutover {
       structuredListNotes: snapshot.structuredListNotes,
       structuredListManifest: snapshot.structuredListManifest,
       settings: snapshot.settings,
+      authority: snapshot.authority,
+      legacySourceFiles: snapshot.legacySourceFiles,
       kind: .manual,
       createdAt: createdAt,
       attachmentsRootURL: libraryLocation.rootURL.appendingPathComponent(

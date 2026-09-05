@@ -236,6 +236,8 @@ extension NotesStore {
           structuredListNotes: snapshot.structuredListNotes,
           structuredListManifest: snapshot.structuredListManifest,
           settings: snapshot.settings,
+          authority: snapshot.authority,
+          legacySourceFiles: snapshot.legacySourceFiles,
           kind: .manual,
           attachmentsRootURL: attachmentsRootURL
         )
@@ -363,6 +365,8 @@ extension NotesStore {
           currentStructuredListNotes: currentSnapshot.structuredListNotes,
           currentStructuredListManifest: currentSnapshot.structuredListManifest,
           currentSettings: currentSnapshot.settings,
+          currentAuthority: currentSnapshot.authority,
+          currentLegacySourceFiles: currentSnapshot.legacySourceFiles,
           destinationURLs: storageURLs,
           safetyArchiveDirectoryURL: safetyArchiveDirectoryURL
         )
@@ -388,7 +392,7 @@ extension NotesStore {
           self.replaceNoteTemplates(result.templates)
           self.rebuildNoteIndex()
           self.rebuildListNoteIndex()
-          self.hasLoadedLegacyNotes = true
+          self.hasLoadedLegacyNotes = false
           self.hasLoadedStructuredNotes = true
           self.hasLoadedStructuredListNotes = true
           self.selectedNoteID = result.dailyNotes.first?.id
@@ -419,7 +423,7 @@ extension NotesStore {
 
           self.userMessage = (
             text:
-              "Restored and validated \(result.structuredDailyNotes.count) daily notes and \(result.structuredListNotes.count) list notes for Structured Notes V2. Safety backup: \(result.safetyArchiveURL.lastPathComponent).",
+              "Restored and validated \(result.structuredDailyNotes.count) daily notes and \(result.structuredListNotes.count) list notes. Original Markdown was preserved. Safety backup: \(result.safetyArchiveURL.lastPathComponent). Incoming archive retained as \(result.retainedArchiveURL.lastPathComponent).",
             kind: .info
           )
           self.isPerformingFileOperation = false
@@ -665,7 +669,7 @@ extension NotesStore {
     alert.alertStyle = .warning
     alert.messageText = "Restore Scéal Library?"
     alert.informativeText =
-      "This replaces all current daily notes, list notes, groups, and attachments with the selected archive. Scéal will write a safety backup before replacing anything."
+      "This restores the archive's daily notes, list notes, groups, templates, and saved settings. Scéal first creates a safety backup. Original Markdown files stay untouched, and a copy of the incoming archive is retained. Where image paths conflict, restored notes use the archive's image; previous images remain in the safety backup."
     alert.addButton(withTitle: "Restore Library")
     alert.addButton(withTitle: "Cancel")
     return alert.runModal() == .alertFirstButtonReturn

@@ -361,6 +361,7 @@ final class StructuredLibraryStage10Tests: NotesStoreTestCase {
       structuredListNotes: [listDocument],
       structuredListManifest: structuredManifest,
       settings: settings,
+      authority: .structured,
       kind: .manual,
       createdAt: dailyDate,
       attachmentsRootURL: attachmentsRootURL
@@ -381,13 +382,11 @@ final class StructuredLibraryStage10Tests: NotesStoreTestCase {
 
     XCTAssertEqual(result.metadata.backupFormatVersion, 2)
     XCTAssertEqual(result.metadata.structuredStorageIsAuthoritative, true)
-    XCTAssertEqual(result.dailyNotes.map(\.id), [legacyDaily.id])
-    XCTAssertEqual(result.dailyNotes.map(\.title), [legacyDaily.title])
-    XCTAssertEqual(result.dailyNotes.map(\.body), [legacyDaily.body])
-    XCTAssertEqual(result.listNotes.map(\.id), [legacyList.id])
-    XCTAssertEqual(result.listNotes.map(\.title), [legacyList.title])
-    XCTAssertEqual(result.listNotes.map(\.body), [legacyList.body])
-    XCTAssertEqual(result.manifest, legacyManifest)
+    XCTAssertTrue(result.dailyNotes.isEmpty)
+    XCTAssertTrue(result.listNotes.isEmpty)
+    XCTAssertEqual(result.manifest, .empty)
+    XCTAssertEqual(
+      try Data(contentsOf: result.retainedArchiveURL), try Data(contentsOf: archiveURL))
     XCTAssertEqual(result.structuredDailyNotes, [dailyDocument])
     XCTAssertEqual(result.structuredListNotes, [listDocument])
     XCTAssertEqual(result.structuredListManifest, structuredManifest)

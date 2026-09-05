@@ -133,7 +133,14 @@ extension NotesStore {
                 noteIDs: Set(existingStructuredListNotes.map(\.id))
               ),
             templates: templates,
-            settings: settings
+            settings: settings,
+            authority: .legacy,
+            legacySourceFiles: try LegacyArchiveSourceFiles.read(
+              dailyURL: libraryLocation.legacyNotesDirectoryURL,
+              listURL: libraryLocation.rootURL.appendingPathComponent(
+                ScealLibraryLocation.listNotesFolderName),
+              fileManager: fileManager
+            )
           )
           return try StructuredLibraryCutover.perform(
             snapshot: snapshot,

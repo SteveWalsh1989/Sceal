@@ -292,6 +292,7 @@ final class StructuredLibraryStage11Tests: NotesStoreTestCase {
       structuredListNotes: [],
       structuredListManifest: .empty,
       settings: structuredSettings,
+      authority: .structured,
       kind: .manual
     )
     defer { ZipArchiveWriter.cleanUp(zipURL: archiveURL) }

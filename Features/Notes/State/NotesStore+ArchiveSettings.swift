@@ -8,24 +8,33 @@ import Combine
 import Foundation
 
 extension NotesStore {
-  // Strictly captures both rollback libraries and all portable configuration from disk.
+  // Validate active documents while preserving retained Markdown as uninterpreted recovery bytes.
   func makeLibrarySnapshot() throws -> ScealLibrarySnapshot {
     try flushPendingSavesForLibraryOperation()
-    let legacy = try libraryRepository.loadArchiveSourceSnapshot()
+    let authority: ScealArchiveAuthority = isStructuredDailyNoteMode ? .structured : .legacy
+    let legacy = authority == .legacy ? try libraryRepository.loadArchiveSourceSnapshot() : nil
+    let sourceFiles = try LegacyArchiveSourceFiles.read(
+      dailyURL: libraryLocation.legacyNotesDirectoryURL,
+      listURL: libraryLocation.rootURL.appendingPathComponent(
+        ScealLibraryLocation.listNotesFolderName),
+      fileManager: fileManager
+    )
     let structuredDaily = try structuredNoteRepository.loadDocuments()
     let structuredList = try structuredListNoteRepository.loadDocuments()
     let structuredManifest = try libraryRepository.loadStructuredListNotesManifestForArchive(
       noteIDs: Set(structuredList.map(\.id))
     )
     return ScealLibrarySnapshot(
-      legacyDailyNotes: legacy.dailyNotes,
-      legacyListNotes: legacy.listNotes,
-      legacyListManifest: legacy.listManifest,
+      legacyDailyNotes: legacy?.dailyNotes ?? [],
+      legacyListNotes: legacy?.listNotes ?? [],
+      legacyListManifest: legacy?.listManifest ?? .empty,
       structuredDailyNotes: structuredDaily,
       structuredListNotes: structuredList,
       structuredListManifest: structuredManifest,
       templates: noteTemplates,
-      settings: try makeArchiveSettings()
+      settings: try makeArchiveSettings(),
+      authority: authority,
+      legacySourceFiles: sourceFiles
     )
   }
 

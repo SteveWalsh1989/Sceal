@@ -5,7 +5,7 @@ import XCTest
 
 @MainActor
 final class ScealBackupArchiveImporterTests: NotesStoreTestCase {
-  func testRestoreLibraryReplacesStorageCopiesAttachmentsPreservesGroupsAndWritesSafetyArchive()
+  func testRestoreLibraryPreservesOriginalSourcesAndInstallsStructuredContentWithSafetyArchive()
     throws
   {
     let storageRootURL = try makeTemporaryDirectory()
@@ -69,6 +69,9 @@ final class ScealBackupArchiveImporterTests: NotesStoreTestCase {
       ]
     )
 
+    let originalSources = try LegacyArchiveSourceFiles.read(
+      dailyURL: storageURLs.notesDirectoryURL, listURL: storageURLs.listNotesDirectoryURL
+    )
     let result = try ScealBackupArchiveImporter.restoreLibrary(
       from: archiveURL,
       currentDailyNotes: [oldDailyNote],
@@ -79,24 +82,26 @@ final class ScealBackupArchiveImporterTests: NotesStoreTestCase {
       createdAt: makeDate(year: 2026, month: 5, day: 5)
     )
 
-    XCTAssertEqual(result.dailyNotes.map(\.id), [restoredDailyNote.id])
-    XCTAssertEqual(result.dailyNotes.first?.title, restoredDailyNote.title)
-    XCTAssertEqual(result.dailyNotes.first?.body, restoredDailyNote.body)
-    XCTAssertEqual(result.listNotes.map(\.id), [restoredListNote.id])
-    XCTAssertEqual(result.listNotes.first?.title, restoredListNote.title)
-    XCTAssertEqual(result.listNotes.first?.body, restoredListNote.body)
-    XCTAssertEqual(result.manifest, restoredManifest)
+    XCTAssertEqual(result.dailyNotes, [oldDailyNote])
+    XCTAssertEqual(result.listNotes, [oldListNote])
+    XCTAssertEqual(result.manifest, oldManifest)
+    XCTAssertEqual(
+      try LegacyArchiveSourceFiles.read(
+        dailyURL: storageURLs.notesDirectoryURL, listURL: storageURLs.listNotesDirectoryURL
+      ), originalSources)
+    XCTAssertEqual(
+      try Data(contentsOf: result.retainedArchiveURL), try Data(contentsOf: archiveURL))
     XCTAssertEqual(result.structuredDailyNotes.map(\.id), [restoredDailyNote.id])
     XCTAssertEqual(result.structuredListNotes.map(\.id), [restoredListNote.id])
     XCTAssertEqual(result.structuredListManifest, restoredManifest)
-    XCTAssertTrue(
+    XCTAssertFalse(
       FileManager.default.fileExists(
         atPath: storageURLs.notesDirectoryURL.appendingPathComponent(
           restoredDailyNote.fileName
         ).path
       )
     )
-    XCTAssertFalse(
+    XCTAssertTrue(
       FileManager.default.fileExists(
         atPath: storageURLs.notesDirectoryURL.appendingPathComponent(oldDailyNote.fileName).path
       )
@@ -120,7 +125,7 @@ final class ScealBackupArchiveImporterTests: NotesStoreTestCase {
       contentsOf: storageURLs.listNotesDirectoryURL.appendingPathComponent("groups.json")
     )
     XCTAssertEqual(
-      try JSONDecoder().decode(ListNotesManifest.self, from: restoredManifestData), restoredManifest
+      try JSONDecoder().decode(ListNotesManifest.self, from: restoredManifestData), oldManifest
     )
     XCTAssertTrue(FileManager.default.fileExists(atPath: result.safetyArchiveURL.path))
     XCTAssertEqual(

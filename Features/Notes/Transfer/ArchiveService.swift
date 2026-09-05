@@ -32,6 +32,8 @@ nonisolated struct ArchiveService {
     structuredListNotes: [StructuredNoteDocument] = [],
     structuredListManifest: ListNotesManifest? = nil,
     settings: ScealArchiveSettings? = nil,
+    authority: ScealArchiveAuthority = .legacy,
+    legacySourceFiles: LegacyArchiveSourceFiles? = nil,
     kind: BackupArchiveKind,
     createdAt: Date = .now,
     attachmentsRootURL: URL? = nil
@@ -45,6 +47,8 @@ nonisolated struct ArchiveService {
       structuredListNotes: structuredListNotes,
       structuredListManifest: structuredListManifest,
       settings: settings,
+      authority: authority,
+      legacySourceFiles: legacySourceFiles,
       kind: kind,
       createdAt: createdAt,
       attachmentsRootURL: attachmentsRootURL
@@ -62,6 +66,8 @@ nonisolated struct ArchiveService {
     currentStructuredListNotes: [StructuredNoteDocument] = [],
     currentStructuredListManifest: ListNotesManifest = .empty,
     currentSettings: ScealArchiveSettings? = nil,
+    currentAuthority: ScealArchiveAuthority = .legacy,
+    currentLegacySourceFiles: LegacyArchiveSourceFiles? = nil,
     destinationURLs: ScealLibraryStorageURLs,
     safetyArchiveDirectoryURL: URL
   ) throws -> ScealBackupArchiveImporter.RestoreResult {
@@ -75,6 +81,8 @@ nonisolated struct ArchiveService {
       currentStructuredListNotes: currentStructuredListNotes,
       currentStructuredListManifest: currentStructuredListManifest,
       currentSettings: currentSettings,
+      currentAuthority: currentAuthority,
+      currentLegacySourceFiles: currentLegacySourceFiles,
       destinationURLs: destinationURLs,
       safetyArchiveDirectoryURL: safetyArchiveDirectoryURL,
       fileManager: fileManager
@@ -91,6 +99,8 @@ nonisolated struct ArchiveService {
     structuredListNotes: [StructuredNoteDocument] = [],
     structuredListManifest: ListNotesManifest? = nil,
     settings: ScealArchiveSettings? = nil,
+    authority: ScealArchiveAuthority = .legacy,
+    legacySourceFiles: LegacyArchiveSourceFiles? = nil,
     bookmarkData: Data,
     kind: BackupArchiveKind,
     schedule: BackupSchedule,
@@ -110,6 +120,8 @@ nonisolated struct ArchiveService {
         structuredListNotes: structuredListNotes,
         structuredListManifest: structuredListManifest,
         settings: settings,
+        authority: authority,
+        legacySourceFiles: legacySourceFiles,
         kind: kind,
         createdAt: createdAt,
         attachmentsRootURL: attachmentsRootURL

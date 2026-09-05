@@ -63,7 +63,7 @@ nonisolated struct ScealArchiveSettings: Codable, Equatable, Sendable {
     guard Self.isValidNewNoteDefault(newNoteDefaultRawValue) else {
       throw ScealArchiveSettingsError.invalidNewNoteDefault(newNoteDefaultRawValue)
     }
-    guard DailyNoteStorageMode(rawValue: dailyNoteStorageModeRawValue) != nil else {
+    guard ScealArchiveAuthority(rawValue: dailyNoteStorageModeRawValue) != nil else {
       throw ScealArchiveSettingsError.invalidStorageMode(dailyNoteStorageModeRawValue)
     }
     guard BackupSchedule(rawValue: backupScheduleRawValue) != nil else {
@@ -84,7 +84,7 @@ nonisolated struct ScealArchiveSettings: Codable, Equatable, Sendable {
       appearanceSettingsData: appearanceSettingsData,
       continuousSpellCheckingEnabled: continuousSpellCheckingEnabled,
       newNoteDefaultRawValue: newNoteDefaultRawValue,
-      dailyNoteStorageModeRawValue: DailyNoteStorageMode.structuredExperimental.rawValue,
+      dailyNoteStorageModeRawValue: ScealArchiveAuthority.structured.rawValue,
       backupScheduleRawValue: backupScheduleRawValue,
       backupOnInactive: backupOnInactive,
       themeID: themeID,

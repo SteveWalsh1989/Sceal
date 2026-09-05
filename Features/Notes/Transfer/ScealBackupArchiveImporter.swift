@@ -49,6 +49,7 @@ nonisolated enum ScealBackupArchiveImporter {
     let settings: ScealArchiveSettings?
     let metadata: BackupArchiveMetadata
     let safetyArchiveURL: URL
+    let retainedArchiveURL: URL
   }
 
   private struct ValidatedArchive {
@@ -83,6 +84,8 @@ nonisolated enum ScealBackupArchiveImporter {
     currentStructuredListNotes: [StructuredNoteDocument] = [],
     currentStructuredListManifest: ListNotesManifest = .empty,
     currentSettings: ScealArchiveSettings? = nil,
+    currentAuthority: ScealArchiveAuthority = .legacy,
+    currentLegacySourceFiles: LegacyArchiveSourceFiles? = nil,
     destinationURLs: ScealLibraryStorageURLs,
     safetyArchiveDirectoryURL: URL,
     createdAt: Date = .now,
@@ -94,6 +97,23 @@ nonisolated enum ScealBackupArchiveImporter {
     }
     let structuredContent = try resolveStructuredContent(in: archive)
     let restoredSettings = archive.settings?.normalizedForStructuredRuntime()
+    let originalSources = try LegacyArchiveSourceFiles.read(
+      dailyURL: destinationURLs.notesDirectoryURL, listURL: destinationURLs.listNotesDirectoryURL,
+      fileManager: fileManager
+    )
+    if let currentLegacySourceFiles, currentLegacySourceFiles != originalSources {
+      throw LibraryArchiveFilesError.sourceChanged
+    }
+    let originalAttachments = try LibraryArchiveFiles.read(
+      from: destinationURLs.attachmentsRootURL, fileManager: fileManager
+    )
+    var restoredAttachments = originalAttachments
+    if let attachmentRootURL = archive.attachmentRootURL {
+      let incomingAttachments = try LibraryArchiveFiles.read(
+        from: attachmentRootURL, fileManager: fileManager)
+      // Archive bytes must win conflicts so restored notes display their original images.
+      restoredAttachments.files.merge(incomingAttachments.files) { _, incoming in incoming }
+    }
 
     try fileManager.createDirectory(
       at: safetyArchiveDirectoryURL,
@@ -112,6 +132,8 @@ nonisolated enum ScealBackupArchiveImporter {
         && currentStructuredListNotes.isEmpty
         ? nil : currentStructuredListManifest,
       settings: currentSettings,
+      authority: currentAuthority,
+      legacySourceFiles: originalSources,
       kind: .manual,
       createdAt: createdAt,
       attachmentsRootURL: destinationURLs.attachmentsRootURL
@@ -129,6 +151,17 @@ nonisolated enum ScealBackupArchiveImporter {
       )
     }
     try fileManager.moveItem(at: temporarySafetyArchiveURL, to: safetyArchiveURL)
+    guard
+      try LibraryArchiveFiles.read(
+        from: destinationURLs.attachmentsRootURL, fileManager: fileManager)
+        == originalAttachments
+    else { throw LibraryArchiveFilesError.sourceChanged }
+
+    // Retain incoming recovery sources without installing them over the user's original Markdown.
+    let retainedArchiveURL = safetyArchiveDirectoryURL.appendingPathComponent(
+      "restored-source-\(UUID().uuidString).zip"
+    )
+    try fileManager.copyItem(at: archiveURL, to: retainedArchiveURL)
 
     let replacement = try makeReplacementStorageURLs(fileManager: fileManager)
     defer {
@@ -136,32 +169,26 @@ nonisolated enum ScealBackupArchiveImporter {
     }
 
     try writeSnapshot(
-      dailyNotes: archive.dailyNotes,
-      listNotes: archive.listNotes,
-      manifest: archive.manifest,
       structuredDailyNotes: structuredContent.dailyNotes,
       structuredListNotes: structuredContent.listNotes,
       structuredListManifest: structuredContent.listManifest,
-      sourceAttachmentRootURL: archive.attachmentRootURL,
+      attachments: restoredAttachments,
       destinationURLs: replacement.storageURLs,
       fileManager: fileManager
     )
     try validateReplacementStorage(
       replacement.storageURLs,
-      expectedLegacyDailyNotes: archive.dailyNotes,
-      expectedLegacyListNotes: archive.listNotes,
-      expectedLegacyListManifest: archive.manifest,
       expectedDailyNotes: structuredContent.dailyNotes,
       expectedListNotes: structuredContent.listNotes,
       expectedListManifest: structuredContent.listManifest,
+      expectedAttachments: restoredAttachments,
       fileManager: fileManager
     )
     try replaceLibrary(
       replacementURLs: replacement.storageURLs,
       destinationURLs: destinationURLs,
-      expectedLegacyDailyNotes: archive.dailyNotes,
-      expectedLegacyListNotes: archive.listNotes,
-      expectedLegacyListManifest: archive.manifest,
+      originalSources: originalSources,
+      expectedAttachments: restoredAttachments,
       expectedStructuredDailyNotes: structuredContent.dailyNotes,
       expectedStructuredListNotes: structuredContent.listNotes,
       expectedStructuredListManifest: structuredContent.listManifest,
@@ -169,16 +196,17 @@ nonisolated enum ScealBackupArchiveImporter {
     )
 
     return RestoreResult(
-      dailyNotes: archive.dailyNotes,
-      listNotes: archive.listNotes,
-      manifest: archive.manifest,
+      dailyNotes: currentDailyNotes,
+      listNotes: currentListNotes,
+      manifest: currentManifest,
       structuredDailyNotes: structuredContent.dailyNotes,
       structuredListNotes: structuredContent.listNotes,
       structuredListManifest: structuredContent.listManifest,
       templates: archive.templates,
       settings: restoredSettings,
       metadata: archive.metadata,
-      safetyArchiveURL: safetyArchiveURL
+      safetyArchiveURL: safetyArchiveURL,
+      retainedArchiveURL: retainedArchiveURL
     )
   }
 
@@ -186,7 +214,9 @@ nonisolated enum ScealBackupArchiveImporter {
   private static func resolveStructuredContent(
     in archive: ValidatedArchive
   ) throws -> ResolvedStructuredContent {
-    if archive.metadata.structuredStorageIsAuthoritative == true {
+    if archive.metadata.backupFormatVersion >= 2,
+      archive.metadata.structuredStorageIsAuthoritative == true
+    {
       return ResolvedStructuredContent(
         dailyNotes: archive.structuredDailyNotes,
         listNotes: archive.structuredListNotes,
@@ -323,17 +353,29 @@ nonisolated enum ScealBackupArchiveImporter {
         listNotesFolderName,
         isDirectory: true
       )
-      let dailyNotes = try decodeMarkdownNotes(
-        in: dailyNotesURL,
-        usingFileNameID: false,
-        fileManager: fileManager
+      let rawSources = try LegacyArchiveSourceFiles.read(
+        dailyURL: dailyNotesURL, listURL: listNotesURL, fileManager: fileManager
       )
-      let listNotes = try decodeMarkdownNotes(
-        in: listNotesURL,
-        usingFileNameID: true,
-        fileManager: fileManager
-      )
-      let manifest = try decodeManifest(in: listNotesURL)
+      let structuredIsAuthoritative =
+        metadata.backupFormatVersion >= 2
+        && metadata.structuredStorageIsAuthoritative == true
+      let dailyNotes =
+        structuredIsAuthoritative
+        ? []
+        : try decodeMarkdownNotes(
+          in: dailyNotesURL,
+          usingFileNameID: false,
+          fileManager: fileManager
+        )
+      let listNotes =
+        structuredIsAuthoritative
+        ? []
+        : try decodeMarkdownNotes(
+          in: listNotesURL,
+          usingFileNameID: true,
+          fileManager: fileManager
+        )
+      let manifest = structuredIsAuthoritative ? .empty : try decodeManifest(in: listNotesURL)
       let templates = try NoteTemplateArchive.read(from: rootURL)
       let structuredDailyNotes: [StructuredNoteDocument]
       let structuredListNotes: [StructuredNoteDocument]
@@ -384,8 +426,8 @@ nonisolated enum ScealBackupArchiveImporter {
       )
       try validateMetadataCounts(
         metadata,
-        dailyNoteCount: dailyNotes.count,
-        listNoteCount: listNotes.count,
+        dailyNoteCount: rawSources.daily.markdownFileCount,
+        listNoteCount: rawSources.list.markdownFileCount,
         templateCount: templates.count,
         structuredDailyNoteCount: structuredDailyNotes.count,
         structuredListNoteCount: structuredListNotes.count,
@@ -671,24 +713,13 @@ nonisolated enum ScealBackupArchiveImporter {
   }
 
   private static func writeSnapshot(
-    dailyNotes: [DayNote],
-    listNotes: [DayNote],
-    manifest: ListNotesManifest,
     structuredDailyNotes: [StructuredNoteDocument],
     structuredListNotes: [StructuredNoteDocument],
     structuredListManifest: ListNotesManifest,
-    sourceAttachmentRootURL: URL?,
+    attachments: LibraryArchiveFiles,
     destinationURLs: ScealLibraryStorageURLs,
     fileManager: FileManager
   ) throws {
-    try fileManager.createDirectory(
-      at: destinationURLs.notesDirectoryURL,
-      withIntermediateDirectories: true
-    )
-    try fileManager.createDirectory(
-      at: destinationURLs.listNotesDirectoryURL,
-      withIntermediateDirectories: true
-    )
     try fileManager.createDirectory(
       at: destinationURLs.attachmentsRootURL,
       withIntermediateDirectories: true
@@ -702,25 +733,8 @@ nonisolated enum ScealBackupArchiveImporter {
       withIntermediateDirectories: true
     )
 
-    for note in dailyNotes {
-      let fileURL = destinationURLs.notesDirectoryURL.appendingPathComponent(note.fileName)
-      let contents = try MarkdownNoteCodec.encode(note)
-      try contents.write(to: fileURL, atomically: true, encoding: .utf8)
-    }
-
-    for note in listNotes {
-      let fileURL = destinationURLs.listNotesDirectoryURL.appendingPathComponent(note.fileName)
-      let contents = try MarkdownNoteCodec.encode(note)
-      try contents.write(to: fileURL, atomically: true, encoding: .utf8)
-    }
-
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-    let manifestURL = destinationURLs.listNotesDirectoryURL.appendingPathComponent(
-      manifestFileName
-    )
-    try encoder.encode(manifest).write(to: manifestURL, options: .atomic)
-
     for document in structuredDailyNotes {
       try StructuredNoteDocumentCodec.write(
         document,
@@ -745,42 +759,18 @@ nonisolated enum ScealBackupArchiveImporter {
       options: .atomic
     )
 
-    guard let sourceAttachmentRootURL else { return }
-
-    try NoteImageAttachmentStore.copyAttachmentFolders(
-      for: Set(
-        (dailyNotes + listNotes).map(\.id)
-          + structuredDailyNotes.map(\.id)
-          + structuredListNotes.map(\.id)
-      ),
-      from: sourceAttachmentRootURL,
-      to: destinationURLs.attachmentsRootURL,
-      fileManager: fileManager
-    )
+    try attachments.write(to: destinationURLs.attachmentsRootURL, fileManager: fileManager)
   }
 
   // Reloads the staged structured replacement before any live folder can be moved.
   private static func validateReplacementStorage(
     _ storageURLs: ScealLibraryStorageURLs,
-    expectedLegacyDailyNotes: [DayNote],
-    expectedLegacyListNotes: [DayNote],
-    expectedLegacyListManifest: ListNotesManifest,
     expectedDailyNotes: [StructuredNoteDocument],
     expectedListNotes: [StructuredNoteDocument],
     expectedListManifest: ListNotesManifest,
+    expectedAttachments: LibraryArchiveFiles,
     fileManager: FileManager
   ) throws {
-    let legacyDailyNotes = try decodeMarkdownNotes(
-      in: storageURLs.notesDirectoryURL,
-      usingFileNameID: false,
-      fileManager: fileManager
-    )
-    let legacyListNotes = try decodeMarkdownNotes(
-      in: storageURLs.listNotesDirectoryURL,
-      usingFileNameID: true,
-      fileManager: fileManager
-    )
-    let legacyListManifest = try decodeManifest(in: storageURLs.listNotesDirectoryURL)
     let dailyRepository = StructuredNoteRepository(
       storageDirectoryURL: storageURLs.structuredNotesDirectoryURL,
       legacyNotesDirectoryURL: storageURLs.notesDirectoryURL,
@@ -801,12 +791,11 @@ nonisolated enum ScealBackupArchiveImporter {
       )
     )
     let listManifest = try JSONDecoder().decode(ListNotesManifest.self, from: manifestData)
-    guard legacyDailyNotes == expectedLegacyDailyNotes.sorted(by: { $0.date > $1.date }),
-      legacyListNotes == expectedLegacyListNotes.sorted(by: { $0.date > $1.date }),
-      legacyListManifest == expectedLegacyListManifest,
-      dailyNotes == expectedDailyNotes.sorted(by: { $0.date > $1.date }),
+    guard dailyNotes == expectedDailyNotes.sorted(by: { $0.date > $1.date }),
       listNotes == expectedListNotes.sorted(by: { $0.date > $1.date }),
-      listManifest == expectedListManifest
+      listManifest == expectedListManifest,
+      try LibraryArchiveFiles.read(from: storageURLs.attachmentsRootURL, fileManager: fileManager)
+        == expectedAttachments
     else {
       throw ScealBackupArchiveImporterError.replacementValidationFailed
     }
@@ -815,34 +804,29 @@ nonisolated enum ScealBackupArchiveImporter {
   private static func replaceLibrary(
     replacementURLs: ScealLibraryStorageURLs,
     destinationURLs: ScealLibraryStorageURLs,
-    expectedLegacyDailyNotes: [DayNote],
-    expectedLegacyListNotes: [DayNote],
-    expectedLegacyListManifest: ListNotesManifest,
+    originalSources: LegacyArchiveSourceFiles,
+    expectedAttachments: LibraryArchiveFiles,
     expectedStructuredDailyNotes: [StructuredNoteDocument],
     expectedStructuredListNotes: [StructuredNoteDocument],
     expectedStructuredListManifest: ListNotesManifest,
     fileManager: FileManager
   ) throws {
+    guard
+      try LegacyArchiveSourceFiles.read(
+        dailyURL: destinationURLs.notesDirectoryURL, listURL: destinationURLs.listNotesDirectoryURL,
+        fileManager: fileManager
+      ) == originalSources
+    else { throw LibraryArchiveFilesError.sourceChanged }
     let rollbackBaseURL = fileManager.temporaryDirectory
       .appendingPathComponent("sceal-restore-rollback-\(UUID().uuidString)", isDirectory: true)
     try fileManager.createDirectory(at: rollbackBaseURL, withIntermediateDirectories: true)
 
     var items = [
       (
-        name: dailyNotesFolderName,
-        replacementURL: replacementURLs.notesDirectoryURL,
-        destinationURL: destinationURLs.notesDirectoryURL
-      ),
-      (
-        name: listNotesFolderName,
-        replacementURL: replacementURLs.listNotesDirectoryURL,
-        destinationURL: destinationURLs.listNotesDirectoryURL
-      ),
-      (
         name: NoteImageAttachmentStore.attachmentsFolderName,
         replacementURL: replacementURLs.attachmentsRootURL,
         destinationURL: destinationURLs.attachmentsRootURL
-      ),
+      )
     ]
     items.append(
       (
@@ -859,6 +843,7 @@ nonisolated enum ScealBackupArchiveImporter {
       )
     )
     var movedOriginals: [(originalURL: URL, rollbackURL: URL)] = []
+    var installedURLs: [URL] = []
 
     do {
       for item in items {
@@ -881,24 +866,30 @@ nonisolated enum ScealBackupArchiveImporter {
 
       for item in items {
         try fileManager.moveItem(at: item.replacementURL, to: item.destinationURL)
+        installedURLs.append(item.destinationURL)
       }
 
       try validateReplacementStorage(
         destinationURLs,
-        expectedLegacyDailyNotes: expectedLegacyDailyNotes,
-        expectedLegacyListNotes: expectedLegacyListNotes,
-        expectedLegacyListManifest: expectedLegacyListManifest,
         expectedDailyNotes: expectedStructuredDailyNotes,
         expectedListNotes: expectedStructuredListNotes,
         expectedListManifest: expectedStructuredListManifest,
+        expectedAttachments: expectedAttachments,
         fileManager: fileManager
       )
+      guard
+        try LegacyArchiveSourceFiles.read(
+          dailyURL: destinationURLs.notesDirectoryURL,
+          listURL: destinationURLs.listNotesDirectoryURL,
+          fileManager: fileManager
+        ) == originalSources
+      else { throw LibraryArchiveFilesError.sourceChanged }
       try? fileManager.removeItem(at: rollbackBaseURL)
     } catch {
       let replacementError = error
       do {
-        for item in items where fileManager.fileExists(atPath: item.destinationURL.path) {
-          try fileManager.removeItem(at: item.destinationURL)
+        for installedURL in installedURLs.reversed() {
+          try fileManager.removeItem(at: installedURL)
         }
 
         for original in movedOriginals.reversed() {

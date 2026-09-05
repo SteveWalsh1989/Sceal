@@ -15,4 +15,6 @@ nonisolated struct ScealLibrarySnapshot: Sendable {
   let structuredListManifest: ListNotesManifest
   let templates: [NoteTemplate]
   let settings: ScealArchiveSettings
+  let authority: ScealArchiveAuthority
+  let legacySourceFiles: LegacyArchiveSourceFiles?
 }

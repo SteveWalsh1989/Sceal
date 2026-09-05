@@ -154,19 +154,21 @@ final class MigrationArchiveFixtureTests: NotesStoreTestCase {
       createdAt: makeDate(year: 2026, month: 5, day: 10)
     )
 
-    XCTAssertEqual(Set(result.dailyNotes.map(\.id)), ["2026-05-10", "2026-05-11"])
-    XCTAssertEqual(result.listNotes.map(\.id), ["project-alpha"])
-    XCTAssertEqual(result.manifest, fixture.manifest)
-    assertFileExists(storageURLs.notesDirectoryURL.appendingPathComponent("2026-05-10.md"))
-    assertFileExists(storageURLs.notesDirectoryURL.appendingPathComponent("2026-05-11.md"))
-    assertFileExists(storageURLs.listNotesDirectoryURL.appendingPathComponent("project-alpha.md"))
+    XCTAssertEqual(Set(result.structuredDailyNotes.map(\.id)), ["2026-05-10", "2026-05-11"])
+    XCTAssertEqual(result.structuredListNotes.map(\.id), ["project-alpha"])
+    XCTAssertEqual(result.structuredListManifest, fixture.manifest)
+    XCTAssertEqual(result.dailyNotes, [oldDailyNote])
+    XCTAssertEqual(result.listNotes, [oldListNote])
+    XCTAssertEqual(result.manifest, oldManifest)
+    XCTAssertEqual(
+      try Data(contentsOf: result.retainedArchiveURL), try Data(contentsOf: archiveURL))
     assertFileExists(
       storageURLs.attachmentsRootURL.appendingPathComponent("2026-05-10/desk-photo.png")
     )
     assertFileExists(
       storageURLs.attachmentsRootURL.appendingPathComponent("project-alpha/alpha-plan.txt")
     )
-    XCTAssertFalse(
+    XCTAssertTrue(
       FileManager.default.fileExists(
         atPath: storageURLs.notesDirectoryURL.appendingPathComponent(oldDailyNote.fileName).path
       )
