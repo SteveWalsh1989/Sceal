@@ -123,7 +123,6 @@ final class LibraryInstallRecoveryTests: NotesStoreTestCase {
     XCTAssertFalse(store.canBeginLibraryFileOperation())
     XCTAssertThrowsError(try store.makeLibrarySnapshot())
     store.loadIfNeeded()
-    store.updateDailyNoteStorageMode(.legacyMarkdown)
     XCTAssertTrue(store.isLibraryRecoveryBlocked)
     XCTAssertFalse(store.hasLoaded)
     XCTAssertEqual(try snapshot(location), installed)

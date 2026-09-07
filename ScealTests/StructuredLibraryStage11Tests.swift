@@ -47,7 +47,6 @@ final class StructuredLibraryStage11Tests: NotesStoreTestCase {
     XCTAssertEqual(store.structuredNotesCutoverStatus, .conversionRequired)
     XCTAssertFalse(store.hasLoaded)
     XCTAssertTrue(store.isStructuredCutoverPromptPresented)
-    XCTAssertEqual(store.dailyNoteStorageMode, .legacyMarkdown)
     XCTAssertEqual(
       SettingsRepository(userDefaults: defaults).loadStructuredNotesCutoverStatus(),
       .conversionRequired
@@ -66,7 +65,6 @@ final class StructuredLibraryStage11Tests: NotesStoreTestCase {
     store.prepareStructuredCutoverForProductionLaunch()
 
     store.loadIfNeeded()
-    store.updateDailyNoteStorageMode(.structuredExperimental)
 
     XCTAssertFalse(store.hasLoaded)
     XCTAssertFalse(store.isLibraryReadyForEditing)
@@ -75,7 +73,6 @@ final class StructuredLibraryStage11Tests: NotesStoreTestCase {
       try String(
         contentsOf: location.legacyNotesDirectoryURL.appendingPathComponent(note.fileName),
         encoding: .utf8), try MarkdownNoteCodec.encode(note))
-    XCTAssertEqual(store.dailyNoteStorageMode, .legacyMarkdown)
     XCTAssertEqual(store.structuredNotesCutoverStatus, .conversionRequired)
   }
 
@@ -112,7 +109,24 @@ final class StructuredLibraryStage11Tests: NotesStoreTestCase {
       .appendingPathComponent(listNote.fileName)
     let sourceData = try [dailySourceURL, listSourceURL].map { try Data(contentsOf: $0) }
     let store = makeStore(userDefaults: makeUserDefaults(), libraryLocation: location)
-    let snapshot = try store.makeLibrarySnapshot()
+    let legacySnapshot = try repository.loadArchiveSourceSnapshot()
+    let snapshot = ScealLibrarySnapshot(
+      legacyDailyNotes: legacySnapshot.dailyNotes,
+      legacyListNotes: legacySnapshot.listNotes,
+      legacyListManifest: legacySnapshot.listManifest,
+      structuredDailyNotes: [],
+      structuredListNotes: [],
+      structuredListManifest: .empty,
+      templates: store.noteTemplates,
+      settings: try store.makeArchiveSettings(),
+      authority: .legacy,
+      legacySourceFiles: try LegacyArchiveSourceFiles.read(
+        dailyURL: location.legacyNotesDirectoryURL,
+        listURL: location.rootURL.appendingPathComponent(
+          ScealLibraryLocation.listNotesFolderName
+        )
+      )
+    )
     let dailyDocuments = try StructuredNoteRepository(
       libraryLocation: location
     ).prepareLegacyDocuments()
@@ -167,7 +181,6 @@ final class StructuredLibraryStage11Tests: NotesStoreTestCase {
 
     XCTAssertFalse(store.isPerformingFileOperation)
     XCTAssertEqual(store.structuredNotesCutoverStatus, .completed)
-    XCTAssertEqual(store.dailyNoteStorageMode, .structuredExperimental)
     XCTAssertEqual(store.structuredNotes.map(\.id), [note.id])
     XCTAssertTrue(store.hasLoaded)
     XCTAssertEqual(
@@ -186,7 +199,6 @@ final class StructuredLibraryStage11Tests: NotesStoreTestCase {
     let defaults = makeUserDefaults()
     let settings = SettingsRepository(userDefaults: defaults)
     settings.saveStructuredNotesCutoverStatus(.completed)
-    settings.saveDailyNoteStorageMode(.structuredExperimental)
     let store = makeStore(
       userDefaults: defaults,
       libraryLocation: location,
@@ -196,7 +208,6 @@ final class StructuredLibraryStage11Tests: NotesStoreTestCase {
     store.prepareStructuredCutoverForProductionLaunch()
 
     XCTAssertTrue(store.hasLoaded)
-    XCTAssertEqual(store.dailyNoteStorageMode, .structuredExperimental)
     XCTAssertEqual(store.structuredNotes.map(\.id), ["2026-09-03"])
   }
 
@@ -212,7 +223,7 @@ final class StructuredLibraryStage11Tests: NotesStoreTestCase {
     let defaults = makeUserDefaults()
     let settings = SettingsRepository(userDefaults: defaults)
     settings.saveStructuredNotesCutoverStatus(.completed)
-    settings.saveDailyNoteStorageMode(.legacyMarkdown)
+    defaults.set("legacyMarkdown", forKey: "sceal.dailyNoteStorageMode")
     let store = makeStore(
       userDefaults: defaults,
       libraryLocation: location,
@@ -220,10 +231,8 @@ final class StructuredLibraryStage11Tests: NotesStoreTestCase {
     )
 
     store.loadIfNeeded()
-    store.updateDailyNoteStorageMode(.legacyMarkdown)
 
     XCTAssertTrue(store.isLibraryReadyForEditing)
-    XCTAssertEqual(store.dailyNoteStorageMode, .structuredExperimental)
     XCTAssertEqual(store.structuredNotes.map(\.id), [legacyNote.id])
     XCTAssertEqual(
       try String(
@@ -231,23 +240,10 @@ final class StructuredLibraryStage11Tests: NotesStoreTestCase {
         encoding: .utf8), try MarkdownNoteCodec.encode(legacyNote))
   }
 
-  func testProductionModeCannotEnableStructuredLibraryBeforeValidation() {
-    let store = makeStore(enforcesStructuredCutover: true)
-
-    store.updateDailyNoteStorageMode(.structuredExperimental)
-
-    XCTAssertEqual(store.dailyNoteStorageMode, .legacyMarkdown)
-    XCTAssertEqual(
-      store.userMessage?.text,
-      "Structured notes are the only editing mode. Use Import for older notes."
-    )
-  }
-
-  func testValidatedRestoreCompletesCutoverAndPersistsStructuredMode() throws {
+  func testValidatedRestoreCompletesCutover() throws {
     let defaults = makeUserDefaults()
     let settings = SettingsRepository(userDefaults: defaults)
     settings.saveStructuredNotesCutoverStatus(.conversionRequired)
-    settings.saveDailyNoteStorageMode(.legacyMarkdown)
     let store = makeStore(
       userDefaults: defaults,
       enforcesStructuredCutover: true
@@ -258,9 +254,7 @@ final class StructuredLibraryStage11Tests: NotesStoreTestCase {
     try store.completeStructuredCutoverAfterValidatedRestore()
 
     XCTAssertEqual(store.structuredNotesCutoverStatus, .completed)
-    XCTAssertEqual(store.dailyNoteStorageMode, .structuredExperimental)
     XCTAssertEqual(settings.loadStructuredNotesCutoverStatus(), .completed)
-    XCTAssertEqual(settings.loadDailyNoteStorageMode(), .structuredExperimental)
     XCTAssertTrue(try StructuredLibraryState.isCompleted(at: store.libraryLocation))
   }
 
@@ -306,7 +300,7 @@ final class StructuredLibraryStage11Tests: NotesStoreTestCase {
     XCTAssertEqual(result.structuredDailyNotes.first?.nodes.count, 2)
     XCTAssertEqual(
       result.settings?.dailyNoteStorageModeRawValue,
-      DailyNoteStorageMode.structuredExperimental.rawValue
+      ScealArchiveAuthority.structured.rawValue
     )
     XCTAssertEqual(
       try StructuredNoteRepository(libraryLocation: destinationLocation).loadDocuments(),
@@ -319,7 +313,6 @@ final class StructuredLibraryStage11Tests: NotesStoreTestCase {
     let legacyNote = makeDailyNote(year: 2026, month: 9, day: 1, body: "Deleted in V2")
     let defaults = makeUserDefaults()
     let sourceStore = makeStore(userDefaults: defaults, libraryLocation: sourceLocation)
-    sourceStore.updateDailyNoteStorageMode(.structuredExperimental)
     let structuredSettings = try sourceStore.makeArchiveSettings()
     let archiveURL = try ScealBackupArchiveExporter.exportBackup(
       dailyNotes: [legacyNote],

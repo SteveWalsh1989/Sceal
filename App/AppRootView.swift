@@ -35,7 +35,7 @@ struct AppRootView: View {
           ProgressView(store.progressMessage ?? "Working...")
         } else if !store.isLibraryReadyForEditing {
           librarySetupView
-        } else if store.isStructuredEditorActive {
+        } else {
           StructuredNoteEditorView(
             store: store,
             sidebarCollapsed: columnVisibility == .detailOnly,
@@ -44,18 +44,6 @@ struct AppRootView: View {
             }
           )
           .id(store.libraryLocation.rootURL)
-        } else if store.isLoading {
-          ProgressView("Loading notes…")
-        } else {
-          ContentUnavailableView(
-            "No note selected",
-            systemImage: store.sidebarMode.usesDailyNotes ? "calendar" : "list.bullet",
-            description: Text(
-              store.sidebarMode.usesDailyNotes
-                ? "Choose a day from the sidebar to start writing."
-                : "Select a note from the sidebar or add a new one."
-            )
-          )
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)

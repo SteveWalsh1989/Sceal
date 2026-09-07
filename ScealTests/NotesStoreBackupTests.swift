@@ -18,7 +18,6 @@ final class NotesStoreBackupTests: NotesStoreTestCase {
       )
       try repository.save(document)
       let store = makeStore(libraryLocation: location)
-      store.updateDailyNoteStorageMode(.structuredExperimental)
       store.sidebarMode = isListNote ? .list : .daily
       if isListNote {
         try store.loadStructuredListNotesIfNeeded()
@@ -33,11 +32,8 @@ final class NotesStoreBackupTests: NotesStoreTestCase {
         XCTAssertEqual(try repository.loadDocuments().first?.title, document.title)
         store.structuredTitleBinding(for: document.id).wrappedValue = "Latest edit after failure"
         XCTAssertThrowsError(try store.makeLibrarySnapshot())
-        store.updateDailyNoteStorageMode(.legacyMarkdown)
-        XCTAssertEqual(store.dailyNoteStorageMode, .structuredExperimental)
         let cutoverStatus = store.structuredNotesCutoverStatus
         store.backUpAndConvertLegacyLibrary()
-        XCTAssertEqual(store.dailyNoteStorageMode, .structuredExperimental)
         XCTAssertEqual(store.structuredNotesCutoverStatus, cutoverStatus)
         XCTAssertFalse(store.isPerformingFileOperation)
       }
@@ -49,31 +45,6 @@ final class NotesStoreBackupTests: NotesStoreTestCase {
     }
   }
 
-  // Legacy notes still need safe flushing while the rollout retains both storage modes.
-  func testSnapshotRejectsFailedLegacyDailyAndListSaves() throws {
-    let location = makeLibraryLocation()
-    let repository = LibraryRepository(libraryLocation: location)
-    let daily = makeDailyNote(year: 2026, month: 9, day: 5, body: "Old daily")
-    let list = makeListNote(id: daily.id, year: 2026, month: 9, day: 5, body: "Old list")
-    try repository.saveDailyNote(daily)
-    try repository.saveListNote(list)
-    let store = makeStore(previewNotes: [daily], libraryLocation: location)
-    store.loadListNotesIfNeeded()
-    store.bodyBinding(for: daily.id).wrappedValue = "Latest daily"
-    store.listNoteBodyBinding(for: list.id).wrappedValue = "Latest list"
-
-    try withReadOnlyDirectory(location.legacyNotesDirectoryURL) {
-      try withReadOnlyDirectory(try repository.listNotesDirectoryURL()) {
-        XCTAssertThrowsError(try store.makeLibrarySnapshot())
-        XCTAssertThrowsError(try store.makeLibrarySnapshot())
-      }
-    }
-
-    let snapshot = try store.makeLibrarySnapshot()
-    XCTAssertEqual(snapshot.legacyDailyNotes.first?.body, "Latest daily")
-    XCTAssertEqual(snapshot.legacyListNotes.first?.body, "Latest list")
-  }
-
   // The debounce path must retain failed edits too, not only an explicit flush attempt.
   func testFailedDebouncedSaveRemainsRetryable() async throws {
     let location = makeLibraryLocation()
@@ -83,7 +54,6 @@ final class NotesStoreBackupTests: NotesStoreTestCase {
     )
     try repository.save(document)
     let store = makeStore(libraryLocation: location)
-    store.updateDailyNoteStorageMode(.structuredExperimental)
     try store.loadStructuredDailyNotesIfNeeded()
     let directoryURL = repository.storageDirectoryURL
     let attributes = try FileManager.default.attributesOfItem(atPath: directoryURL.path)
@@ -119,7 +89,6 @@ final class NotesStoreBackupTests: NotesStoreTestCase {
       )
       try repository.save(document)
       let store = makeStore(libraryLocation: location)
-      store.updateDailyNoteStorageMode(.structuredExperimental)
       try store.loadStructuredDailyNotesIfNeeded()
       let backupFolder = try configureBackup(for: store)
       store.structuredTitleBinding(for: document.id).wrappedValue = "Unsaved edit"
@@ -151,7 +120,6 @@ final class NotesStoreBackupTests: NotesStoreTestCase {
       try StructuredNoteRepository(libraryLocation: location).save(document)
       try StructuredNoteRepository.listNotes(libraryLocation: location).save(document)
       let store = makeStore(libraryLocation: location)
-      store.updateDailyNoteStorageMode(.structuredExperimental)
       try store.loadStructuredDailyNotesIfNeeded()
       try store.loadStructuredListNotesIfNeeded()
       let backupFolder = try configureBackup(for: store)

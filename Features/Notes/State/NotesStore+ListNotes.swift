@@ -5,64 +5,19 @@
 // NotesStore extension for list note CRUD, group management, search, and navigation.
 
 import Foundation
-import OSLog
 import SwiftUI
 
 // MARK: - List Notes
 
 extension NotesStore {
-
-  private static let listNotesLogger = Logger(subsystem: "com.sceal.app", category: "listNotes")
-
-  // MARK: - Loading
-
-  // Loads all list notes and the manifest from disk, reconciling any mismatches.
-  func loadListNotesIfNeeded() {
-    if isStructuredDailyNoteMode {
-      do {
-        try loadStructuredListNotesIfNeeded()
-        Self.listNotesLogger.info("Loaded \(self.structuredListNotes.count) structured list notes")
-      } catch {
-        Self.listNotesLogger.error(
-          "Loading structured list notes failed: \(error.localizedDescription)"
-        )
-        structuredListNotes = []
-        structuredListNoteManifest = .empty
-      }
-      return
-    }
-
-    do {
-      let snapshot = try libraryRepository.loadListNotes()
-      listNotes = snapshot.notes
-      rebuildListNoteIndex()
-      listNoteManifest = snapshot.manifest
-      Self.listNotesLogger.info("Loaded \(snapshot.notes.count) list notes")
-    } catch {
-      Self.listNotesLogger.error("Loading list notes failed: \(error.localizedDescription)")
-      listNotes = []
-      listNoteManifest = .empty
-    }
-  }
-
   // Writes the current manifest to disk.
   func saveManifest() {
     saveActiveListManifest()
   }
 
-  // MARK: - Index
-
-  // Rebuilds the list note ID-to-index lookup for fast access.
-  func rebuildListNoteIndex() {
-    listNotesStore.rebuildNoteIndex()
-  }
-
-  // Looks up a list note by ID using the fast index.
+  // Looks up a list note by ID.
   func listNote(withID noteID: DayNote.ID) -> DayNote? {
-    if isStructuredDailyNoteMode {
-      return structuredListNoteSummaries.first(where: { $0.id == noteID })
-    }
-    return listNotesStore.note(withID: noteID)
+    structuredListNoteSummaries.first(where: { $0.id == noteID })
   }
 
   // MARK: - CRUD
@@ -79,141 +34,17 @@ extension NotesStore {
   func createListNote() {
     let now = calendar.startOfDay(for: .now)
     let noteID = generateListNoteID(for: now)
-    if isStructuredDailyNoteMode {
-      createStructuredListNote(id: noteID, date: now)
-      return
-    }
-    let note = DayNote(date: now, id: noteID, title: "", tags: [], body: "")
-
-    listNotes.insert(note, at: 0)
-    rebuildListNoteIndex()
-
-    listNoteManifest.ungroupedNoteIDs.insert(noteID, at: 0)
-    saveManifest()
-
-    do {
-      try saveListNote(note)
-    } catch {
-      report(error, context: "Creating list note failed")
-    }
-
-    selectedListNoteID = noteID
+    createStructuredListNote(id: noteID, date: now)
   }
 
   // Deletes a list note from disk and the manifest.
   func deleteListNote(noteID: DayNote.ID) {
-    if isStructuredDailyNoteMode {
-      deleteStructuredListNote(noteID: noteID)
-      return
-    }
-    flushPendingListNoteSave(for: noteID)
-
-    guard let note = listNote(withID: noteID) else { return }
-
-    // Find the adjacent note for selection after delete.
-    let flatOrder = flattenedListNoteIDs()
-    let currentIndex = flatOrder.firstIndex(of: noteID)
-    let nextSelection: DayNote.ID?
-    if let idx = currentIndex {
-      if idx + 1 < flatOrder.count {
-        nextSelection = flatOrder[idx + 1]
-      } else if idx > 0 {
-        nextSelection = flatOrder[idx - 1]
-      } else {
-        nextSelection = nil
-      }
-    } else {
-      nextSelection = nil
-    }
-
-    do {
-      try libraryRepository.deleteListNoteFile(for: note)
-      try libraryRepository.deleteAttachments(for: note.id)
-    } catch {
-      report(error, context: "Deleting list note failed")
-      return
-    }
-
-    listNotes.removeAll { $0.id == noteID }
-    rebuildListNoteIndex()
-
-    listNoteManifest.removeNoteID(noteID)
-    saveManifest()
-
-    selectedListNoteID = nextSelection
-  }
-
-  // Writes a list note to disk.
-  func saveListNote(_ note: DayNote) throws {
-    try libraryRepository.saveListNote(note)
+    deleteStructuredListNote(noteID: noteID)
   }
 
   // Returns note IDs in display order: ungrouped first, then each group's notes.
   private func flattenedListNoteIDs() -> [String] {
     activeListNoteManifest.flattenedNoteIDs(includingCollapsedGroups: false)
-  }
-
-  // MARK: - Bindings
-
-  // Two-way binding for a list note's body, with debounced save.
-  func listNoteBodyBinding(for noteID: DayNote.ID) -> Binding<String> {
-    Binding(
-      get: { self.listNote(withID: noteID)?.body ?? "" },
-      set: { self.updateListNote(noteID: noteID) { $0.body = $1 }($0) }
-    )
-  }
-
-  // Applies a mutation to a list note and schedules a debounced save.
-  private func updateListNote(noteID: DayNote.ID, mutate: @escaping (inout DayNote, String) -> Void)
-    -> (String) -> Void
-  {
-    return { [weak self] newValue in
-      guard let self, let index = self.listNotes.firstIndex(where: { $0.id == noteID }) else {
-        return
-      }
-      mutate(&self.listNotes[index], newValue)
-      self.rebuildListNoteIndex()
-      self.scheduleListNoteSave(for: noteID)
-    }
-  }
-
-  // Debounces list note saves at 350ms, matching the daily note pattern.
-  private func scheduleListNoteSave(for noteID: DayNote.ID) {
-    pendingListNoteSaveTasks[noteID]?.cancel()
-    pendingListNoteSaveTasks[noteID] = Task { [weak self] in
-      try? await Task.sleep(nanoseconds: 350_000_000)
-      guard !Task.isCancelled else { return }
-      self?.persistPendingListNoteSave(for: noteID)
-    }
-  }
-
-  // Writes a single pending list note to disk.
-  private func persistPendingListNoteSave(for noteID: DayNote.ID) {
-    guard let note = listNote(withID: noteID) else {
-      pendingListNoteSaveTasks[noteID] = nil
-      return
-    }
-    do {
-      try saveListNote(note)
-      pendingListNoteSaveTasks[noteID] = nil
-    } catch {
-      report(error, context: "Saving list note failed")
-    }
-  }
-
-  // Cancels debounce and immediately writes a single list note.
-  func flushPendingListNoteSave(for noteID: DayNote.ID) {
-    guard let pendingTask = pendingListNoteSaveTasks[noteID] else { return }
-    pendingTask.cancel()
-    persistPendingListNoteSave(for: noteID)
-  }
-
-  // Immediately writes all pending list note saves.
-  func flushAllPendingListNoteSaves() {
-    let noteIDs = Array(pendingListNoteSaveTasks.keys)
-    for noteID in noteIDs {
-      flushPendingListNoteSave(for: noteID)
-    }
   }
 
   // MARK: - Group Management
@@ -345,7 +176,7 @@ extension NotesStore {
   // MARK: - Active Mode Helpers
 
   private var activeNoteRoute: ActiveNoteRoute {
-    ActiveNoteRouting.route(for: sidebarMode, isDemoModeEnabled: isDemoModeEnabled)
+    ActiveNoteRouting.route(for: sidebarMode)
   }
 
   // The selected note ID for the current sidebar mode.
@@ -357,31 +188,13 @@ extension NotesStore {
     )
   }
 
-  // The currently active note for the editor.
-  var activeNote: DayNote? {
-    guard let noteID = activeSelectedNoteID else { return nil }
-
-    switch activeNoteRoute {
-    case .daily:
-      guard !isStructuredDailyNoteMode else { return nil }
-      return note(withID: noteID)
-    case .list: return listNote(withID: noteID)
-    }
-  }
-
   // Two-way binding for the active mode's search text.
   var activeSearchTextBinding: Binding<String> {
     switch activeNoteRoute {
     case .daily:
       return Binding(
         get: { self.activeDailySearchText },
-        set: { value in
-          if self.isStructuredDailyNoteMode {
-            self.updateStructuredSearchText(value)
-          } else {
-            self.searchText = value
-          }
-        }
+        set: { self.updateStructuredSearchText($0) }
       )
     case .list:
       return Binding(
@@ -397,13 +210,7 @@ extension NotesStore {
     case .daily:
       return Binding(
         get: { self.activeDailySearchBarExpanded },
-        set: { isExpanded in
-          if self.isStructuredDailyNoteMode {
-            self.updateStructuredSearchBarExpanded(isExpanded)
-          } else {
-            self.isSearchBarExpanded = isExpanded
-          }
-        }
+        set: { self.updateStructuredSearchBarExpanded($0) }
       )
     case .list:
       return Binding(

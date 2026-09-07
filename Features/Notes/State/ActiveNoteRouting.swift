@@ -10,12 +10,8 @@ enum ActiveNoteRoute: Equatable {
 }
 
 enum ActiveNoteRouting {
-  // Resolves the editor route from sidebar mode, with demo mode always targeting daily notes.
-  static func route(for sidebarMode: SidebarMode, isDemoModeEnabled: Bool) -> ActiveNoteRoute {
-    if isDemoModeEnabled {
-      return .daily
-    }
-
+  // Resolves the editor route from the current sidebar mode.
+  static func route(for sidebarMode: SidebarMode) -> ActiveNoteRoute {
     return sidebarMode.usesDailyNotes ? .daily : .list
   }
 

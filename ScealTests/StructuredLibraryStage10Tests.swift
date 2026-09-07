@@ -13,7 +13,6 @@ final class StructuredLibraryStage10Tests: NotesStoreTestCase {
     let location = makeLibraryLocation()
     let defaults = makeUserDefaults()
     let store = makeStore(userDefaults: defaults, libraryLocation: location)
-    store.updateDailyNoteStorageMode(.structuredExperimental)
     store.sidebarMode = .list
     try store.loadStructuredListNotesIfNeeded()
 
@@ -37,7 +36,6 @@ final class StructuredLibraryStage10Tests: NotesStoreTestCase {
     relaunchedStore.sidebarMode = .list
     try relaunchedStore.loadStructuredListNotesIfNeeded()
 
-    XCTAssertEqual(relaunchedStore.dailyNoteStorageMode, .structuredExperimental)
     XCTAssertEqual(relaunchedStore.selectedStructuredListNote?.title, "Structured list")
     let relaunchedNode = try XCTUnwrap(relaunchedStore.selectedStructuredListNote?.nodes.first)
     guard case .section(let relaunchedSection) = relaunchedNode else {
@@ -67,7 +65,6 @@ final class StructuredLibraryStage10Tests: NotesStoreTestCase {
     )
 
     let store = makeStore(userDefaults: makeUserDefaults(), libraryLocation: location)
-    store.updateDailyNoteStorageMode(.structuredExperimental)
     try store.loadStructuredDailyNotesIfNeeded()
     try store.loadStructuredListNotesIfNeeded()
 
@@ -79,131 +76,6 @@ final class StructuredLibraryStage10Tests: NotesStoreTestCase {
 
     XCTAssertEqual(try dailyRepository.loadDocuments().first?.title, "Daily title")
     XCTAssertEqual(try listRepository.loadDocuments().first?.title, "List title")
-  }
-
-  func testFullLibraryUpgradeWritesSafetyArchiveReportAndLeavesLegacySourcesUnchanged() throws {
-    let location = makeLibraryLocation()
-    let repository = LibraryRepository(libraryLocation: location)
-    let dailyNote = makeDailyNote(
-      year: 2026,
-      month: 9,
-      day: 1,
-      title: "Daily",
-      body: "# Focus\n\n- preserve this\n<!-- section:blue -->\n## Next\n\nDetails"
-    )
-    let listNote = makeListNote(
-      id: "project-plan",
-      year: 2026,
-      month: 8,
-      day: 30,
-      title: "Project plan",
-      body: "## Tasks\n\n- [ ] Archive"
-    )
-    let listManifest = ListNotesManifest(
-      ungroupedNoteIDs: [],
-      groups: [NoteGroup(name: "Projects", noteIDs: [listNote.id], isCollapsed: true)]
-    )
-    try repository.saveDailyNote(dailyNote)
-    try repository.saveListNote(listNote)
-    try repository.saveListNotesManifest(listManifest)
-    let attachmentDirectoryURL = repository.attachmentsRootURL.appendingPathComponent(
-      dailyNote.id,
-      isDirectory: true
-    )
-    try FileManager.default.createDirectory(
-      at: attachmentDirectoryURL,
-      withIntermediateDirectories: true
-    )
-    try Data("image".utf8).write(
-      to: attachmentDirectoryURL.appendingPathComponent("image.png")
-    )
-
-    let dailySourceURL = location.legacyNotesDirectoryURL.appendingPathComponent(dailyNote.fileName)
-    let listSourceURL = location.rootURL
-      .appendingPathComponent(ScealLibraryLocation.listNotesFolderName, isDirectory: true)
-      .appendingPathComponent(listNote.fileName)
-    let manifestSourceURL = listSourceURL.deletingLastPathComponent()
-      .appendingPathComponent("groups.json")
-    let sourceData = try [dailySourceURL, listSourceURL, manifestSourceURL].map {
-      try Data(contentsOf: $0)
-    }
-    let store = makeStore(userDefaults: makeUserDefaults(), libraryLocation: location)
-
-    store.upgradeFullLibraryToStructured()
-
-    XCTAssertEqual(store.dailyNoteStorageMode, .legacyMarkdown)
-    XCTAssertEqual(
-      try [dailySourceURL, listSourceURL, manifestSourceURL].map {
-        try Data(contentsOf: $0)
-      },
-      sourceData
-    )
-    XCTAssertEqual(
-      try StructuredNoteRepository(libraryLocation: location).loadDocuments().map(\.id),
-      [dailyNote.id]
-    )
-    XCTAssertEqual(
-      Set(
-        try StructuredNoteRepository.listNotes(libraryLocation: location).loadDocuments().map(\.id)),
-      [listNote.id]
-    )
-    XCTAssertEqual(
-      try repository.loadStructuredListNotesManifestForArchive(noteIDs: [listNote.id]),
-      listManifest
-    )
-
-    let safetyArchives = try FileManager.default.contentsOfDirectory(
-      at: location.restoreSafetyArchiveDirectoryURL(),
-      includingPropertiesForKeys: nil,
-      options: [.skipsHiddenFiles]
-    ).filter { $0.pathExtension == "zip" }
-    XCTAssertEqual(safetyArchives.count, 1)
-
-    let reportURLs = try FileManager.default.contentsOfDirectory(
-      at: location.migrationReportsDirectoryURL(),
-      includingPropertiesForKeys: nil,
-      options: [.skipsHiddenFiles]
-    ).filter { $0.pathExtension == "json" }
-    let reportURL = try XCTUnwrap(reportURLs.first)
-    let report = try JSONDecoder().decode(
-      StructuredLibraryMigrationReport.self,
-      from: Data(contentsOf: reportURL)
-    )
-    XCTAssertTrue(report.passedContentValidation)
-    XCTAssertTrue(report.legacyLibraryPreserved)
-    XCTAssertEqual(report.matchingDailyNoteCount, 1)
-    XCTAssertEqual(report.matchingListNoteCount, 1)
-    XCTAssertEqual(report.attachmentFolderCount, 1)
-    XCTAssertEqual(report.attachmentFileCount, 1)
-
-    var customizedManifest = try repository.loadStructuredListNotesManifestForArchive(
-      noteIDs: [listNote.id]
-    )
-    customizedManifest.groups[0].name = "Custom structured group"
-    try repository.saveStructuredListNotesManifest(customizedManifest)
-
-    store.upgradeFullLibraryToStructured()
-
-    XCTAssertEqual(
-      try repository.loadStructuredListNotesManifestForArchive(noteIDs: [listNote.id]),
-      customizedManifest
-    )
-    XCTAssertEqual(
-      try FileManager.default.contentsOfDirectory(
-        at: location.restoreSafetyArchiveDirectoryURL(),
-        includingPropertiesForKeys: nil,
-        options: [.skipsHiddenFiles]
-      ).filter { $0.pathExtension == "zip" }.count,
-      2
-    )
-    XCTAssertEqual(
-      try FileManager.default.contentsOfDirectory(
-        at: location.migrationReportsDirectoryURL(),
-        includingPropertiesForKeys: nil,
-        options: [.skipsHiddenFiles]
-      ).filter { $0.pathExtension == "json" }.count,
-      2
-    )
   }
 
   // Treats Markdown whitespace as content so migration validation cannot hide hard line breaks.
@@ -258,7 +130,7 @@ final class StructuredLibraryStage10Tests: NotesStoreTestCase {
       appearanceSettingsData: try JSONEncoder().encode(archivedAppearance),
       continuousSpellCheckingEnabled: false,
       newNoteDefaultRawValue: NewNoteDefault.copyPrevious.rawValue,
-      dailyNoteStorageModeRawValue: DailyNoteStorageMode.structuredExperimental.rawValue,
+      dailyNoteStorageModeRawValue: ScealArchiveAuthority.structured.rawValue,
       backupScheduleRawValue: BackupSchedule.weekly.rawValue,
       backupOnInactive: false,
       themeID: archivedAppearance.themeID,
@@ -430,7 +302,7 @@ final class StructuredLibraryStage10Tests: NotesStoreTestCase {
       appearanceSettingsData: try JSONEncoder().encode(appearance),
       continuousSpellCheckingEnabled: false,
       newNoteDefaultRawValue: NewNoteDefault.copyPrevious.rawValue,
-      dailyNoteStorageModeRawValue: DailyNoteStorageMode.structuredExperimental.rawValue,
+      dailyNoteStorageModeRawValue: ScealArchiveAuthority.structured.rawValue,
       backupScheduleRawValue: BackupSchedule.weekly.rawValue,
       backupOnInactive: false,
       themeID: appearance.themeID,
@@ -448,7 +320,6 @@ final class StructuredLibraryStage10Tests: NotesStoreTestCase {
     XCTAssertEqual(store.appearanceSettings.themeID, "default-light")
     XCTAssertFalse(store.continuousSpellCheckingEnabled)
     XCTAssertEqual(store.newNoteDefault, .copyPrevious)
-    XCTAssertEqual(store.dailyNoteStorageMode, .structuredExperimental)
     XCTAssertEqual(store.backupSettings.schedule, .weekly)
     XCTAssertFalse(store.backupSettings.backupOnInactive)
     XCTAssertEqual(store.backupSettings.folderBookmarkData, bookmark)
@@ -464,7 +335,7 @@ final class StructuredLibraryStage10Tests: NotesStoreTestCase {
       appearanceSettingsData: Data("{}".utf8),
       continuousSpellCheckingEnabled: true,
       newNoteDefaultRawValue: NewNoteDefault.blank.rawValue,
-      dailyNoteStorageModeRawValue: DailyNoteStorageMode.legacyMarkdown.rawValue,
+      dailyNoteStorageModeRawValue: ScealArchiveAuthority.legacy.rawValue,
       backupScheduleRawValue: BackupSchedule.manualOnly.rawValue,
       backupOnInactive: true,
       themeID: NoteAppearanceSettings.defaultThemeID,

@@ -37,19 +37,6 @@ enum UserMessageKind: Equatable {
   case info
 }
 
-#if DEBUG
-  private struct DemoReturnContext {
-    let sidebarMode: SidebarMode
-    let selectedNoteID: DayNote.ID?
-    let selectedListNoteID: DayNote.ID?
-    let searchText: String
-    let isSearchBarExpanded: Bool
-    let listSearchText: String
-    let isListSearchBarExpanded: Bool
-    let calendarBrowseYear: Int
-  }
-#endif
-
 @MainActor
 final class NotesStore: ObservableObject {
   @Published var sidebarMode: SidebarMode = .daily {
@@ -83,7 +70,6 @@ final class NotesStore: ObservableObject {
   @Published var progressMessage: String?
   @Published var backupHealth: BackupHealth
   @Published var isBackupRunning = false
-  @Published var dailyNoteStorageMode: DailyNoteStorageMode
   @Published var structuredNotesCutoverStatus: StructuredNotesCutoverStatus
   @Published var structuredNotesCutoverFailureDescription: String?
   @Published var structuredNotes: [StructuredNoteDocument] = []
@@ -94,15 +80,10 @@ final class NotesStore: ObservableObject {
   @Published var structuredListNotes: [StructuredNoteDocument] = []
   @Published var structuredListNoteManifest: ListNotesManifest = .empty
   @Published var selectedStructuredListNoteID: String?
+  @Published var listSearchText = ""
+  @Published var isListSearchBarExpanded = false
   #if DEBUG
     @Published var isDemoModeEnabled = false
-    @Published private(set) var demoNotes: [DayNote] = [] {
-      didSet {
-        guard isDemoModeEnabled else { return }
-        cachedMonthSections = nil
-        clampCalendarBrowseYear()
-      }
-    }
   #else
     var isDemoModeEnabled: Bool { false }
   #endif
@@ -117,29 +98,24 @@ final class NotesStore: ObservableObject {
   let settingsRepository: SettingsRepository
   let appearanceSettingsStore: AppearanceSettingsStore
   let backupSettingsStore: BackupSettingsStore
-  let dailyNotesStore: DailyNotesStore
   let editorPreferencesStore: EditorPreferencesStore
   let planAccessStore: PlanAccessStore
-  let listNotesStore: ListNotesStore
   let noteTemplatesStore: NoteTemplatesStore
   let archiveService: ArchiveService
   var hasLoaded = false
-  var hasLoadedLegacyNotes = false
   var hasLoadedStructuredNotes = false
   var hasLoadedStructuredListNotes = false
   var cachedMonthSections: [NoteMonthSection]?
-  private var pendingSaveTasks: [DayNote.ID: Task<Void, Never>] = [:]
   var pendingStructuredNoteSaveTasks: [StructuredNoteSaveKey: Task<Void, Never>] = [:]
-  var pendingListNoteSaveTasks: [DayNote.ID: Task<Void, Never>] = [:]
   private var periodicFlushTask: Task<Void, Never>?
   var periodicBackupCheckTask: Task<Void, Never>?
   private var userMessageDismissTask: Task<Void, Never>?
   #if DEBUG
-    private var demoReturnContext: DemoReturnContext?
     private var structuredDemoReturnContext:
       (
         location: ScealLibraryLocation, notes: [StructuredNoteDocument], selectedID: String?,
-        query: String, expanded: Bool, year: Int
+        query: String, expanded: Bool, year: Int, sidebarMode: SidebarMode,
+        listSelectedID: String?, listQuery: String, listExpanded: Bool
       )?
   #endif
 
@@ -154,7 +130,7 @@ final class NotesStore: ObservableObject {
     calendar: Calendar = .current,
     userDefaults: UserDefaults = .standard,
     libraryLocation: ScealLibraryLocation? = nil,
-    previewNotes: [DayNote] = [],
+    previewStructuredNotes: [StructuredNoteDocument] = [],
     enforcesStructuredCutover: Bool = NotesStore.defaultEnforcesStructuredCutover
   ) {
     self.fileManager = fileManager
@@ -163,10 +139,6 @@ final class NotesStore: ObservableObject {
     let resolvedSettingsRepository = SettingsRepository(userDefaults: userDefaults)
     self.settingsRepository = resolvedSettingsRepository
     let loadedCutoverStatus = resolvedSettingsRepository.loadStructuredNotesCutoverStatus()
-    let loadedStorageMode = resolvedSettingsRepository.loadDailyNoteStorageMode()
-    self.dailyNoteStorageMode =
-      enforcesStructuredCutover && loadedCutoverStatus != .completed
-      ? .legacyMarkdown : loadedStorageMode
     self.structuredNotesCutoverStatus = loadedCutoverStatus
     self.structuredNotesCutoverFailureDescription = nil
     self.appearanceSettingsStore = AppearanceSettingsStore(
@@ -180,7 +152,6 @@ final class NotesStore: ObservableObject {
       settingsRepository: resolvedSettingsRepository
     )
     self.planAccessStore = PlanAccessStore(settingsRepository: resolvedSettingsRepository)
-    self.listNotesStore = ListNotesStore()
     self.noteTemplatesStore = NoteTemplatesStore(settingsRepository: resolvedSettingsRepository)
     self.archiveService = ArchiveService(fileManager: fileManager)
     let resolvedLibraryLocation =
@@ -201,18 +172,15 @@ final class NotesStore: ObservableObject {
       libraryLocation: resolvedLibraryLocation,
       fileManager: fileManager
     )
-    let sortedNotes = previewNotes.sorted(by: { $0.date > $1.date })
+    let sortedNotes = previewStructuredNotes.sorted(by: { $0.date > $1.date })
     let loadedBackupSettings = resolvedBackupSettingsStore.settings
     let currentYear = calendar.component(.year, from: .now)
     self.structuredCalendarBrowseYear = currentYear
-    self.dailyNotesStore = DailyNotesStore(
-      notes: sortedNotes,
-      selectedNoteID: sortedNotes.first?.id,
-      calendarBrowseYear: currentYear
-    )
+    self.structuredNotes = sortedNotes
+    self.selectedStructuredNoteID = sortedNotes.first?.id
     self.backupHealth = loadedBackupSettings.isConfigured ? .healthy : .notConfigured
-    self.hasLoaded = !previewNotes.isEmpty
-    self.hasLoadedLegacyNotes = !previewNotes.isEmpty
+    self.hasLoaded = !previewStructuredNotes.isEmpty
+    self.hasLoadedStructuredNotes = !previewStructuredNotes.isEmpty
   }
 
   var featureAccess: AppFeatureAccess {
@@ -253,89 +221,40 @@ final class NotesStore: ObservableObject {
     return .blank
   }
 
-  var notes: [DayNote] {
-    get { dailyNotesStore.notes }
-    set {
-      objectWillChange.send()
-      dailyNotesStore.replaceNotes(newValue)
-      cachedMonthSections = nil
-      clampCalendarBrowseYear()
-    }
-  }
+  var notes: [DayNote] { structuredNoteSummaries }
 
   var selectedNoteID: DayNote.ID? {
-    get { dailyNotesStore.selectedNoteID }
+    get { selectedStructuredNoteID }
     set {
-      objectWillChange.send()
-      dailyNotesStore.selectNote(newValue)
-      guard sidebarMode == .calendar else { return }
-      syncCalendarBrowseYearToSelectedNote()
+      selectStructuredNote(newValue)
     }
   }
 
   var searchText: String {
-    get { dailyNotesStore.searchText }
-    set {
-      objectWillChange.send()
-      dailyNotesStore.updateSearchText(newValue)
-      cachedMonthSections = nil
-    }
+    get { structuredSearchText }
+    set { updateStructuredSearchText(newValue) }
   }
 
   var isSearchBarExpanded: Bool {
-    get { dailyNotesStore.isSearchBarExpanded }
-    set {
-      objectWillChange.send()
-      dailyNotesStore.updateSearchBarExpanded(newValue)
-    }
+    get { isStructuredSearchBarExpanded }
+    set { updateStructuredSearchBarExpanded(newValue) }
   }
 
   var calendarBrowseYear: Int {
-    get { dailyNotesStore.calendarBrowseYear }
-    set {
-      objectWillChange.send()
-      dailyNotesStore.updateCalendarBrowseYear(newValue)
-    }
+    get { structuredCalendarBrowseYear }
+    set { structuredCalendarBrowseYear = newValue }
   }
 
-  var listNotes: [DayNote] {
-    get { listNotesStore.notes }
-    set {
-      objectWillChange.send()
-      listNotesStore.replaceNotes(newValue)
-    }
-  }
+  var listNotes: [DayNote] { structuredListNoteSummaries }
 
   var listNoteManifest: ListNotesManifest {
-    get { listNotesStore.manifest }
-    set {
-      objectWillChange.send()
-      listNotesStore.replaceManifest(newValue)
-    }
+    get { structuredListNoteManifest }
+    set { structuredListNoteManifest = newValue }
   }
 
   var selectedListNoteID: DayNote.ID? {
-    get { listNotesStore.selectedNoteID }
-    set {
-      objectWillChange.send()
-      listNotesStore.selectNote(newValue)
-    }
-  }
-
-  var listSearchText: String {
-    get { listNotesStore.searchText }
-    set {
-      objectWillChange.send()
-      listNotesStore.updateSearchText(newValue)
-    }
-  }
-
-  var isListSearchBarExpanded: Bool {
-    get { listNotesStore.isSearchBarExpanded }
-    set {
-      objectWillChange.send()
-      listNotesStore.updateSearchBarExpanded(newValue)
-    }
+    get { selectedStructuredListNoteID }
+    set { selectStructuredListNote(newValue) }
   }
 
   // Returns whether the active plan can use the requested capability.
@@ -374,31 +293,21 @@ final class NotesStore: ObservableObject {
     periodicFlushTask?.cancel()
     periodicFlushTask = nil
 
-    for task in pendingSaveTasks.values {
-      task.cancel()
-    }
-    pendingSaveTasks.removeAll()
-
     for task in pendingStructuredNoteSaveTasks.values {
       task.cancel()
     }
     pendingStructuredNoteSaveTasks.removeAll()
-
-    for task in pendingListNoteSaveTasks.values {
-      task.cancel()
-    }
-    pendingListNoteSaveTasks.removeAll()
 
     periodicBackupCheckTask?.cancel()
     periodicBackupCheckTask = nil
   }
 
   var isSearchActive: Bool {
-    !activeDailySearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    !structuredSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 
   var dailyNotesForDisplay: [DayNote] {
-    displayedDailyNotes
+    structuredNoteSummaries
   }
 
   var isListModeAvailable: Bool {
@@ -417,20 +326,15 @@ final class NotesStore: ObservableObject {
   // The oldest/newest years available to the calendar browser, always including today.
   var calendarYearBounds: ClosedRange<Int> {
     let currentYear = calendar.component(.year, from: .now)
-    let noteYears = displayedDailyNotes.map { calendar.component(.year, from: $0.date) }
+    let noteYears = structuredNotes.map { calendar.component(.year, from: $0.date) }
     let minimumYear = min(noteYears.min() ?? currentYear, currentYear)
     let maximumYear = max(noteYears.max() ?? currentYear, currentYear)
     return minimumYear...maximumYear
   }
 
   func clearSearch() {
-    if isStructuredDailyNoteMode {
-      updateStructuredSearchText("")
-      updateStructuredSearchBarExpanded(false)
-    } else {
-      searchText = ""
-      isSearchBarExpanded = false
-    }
+    updateStructuredSearchText("")
+    updateStructuredSearchBarExpanded(false)
   }
 
   #if DEBUG
@@ -533,106 +437,64 @@ final class NotesStore: ObservableObject {
       }
     }
 
-    private func applyDeveloperLibrarySnapshot(_ snapshot: DeveloperLibrarySeedSnapshot) {
-      if enforcesStructuredCutover {
-        hasLoaded = false
-        hasLoadedStructuredNotes = false
-        hasLoadedStructuredListNotes = false
-        setStructuredCutoverStatus(.notStarted)
-        prepareStructuredCutoverForProductionLaunch()
-        return
-      }
-      notes = snapshot.dailyNotes
-      listNotes = snapshot.listNotes
-      listNoteManifest = snapshot.manifest
-      rebuildNoteIndex()
-      rebuildListNoteIndex()
+    private func applyDeveloperLibrarySnapshot(_: DeveloperLibrarySeedSnapshot) {
+      hasLoaded = false
+      hasLoadedStructuredNotes = false
+      hasLoadedStructuredListNotes = false
       sidebarMode = .daily
-      selectedNoteID = snapshot.dailyNotes.first?.id
-      selectedListNoteID = snapshot.listNotes.first?.id
-      searchText = ""
-      isSearchBarExpanded = false
+      structuredSearchText = ""
+      isStructuredSearchBarExpanded = false
       listSearchText = ""
       isListSearchBarExpanded = false
-      hasLoaded = true
+      setStructuredCutoverStatus(.notStarted)
+      prepareStructuredCutoverForProductionLaunch()
     }
 
     private func enableDemoMode(relativeTo referenceDate: Date) throws {
-      if enforcesStructuredCutover {
-        let location = ScealLibraryLocation.test(
-          rootURL: fileManager.temporaryDirectory.appendingPathComponent(
-            "sceal-demo-\(UUID().uuidString)"))
-        let documents = try DayNote.demoModeNotes(relativeTo: referenceDate, calendar: calendar)
-          .map(LegacyMarkdownStructuredNoteAdapter.importDocument)
-        let repository = StructuredNoteRepository(
-          libraryLocation: location, fileManager: fileManager)
-        for document in documents { try repository.save(document) }
-        try LibraryRepository(libraryLocation: location, fileManager: fileManager)
-          .saveStructuredListNotesManifest(.empty)
-        try StructuredLibraryState.markCompleted(at: location)
-        structuredDemoReturnContext = (
-          libraryLocation, structuredNotes, selectedStructuredNoteID, structuredSearchText,
-          isStructuredSearchBarExpanded, structuredCalendarBrowseYear
-        )
-        useDeveloperLibraryLocation(location)
-        structuredNotes = documents
-        selectedStructuredNoteID = documents.first?.id
-        structuredSearchText = ""
-        isStructuredSearchBarExpanded = false
-        structuredCalendarBrowseYear = calendar.component(.year, from: referenceDate)
-      }
-      demoReturnContext = DemoReturnContext(
-        sidebarMode: sidebarMode,
-        selectedNoteID: selectedNoteID,
-        selectedListNoteID: selectedListNoteID,
-        searchText: searchText,
-        isSearchBarExpanded: isSearchBarExpanded,
-        listSearchText: listSearchText,
-        isListSearchBarExpanded: isListSearchBarExpanded,
-        calendarBrowseYear: calendarBrowseYear
+      let location = ScealLibraryLocation.test(
+        rootURL: fileManager.temporaryDirectory.appendingPathComponent(
+          "sceal-demo-\(UUID().uuidString)"))
+      let documents = try DayNote.demoModeNotes(relativeTo: referenceDate, calendar: calendar)
+        .map(LegacyMarkdownStructuredNoteAdapter.importDocument)
+      let repository = StructuredNoteRepository(
+        libraryLocation: location, fileManager: fileManager)
+      for document in documents { try repository.save(document) }
+      try LibraryRepository(libraryLocation: location, fileManager: fileManager)
+        .saveStructuredListNotesManifest(.empty)
+      try StructuredLibraryState.markCompleted(at: location)
+      structuredDemoReturnContext = (
+        libraryLocation, structuredNotes, selectedStructuredNoteID, structuredSearchText,
+        isStructuredSearchBarExpanded, structuredCalendarBrowseYear, sidebarMode,
+        selectedStructuredListNoteID, listSearchText, isListSearchBarExpanded
       )
-
-      demoNotes = DayNote.demoModeNotes(relativeTo: referenceDate, calendar: calendar)
+      useDeveloperLibraryLocation(location)
+      structuredNotes = documents
+      selectedStructuredNoteID = documents.first?.id
+      structuredSearchText = ""
+      isStructuredSearchBarExpanded = false
+      structuredCalendarBrowseYear = calendar.component(.year, from: referenceDate)
       isDemoModeEnabled = true
       sidebarMode = .daily
-      selectedNoteID = demoNotes.first?.id
-      searchText = ""
-      isSearchBarExpanded = false
-      calendarBrowseYear = calendar.component(.year, from: demoNotes.first?.date ?? referenceDate)
     }
 
     private func disableDemoMode() {
-      if let context = structuredDemoReturnContext {
-        do { try flushPendingSavesForLibraryOperation() } catch {
-          report(error, context: "Leaving demo library failed")
-          return
-        }
-        useDeveloperLibraryLocation(context.location)
-        structuredNotes = context.notes
-        selectedStructuredNoteID = context.selectedID
-        structuredSearchText = context.query
-        isStructuredSearchBarExpanded = context.expanded
-        structuredCalendarBrowseYear = context.year
-        structuredDemoReturnContext = nil
-      }
-      let returnContext = demoReturnContext
-      demoReturnContext = nil
-      isDemoModeEnabled = false
-      demoNotes = []
-
-      guard let returnContext else {
-        selectedNoteID = notes.first?.id
+      guard let context = structuredDemoReturnContext else { return }
+      do { try flushPendingSavesForLibraryOperation() } catch {
+        report(error, context: "Leaving demo library failed")
         return
       }
-
-      selectedNoteID = returnContext.selectedNoteID
-      selectedListNoteID = returnContext.selectedListNoteID
-      sidebarMode = returnContext.sidebarMode
-      searchText = returnContext.searchText
-      isSearchBarExpanded = returnContext.isSearchBarExpanded
-      listSearchText = returnContext.listSearchText
-      isListSearchBarExpanded = returnContext.isListSearchBarExpanded
-      calendarBrowseYear = returnContext.calendarBrowseYear
+      useDeveloperLibraryLocation(context.location)
+      structuredNotes = context.notes
+      selectedStructuredNoteID = context.selectedID
+      structuredSearchText = context.query
+      isStructuredSearchBarExpanded = context.expanded
+      structuredCalendarBrowseYear = context.year
+      selectedStructuredListNoteID = context.listSelectedID
+      listSearchText = context.listQuery
+      isListSearchBarExpanded = context.listExpanded
+      sidebarMode = context.sidebarMode
+      structuredDemoReturnContext = nil
+      isDemoModeEnabled = false
     }
 
     // Only the demo workflow changes repositories, and always to a newly created disposable root.
@@ -647,23 +509,9 @@ final class NotesStore: ObservableObject {
     }
   #endif
 
-  private var activeDailyNotes: [DayNote] {
-    #if DEBUG
-      if isDemoModeEnabled {
-        return demoNotes
-      }
-    #endif
-
-    return notes
-  }
-
-  private var displayedDailyNotes: [DayNote] {
-    isStructuredDailyNoteMode ? structuredNoteSummaries : activeDailyNotes
-  }
-
   private var filteredNotes: [DayNote] {
-    let query = activeDailySearchText.trimmingCharacters(in: .whitespacesAndNewlines)
-    let dailyNotes = displayedDailyNotes
+    let query = structuredSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    let dailyNotes = structuredNoteSummaries
     guard !query.isEmpty else { return dailyNotes }
     return dailyNotes.filter { note in
       note.title.localizedCaseInsensitiveContains(query)
@@ -686,9 +534,7 @@ final class NotesStore: ObservableObject {
 
   // Groups notes by month for sidebar section display.
   var monthSections: [NoteMonthSection] {
-    if !isStructuredDailyNoteMode, let cachedMonthSections {
-      return cachedMonthSections
-    }
+    if let cachedMonthSections { return cachedMonthSections }
 
     let groupedNotes = Dictionary(grouping: filteredNotes) { note in
       calendar.date(from: calendar.dateComponents([.year, .month], from: note.date))
@@ -704,24 +550,15 @@ final class NotesStore: ObservableObject {
         )
       }
       .sorted(by: { $0.monthStartDate > $1.monthStartDate })
-    if !isStructuredDailyNoteMode {
-      cachedMonthSections = builtSections
-    }
+    cachedMonthSections = builtSections
     return builtSections
   }
 
   // Whether a note already exists for today's date.
   var hasTodayNote: Bool {
-    displayedDailyNotes.contains(where: { $0.id == dayID(for: .now) })
-  }
-
-  // The currently selected note, if any.
-  var selectedNote: DayNote? {
-    guard let selectedNoteID else {
-      return nil
-    }
-
-    return note(withID: selectedNoteID)
+    structuredNotes.contains(where: {
+      $0.id == NoteDateFormatters.storageDate.string(from: calendar.startOfDay(for: .now))
+    })
   }
 
   // Loads notes from disk on first call, seeds starter notes if empty.
@@ -744,19 +581,14 @@ final class NotesStore: ObservableObject {
     isLoading = true
     defer { isLoading = false }
 
-    if enforcesStructuredCutover {
-      do {
-        try loadStructuredDailyNotesIfNeeded()
-        try loadStructuredListNotesIfNeeded()
-      } catch {
-        structuredNotesCutoverFailureDescription = error.localizedDescription
-        setStructuredCutoverStatus(.recoveryRequired)
-        report(error, context: "Opening the structured library failed")
-        return
-      }
-    } else {
-      loadSelectedDailyNoteStore()
-      loadListNotesIfNeeded()
+    do {
+      try loadStructuredDailyNotesIfNeeded()
+      try loadStructuredListNotesIfNeeded()
+    } catch {
+      structuredNotesCutoverFailureDescription = error.localizedDescription
+      setStructuredCutoverStatus(.recoveryRequired)
+      report(error, context: "Opening the structured library failed")
+      return
     }
 
     hasLoaded = true
@@ -768,78 +600,31 @@ final class NotesStore: ObservableObject {
 
   // Creates today's note if needed and selects it.
   func selectToday() {
-    if isStructuredDailyNoteMode {
-      selectStructuredDailyDate(.now)
-      return
-    }
-
-    #if DEBUG
-      if isDemoModeEnabled {
-        selectedNoteID = demoNotes.first?.id
-        if let date = demoNotes.first?.date {
-          calendarBrowseYear = calendar.component(.year, from: date)
-        }
-        return
-      }
-    #endif
-
-    do {
-      try ensureTodayNoteExists()
-      selectedNoteID = dayID(for: .now)
-      calendarBrowseYear = calendar.component(.year, from: .now)
-    } catch {
-      report(error, context: "Opening today's note failed")
-    }
+    selectStructuredDailyDate(.now)
   }
 
   // Opens an existing daily note for the target date, creating a blank one when missing.
   func openDailyDate(_ date: Date) {
-    let targetDate = calendar.startOfDay(for: date)
-
-    if isStructuredDailyNoteMode {
-      selectStructuredDailyDate(targetDate)
-      return
-    }
-
-    #if DEBUG
-      if isDemoModeEnabled {
-        guard let note = dailyNote(on: targetDate) else {
-          userMessage = (text: "Demo Library only includes the sample notes.", kind: .info)
-          return
-        }
-
-        selectedNoteID = note.id
-        calendarBrowseYear = calendar.component(.year, from: targetDate)
-        return
-      }
-    #endif
-
-    do {
-      let note = try ensureDailyNoteExists(
-        for: targetDate, applyTodayDefault: calendar.isDateInToday(targetDate))
-      selectedNoteID = note.id
-      calendarBrowseYear = calendar.component(.year, from: targetDate)
-    } catch {
-      report(error, context: "Opening note failed")
-    }
+    selectStructuredDailyDate(calendar.startOfDay(for: date))
   }
 
   // Returns the daily note saved for a date, if one exists.
   func dailyNote(on date: Date) -> DayNote? {
-    displayedDailyNotes.first(where: { $0.id == dayID(for: date) })
+    let noteID = NoteDateFormatters.storageDate.string(from: calendar.startOfDay(for: date))
+    return structuredNoteSummaries.first(where: { $0.id == noteID })
   }
 
   // Steps the visible calendar year while staying inside the available note range.
   func browseCalendarYear(by delta: Int) {
     let bounds = calendarYearBounds
-    let currentYear = activeDailyCalendarBrowseYear
+    let currentYear = structuredCalendarBrowseYear
     let targetYear = min(max(currentYear + delta, bounds.lowerBound), bounds.upperBound)
-    updateActiveDailyCalendarBrowseYear(targetYear)
+    structuredCalendarBrowseYear = targetYear
   }
 
   // Whether a one-step year navigation stays inside the available note range.
   func canBrowseCalendarYear(by delta: Int) -> Bool {
-    calendarYearBounds.contains(activeDailyCalendarBrowseYear + delta)
+    calendarYearBounds.contains(structuredCalendarBrowseYear + delta)
   }
 
   // Clears the current user-facing message banner.
@@ -876,14 +661,7 @@ final class NotesStore: ObservableObject {
   // Immediately writes all debounced saves to disk.
   func flushPendingSaves() {
     guard !isLibraryRecoveryBlocked else { return }
-    let noteIDs = Array(pendingSaveTasks.keys)
-
-    for noteID in noteIDs {
-      flushPendingSave(for: noteID)
-    }
-
     flushAllPendingStructuredNoteSaves()
-    flushAllPendingListNoteSaves()
   }
 
   // A file operation must not snapshot old disk content or replace retryable unsaved edits.
@@ -893,10 +671,7 @@ final class NotesStore: ObservableObject {
         == nil
     else { throw LibraryInstallTransactionError.pendingRecovery }
     flushPendingSaves()
-    guard pendingSaveTasks.isEmpty,
-      pendingStructuredNoteSaveTasks.isEmpty,
-      pendingListNoteSaveTasks.isEmpty
-    else {
+    guard pendingStructuredNoteSaveTasks.isEmpty else {
       throw LibraryOperationError.pendingChanges
     }
   }
@@ -936,30 +711,15 @@ final class NotesStore: ObservableObject {
     }
   }
 
-  // Looks up a note by ID using the fast index, falling back to linear search.
-  func note(withID noteID: DayNote.ID) -> DayNote? {
-    #if DEBUG
-      if isDemoModeEnabled {
-        return demoNotes.first(where: { $0.id == noteID })
-      }
-    #endif
-
-    return dailyNotesStore.note(withID: noteID)
-  }
-
   // Sets the selected note ID.
   func select(noteID: DayNote.ID) {
-    if isStructuredDailyNoteMode {
-      selectStructuredNote(noteID)
-    } else {
-      selectedNoteID = noteID
-    }
+    selectStructuredNote(noteID)
   }
 
   // Selects the next newer note (earlier in date-descending array).
   func selectNextNote() {
-    let dailyNotes = displayedDailyNotes
-    guard let currentID = activeDailySelectedNoteID,
+    let dailyNotes = structuredNoteSummaries
+    guard let currentID = selectedStructuredNoteID,
       let currentIndex = dailyNotes.firstIndex(where: { $0.id == currentID }),
       currentIndex > dailyNotes.startIndex
     else { return }
@@ -968,8 +728,8 @@ final class NotesStore: ObservableObject {
 
   // Selects the next older note (later in date-descending array).
   func selectPreviousNote() {
-    let dailyNotes = displayedDailyNotes
-    guard let currentID = activeDailySelectedNoteID,
+    let dailyNotes = structuredNoteSummaries
+    guard let currentID = selectedStructuredNoteID,
       let currentIndex = dailyNotes.firstIndex(where: { $0.id == currentID }),
       dailyNotes.indices.contains(currentIndex + 1)
     else { return }
@@ -995,219 +755,17 @@ final class NotesStore: ObservableObject {
 
   // Moves a note to a new date by re-creating it with the target date's ID and file.
   func changeDate(noteID: DayNote.ID, to newDate: Date) {
-    if isStructuredDailyNoteMode {
-      changeStructuredNoteDate(noteID: noteID, to: newDate)
-      return
-    }
-
-    #if DEBUG
-      if isDemoModeEnabled {
-        userMessage = (text: "Demo Library notes cannot be moved.", kind: .info)
-        return
-      }
-    #endif
-
-    let targetDate = calendar.startOfDay(for: newDate)
-    let targetID = dayID(for: targetDate)
-
-    guard let sourceNote = note(withID: noteID) else { return }
-
-    if note(withID: targetID) != nil {
-      let formatted = NoteDateFormatters.editorDate.string(from: targetDate)
-      userMessage = (text: "A note already exists for \(formatted).", kind: .error)
-      return
-    }
-
-    flushPendingSave(for: noteID)
-
-    let movedNote = DayNote(
-      date: targetDate,
-      title: sourceNote.title,
-      tags: sourceNote.tags,
-      body: NoteImageAttachmentStore.rewritingAttachmentReferences(
-        in: sourceNote.body,
-        from: sourceNote.id,
-        to: targetID
-      )
-    )
-
-    do {
-      try save(movedNote)
-      try libraryRepository.moveAttachments(
-        from: sourceNote.id,
-        to: movedNote.id
-      )
-      try deleteFile(for: sourceNote)
-    } catch {
-      report(error, context: "Changing note date failed")
-      return
-    }
-
-    notes.removeAll(where: { $0.id == noteID })
-    notes.append(movedNote)
-    notes.sort(by: { $0.date > $1.date })
-    rebuildNoteIndex()
-    selectedNoteID = movedNote.id
+    changeStructuredNoteDate(noteID: noteID, to: newDate)
   }
 
   // Deletes the requested note so shared UI flows can confirm destructive actions centrally.
   func delete(noteID: DayNote.ID) {
-    if isStructuredDailyNoteMode {
-      deleteStructuredNote(noteID: noteID)
-      return
-    }
-
-    #if DEBUG
-      if isDemoModeEnabled {
-        userMessage = (text: "Demo Library notes cannot be deleted.", kind: .info)
-        return
-      }
-    #endif
-
-    guard let note = note(withID: noteID) else {
-      return
-    }
-
-    let adjacentNoteIDs = adjacentNoteIDs(for: noteID)
-    flushPendingSave(for: noteID)
-
-    do {
-      try deleteFile(for: note)
-      try libraryRepository.deleteAttachments(for: note.id)
-    } catch {
-      report(error, context: "Deleting note failed")
-      return
-    }
-
-    notes.removeAll(where: { $0.id == noteID })
-    rebuildNoteIndex()
-
-    if notes.isEmpty {
-      do {
-        try seedStarterNotes()
-        selectedNoteID = notes.first?.id
-        userMessage = nil
-      } catch {
-        report(error, context: "Loading sample notes after delete failed")
-        selectedNoteID = nil
-      }
-      return
-    }
-
-    selectedNoteID = adjacentNoteIDs.previous ?? adjacentNoteIDs.next ?? notes.first?.id
+    deleteStructuredNote(noteID: noteID)
   }
 
   // Returns the nearest older and newer notes so header arrows only step through saved notes.
   func adjacentNoteIDs(for noteID: DayNote.ID) -> (previous: DayNote.ID?, next: DayNote.ID?) {
-    let dailyNotes = activeDailyNotes
-    guard let currentIndex = dailyNotes.firstIndex(where: { $0.id == noteID }) else {
-      return (nil, nil)
-    }
-
-    let previousNoteID =
-      dailyNotes.indices.contains(currentIndex + 1) ? dailyNotes[currentIndex + 1].id : nil
-    let nextNoteID = currentIndex > dailyNotes.startIndex ? dailyNotes[currentIndex - 1].id : nil
-
-    return (previousNoteID, nextNoteID)
-  }
-
-  // Two-way binding for the note body, auto-saving on change.
-  func bodyBinding(for noteID: DayNote.ID) -> Binding<String> {
-    Binding(
-      get: { self.note(withID: noteID)?.body ?? "" },
-      set: { self.updateBody($0, for: noteID) }
-    )
-  }
-
-  // Reads all .md files from the notes directory and seeds if empty.
-  private func loadNotes() throws {
-    let loadedNotes = try libraryRepository.loadDailyNotes()
-    if loadedNotes.isEmpty {
-      try seedStarterNotes()
-    } else {
-      notes = loadedNotes
-      rebuildNoteIndex()
-    }
-
-    selectedNoteID = notes.first?.id
-  }
-
-  // Loads the legacy Markdown library at most once while retaining its independent selection.
-  func loadLegacyDailyNotesIfNeeded() throws {
-    guard !hasLoadedLegacyNotes else { return }
-    try loadNotes()
-    hasLoadedLegacyNotes = true
-  }
-
-  // Seeds recent example notes so the first launch shows formatting features immediately.
-  private func seedStarterNotes() throws {
-    let sampleNotes = DayNote.sampleSeedNotes(relativeTo: .now, calendar: calendar)
-
-    for note in sampleNotes {
-      try save(note)
-    }
-
-    notes = sampleNotes
-    rebuildNoteIndex()
-  }
-
-  // Creates today's note (blank or copy-previous) if it doesn't exist.
-  private func ensureTodayNoteExists() throws {
-    _ = try ensureDailyNoteExists(for: .now, applyTodayDefault: true)
-  }
-
-  // Creates a daily note for the date when missing and returns the existing or new note.
-  private func ensureDailyNoteExists(for date: Date, applyTodayDefault: Bool) throws -> DayNote {
-    let targetDate = calendar.startOfDay(for: date)
-    let targetID = dayID(for: targetDate)
-
-    if let existingNote = note(withID: targetID) {
-      return existingNote
-    }
-
-    let newNote = makeDailyNote(for: targetDate, applyTodayDefault: applyTodayDefault)
-    notes = ([newNote] + notes).sorted(by: { $0.date > $1.date })
-    rebuildNoteIndex()
-    try save(newNote)
-    return newNote
-  }
-
-  // Builds a day note using the configured default when creating today's note.
-  private func makeDailyNote(for date: Date, applyTodayDefault: Bool) -> DayNote {
-    let startOfDay = calendar.startOfDay(for: date)
-
-    guard applyTodayDefault else {
-      return DayNote.empty(for: startOfDay, calendar: calendar)
-    }
-
-    if case .copyPrevious = effectiveNewNoteDefault, let mostRecent = notes.first {
-      return DayNote(
-        date: startOfDay,
-        title: mostRecent.title,
-        tags: mostRecent.tags,
-        body: mostRecent.body
-      )
-    }
-
-    if case .template(let templateID) = effectiveNewNoteDefault,
-      let template = noteTemplate(withID: templateID)
-    {
-      return DayNote(
-        date: startOfDay,
-        title: "",
-        tags: [],
-        body: template.resolvedBodyForInsertion
-      )
-    }
-
-    return DayNote.empty(for: startOfDay, calendar: calendar)
-  }
-
-  // Updates a note's body and schedules a save.
-  private func updateBody(_ body: String, for noteID: DayNote.ID) {
-    update(noteID: noteID) { note in
-      note.body = body
-    }
+    adjacentStructuredNoteIDs(for: noteID)
   }
 
   // Applies a mutation to appearance settings, clamps, and persists.
@@ -1219,87 +777,6 @@ final class NotesStore: ObservableObject {
     } catch {
       report(error, context: "Saving appearance settings failed")
     }
-  }
-
-  // Applies a mutation to a note, rebuilds the index, and schedules a save.
-  private func update(noteID: DayNote.ID, mutate: (inout DayNote) -> Void) {
-    #if DEBUG
-      if isDemoModeEnabled {
-        guard let index = demoNotes.firstIndex(where: { $0.id == noteID }) else {
-          return
-        }
-
-        var updatedNotes = demoNotes
-        mutate(&updatedNotes[index])
-        demoNotes = updatedNotes
-        return
-      }
-    #endif
-
-    guard let index = notes.firstIndex(where: { $0.id == noteID }) else {
-      return
-    }
-
-    var updatedNotes = notes
-    mutate(&updatedNotes[index])
-    notes = updatedNotes
-    rebuildNoteIndex()
-    scheduleSave(for: noteID)
-  }
-
-  // Debounces saves at 350ms to avoid excessive disk writes.
-  private func scheduleSave(for noteID: DayNote.ID) {
-    pendingSaveTasks[noteID]?.cancel()
-    pendingSaveTasks[noteID] = Task { [weak self] in
-      try? await Task.sleep(nanoseconds: 350_000_000)
-      guard !Task.isCancelled else {
-        return
-      }
-
-      self?.persistPendingSave(for: noteID)
-    }
-  }
-
-  // Writes a single pending note to disk.
-  private func persistPendingSave(for noteID: DayNote.ID) {
-    guard let note = note(withID: noteID) else {
-      pendingSaveTasks[noteID] = nil
-      return
-    }
-
-    do {
-      try save(note)
-      pendingSaveTasks[noteID] = nil
-    } catch {
-      report(error, context: "Saving note failed")
-    }
-  }
-
-  // Cancels debounce and immediately writes a single note.
-  private func flushPendingSave(for noteID: DayNote.ID) {
-    guard let pendingTask = pendingSaveTasks[noteID] else { return }
-    pendingTask.cancel()
-    persistPendingSave(for: noteID)
-  }
-
-  // Encodes and writes a note to its markdown file.
-  func save(_ note: DayNote) throws {
-    try libraryRepository.saveDailyNote(note)
-  }
-
-  // Removes the markdown file for a note from disk.
-  private func deleteFile(for note: DayNote) throws {
-    try libraryRepository.deleteDailyNoteFile(for: note)
-  }
-
-  // Returns the notes directory, creating it if needed.
-  func notesDirectoryURL() throws -> URL {
-    try libraryRepository.dailyNotesDirectoryURL()
-  }
-
-  // Formats a date as the YYYY-MM-DD storage key.
-  private func dayID(for date: Date) -> DayNote.ID {
-    NoteDateFormatters.storageDate.string(from: calendar.startOfDay(for: date))
   }
 
   // Splits, trims, and deduplicates a raw comma-separated tags string.
@@ -1324,11 +801,6 @@ final class NotesStore: ObservableObject {
     return normalizedTags
   }
 
-  // Rebuilds the ID-to-array-index lookup dictionary.
-  func rebuildNoteIndex() {
-    dailyNotesStore.rebuildNoteIndex()
-  }
-
   // Keeps the visible calendar year inside the available note range after note changes.
   private func clampCalendarBrowseYear() {
     let bounds = calendarYearBounds
@@ -1341,8 +813,8 @@ final class NotesStore: ObservableObject {
 
   // When calendar mode is active, the grid follows the currently selected daily note.
   private func syncCalendarBrowseYearToSelectedNote() {
-    if let selectedNote {
-      calendarBrowseYear = calendar.component(.year, from: selectedNote.date)
+    if let selectedStructuredNote {
+      structuredCalendarBrowseYear = calendar.component(.year, from: selectedStructuredNote.date)
     } else {
       clampCalendarBrowseYear()
     }

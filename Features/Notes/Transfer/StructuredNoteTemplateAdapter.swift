@@ -69,6 +69,9 @@ enum StructuredNoteTemplateAdapter {
       }
     } else {
       let firstTemplateSection = insertedSections.removeFirst()
+      if firstTemplateSection.styleOverrides != .inherited {
+        retainedSection.styleOverrides = firstTemplateSection.styleOverrides
+      }
       retainedSection.markdown =
         request.leadingMarkdown
         + preservingReplacedLineBreak(

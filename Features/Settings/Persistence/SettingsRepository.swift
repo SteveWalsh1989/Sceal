@@ -15,7 +15,6 @@ struct SettingsRepository {
     static let backupSettings = "sceal.backupSettings"
     static let noteTemplates = "sceal.noteTemplates"
     static let noteTemplatesSeeded = "sceal.noteTemplatesSeeded"
-    static let dailyNoteStorageMode = "sceal.dailyNoteStorageMode"
     static let structuredNotesCutoverStatus = "sceal.structuredNotesCutoverStatus"
     static let settingsSidebarWidth = "settings.sidebarWidth"
     static let templatesListWidth = "settings.templates.listWidth"
@@ -71,28 +70,6 @@ struct SettingsRepository {
   // Persists the new-note default preference.
   func saveNewNoteDefault(_ value: NewNoteDefault) {
     userDefaults.set(value.rawValue, forKey: Keys.newNoteDefault)
-  }
-
-  // Reads the experimental daily-note storage mode, defaulting to the legacy app behavior.
-  func loadDailyNoteStorageMode() -> DailyNoteStorageMode {
-    loadSavedDailyNoteStorageMode() ?? .legacyMarkdown
-  }
-
-  // Distinguishes the temporary explicit rollback choice from lost or absent preferences.
-  func loadSavedDailyNoteStorageMode() -> DailyNoteStorageMode? {
-    guard
-      let rawValue = userDefaults.string(forKey: Keys.dailyNoteStorageMode),
-      let mode = DailyNoteStorageMode(rawValue: rawValue)
-    else {
-      return nil
-    }
-
-    return mode
-  }
-
-  // Persists the explicit experimental selection between isolated daily-note stores.
-  func saveDailyNoteStorageMode(_ mode: DailyNoteStorageMode) {
-    userDefaults.set(mode.rawValue, forKey: Keys.dailyNoteStorageMode)
   }
 
   // Reads the production conversion gate without inferring success from an old mode toggle.

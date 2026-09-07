@@ -73,47 +73,11 @@ final class NotesStoreModeTests: NotesStoreTestCase {
   func testActiveSelectedNoteIDUsesListSelection() {
     let store = makeStore(previewNotes: [makeDailyNote(year: 2026, month: 4, day: 1)])
     let listNote = makeListNote(id: "2026-04-01-aaaaaa", year: 2026, month: 4, day: 1)
-    store.listNotes = [listNote]
-    store.rebuildListNoteIndex()
+    store.structuredListNotes = makeStructuredDocuments(from: [listNote])
     store.sidebarMode = .list
     store.selectedListNoteID = listNote.id
 
     XCTAssertEqual(store.activeSelectedNoteID, listNote.id)
-  }
-
-  // Prevents the editor from resolving the wrong note when daily mode is active.
-  func testActiveNoteUsesDailySelection() {
-    let note = makeDailyNote(year: 2026, month: 4, day: 1, title: "Daily")
-    let store = makeStore(previewNotes: [note])
-
-    store.sidebarMode = .daily
-    store.selectedNoteID = note.id
-
-    XCTAssertEqual(store.activeNote?.id, note.id)
-  }
-
-  // Prevents the calendar sidebar from resolving the wrong daily note in the editor.
-  func testActiveNoteUsesCalendarSelection() {
-    let note = makeDailyNote(year: 2025, month: 2, day: 14, title: "Calendar")
-    let store = makeStore(previewNotes: [note])
-
-    store.sidebarMode = .calendar
-    store.selectedNoteID = note.id
-
-    XCTAssertEqual(store.activeNote?.id, note.id)
-  }
-
-  // Prevents the editor from resolving the wrong note when list mode is active.
-  func testActiveNoteUsesListSelection() {
-    let store = makeStore(previewNotes: [makeDailyNote(year: 2026, month: 4, day: 1)])
-    let listNote = makeListNote(
-      id: "2026-04-01-bbbbbb", year: 2026, month: 4, day: 1, title: "List")
-    store.listNotes = [listNote]
-    store.rebuildListNoteIndex()
-    store.sidebarMode = .list
-    store.selectedListNoteID = listNote.id
-
-    XCTAssertEqual(store.activeNote?.id, listNote.id)
   }
 
   // Prevents the shared search bar from writing into the wrong daily search state.
@@ -158,8 +122,7 @@ final class NotesStoreModeTests: NotesStoreTestCase {
     let bodyNote = makeListNote(
       id: "2026-04-01-cccccc", year: 2026, month: 4, day: 1, body: "gamma")
     let store = makeStore(previewNotes: [makeDailyNote(year: 2026, month: 4, day: 1)])
-    store.listNotes = [titleNote, tagNote, bodyNote]
-    store.rebuildListNoteIndex()
+    store.structuredListNotes = makeStructuredDocuments(from: [titleNote, tagNote, bodyNote])
 
     store.listSearchText = "beta"
     XCTAssertEqual(store.filteredListNotes.map(\.id), [tagNote.id])
@@ -181,8 +144,7 @@ final class NotesStoreModeTests: NotesStoreTestCase {
       body: "<!-- section bullet:blue usesectioncolor:true -->\nVisible text"
     )
     let store = makeStore(previewNotes: [makeDailyNote(year: 2026, month: 4, day: 1)])
-    store.listNotes = [listNote]
-    store.rebuildListNoteIndex()
+    store.structuredListNotes = makeStructuredDocuments(from: [listNote])
 
     store.listSearchText = "bullet:blue"
     XCTAssertTrue(store.filteredListNotes.isEmpty)
@@ -197,8 +159,7 @@ final class NotesStoreModeTests: NotesStoreTestCase {
     let second = makeListNote(id: "2026-04-01-bbbbbb", year: 2026, month: 4, day: 1)
     let third = makeListNote(id: "2026-03-31-cccccc", year: 2026, month: 3, day: 31)
     let store = makeStore(previewNotes: [makeDailyNote(year: 2026, month: 4, day: 2)])
-    store.listNotes = [first, second, third]
-    store.rebuildListNoteIndex()
+    store.structuredListNotes = makeStructuredDocuments(from: [first, second, third])
     store.listNoteManifest = ListNotesManifest(
       ungroupedNoteIDs: [first.id],
       groups: [NoteGroup(name: "Work", noteIDs: [second.id, third.id])]
@@ -216,8 +177,7 @@ final class NotesStoreModeTests: NotesStoreTestCase {
     let second = makeListNote(id: "2026-04-01-bbbbbb", year: 2026, month: 4, day: 1)
     let third = makeListNote(id: "2026-03-31-cccccc", year: 2026, month: 3, day: 31)
     let store = makeStore(previewNotes: [makeDailyNote(year: 2026, month: 4, day: 2)])
-    store.listNotes = [first, second, third]
-    store.rebuildListNoteIndex()
+    store.structuredListNotes = makeStructuredDocuments(from: [first, second, third])
     store.listNoteManifest = ListNotesManifest(
       ungroupedNoteIDs: [first.id],
       groups: [NoteGroup(name: "Work", noteIDs: [second.id, third.id])]
@@ -235,8 +195,7 @@ final class NotesStoreModeTests: NotesStoreTestCase {
     let second = makeListNote(id: "2026-04-01-bbbbbb", year: 2026, month: 4, day: 1)
     let hidden = makeListNote(id: "2026-03-31-cccccc", year: 2026, month: 3, day: 31)
     let store = makeStore(previewNotes: [makeDailyNote(year: 2026, month: 4, day: 2)])
-    store.listNotes = [first, second, hidden]
-    store.rebuildListNoteIndex()
+    store.structuredListNotes = makeStructuredDocuments(from: [first, second, hidden])
     store.listNoteManifest = ListNotesManifest(
       ungroupedNoteIDs: [first.id, second.id],
       groups: [NoteGroup(name: "Hidden", noteIDs: [hidden.id], isCollapsed: true)]

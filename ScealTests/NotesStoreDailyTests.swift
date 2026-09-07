@@ -92,15 +92,16 @@ final class NotesStoreDailyTests: NotesStoreTestCase {
     store.selectToday()
 
     let note = store.dailyNote(on: .now)
-    XCTAssertEqual(
-      note?.body,
-      [
-        "<!-- section heading:blue bullet:blue usesectioncolor:true -->",
-        "# Daily plan",
-        "",
-        "- ",
-      ].joined(separator: "\n")
-    )
+    XCTAssertEqual(note?.body, "# Daily plan\n\n- ")
+    guard case .section(let section) = store.selectedStructuredNote?.nodes.first else {
+      return XCTFail("Expected the template to create a structured section.")
+    }
+    XCTAssertEqual(section.styleOverrides.effectiveColorOverride(for: .heading), .colorName("blue"))
+    XCTAssertEqual(section.styleOverrides.effectiveColorOverride(for: .border), .colorName("blue"))
+    XCTAssertEqual(section.styleOverrides.effectiveColorOverride(for: .bullet), .colorName("blue"))
+    XCTAssertTrue(section.styleOverrides.followsPrimaryColor(.heading))
+    XCTAssertTrue(section.styleOverrides.followsPrimaryColor(.border))
+    XCTAssertTrue(section.styleOverrides.followsPrimaryColor(.bullet))
   }
 
   // Prevents the calendar year browser from excluding the current year when all notes are older.

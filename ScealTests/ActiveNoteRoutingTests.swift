@@ -6,28 +6,20 @@ final class ActiveNoteRoutingTests: XCTestCase {
   // Keeps calendar and daily sidebar modes pointed at the daily-note route.
   func testDailySidebarModesUseDailyRoute() {
     XCTAssertEqual(
-      ActiveNoteRouting.route(for: .daily, isDemoModeEnabled: false),
+      ActiveNoteRouting.route(for: .daily),
       .daily
     )
     XCTAssertEqual(
-      ActiveNoteRouting.route(for: .calendar, isDemoModeEnabled: false),
+      ActiveNoteRouting.route(for: .calendar),
       .daily
     )
   }
 
-  // Keeps list sidebar mode pointed at list notes outside demo mode.
+  // Keeps list sidebar mode pointed at list notes.
   func testListSidebarModeUsesListRoute() {
     XCTAssertEqual(
-      ActiveNoteRouting.route(for: .list, isDemoModeEnabled: false),
+      ActiveNoteRouting.route(for: .list),
       .list
-    )
-  }
-
-  // Prevents demo mode from routing editor state into real list notes.
-  func testDemoModeUsesDailyRoute() {
-    XCTAssertEqual(
-      ActiveNoteRouting.route(for: .list, isDemoModeEnabled: true),
-      .daily
     )
   }
 

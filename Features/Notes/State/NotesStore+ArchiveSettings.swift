@@ -11,8 +11,6 @@ extension NotesStore {
   // Validate active documents while preserving retained Markdown as uninterpreted recovery bytes.
   func makeLibrarySnapshot() throws -> ScealLibrarySnapshot {
     try flushPendingSavesForLibraryOperation()
-    let authority: ScealArchiveAuthority = isStructuredDailyNoteMode ? .structured : .legacy
-    let legacy = authority == .legacy ? try libraryRepository.loadArchiveSourceSnapshot() : nil
     let sourceFiles = try LegacyArchiveSourceFiles.read(
       dailyURL: libraryLocation.legacyNotesDirectoryURL,
       listURL: libraryLocation.rootURL.appendingPathComponent(
@@ -25,26 +23,26 @@ extension NotesStore {
       noteIDs: Set(structuredList.map(\.id))
     )
     return ScealLibrarySnapshot(
-      legacyDailyNotes: legacy?.dailyNotes ?? [],
-      legacyListNotes: legacy?.listNotes ?? [],
-      legacyListManifest: legacy?.listManifest ?? .empty,
+      legacyDailyNotes: [],
+      legacyListNotes: [],
+      legacyListManifest: .empty,
       structuredDailyNotes: structuredDaily,
       structuredListNotes: structuredList,
       structuredListManifest: structuredManifest,
       templates: noteTemplates,
       settings: try makeArchiveSettings(),
-      authority: authority,
+      authority: .structured,
       legacySourceFiles: sourceFiles
     )
   }
 
-  // Encodes appearance, theme, editor, mode, and safe backup behavior for a v2 archive.
+  // Encodes appearance, theme, editor, and safe backup behavior for a v2 archive.
   func makeArchiveSettings() throws -> ScealArchiveSettings {
     ScealArchiveSettings(
       appearanceSettingsData: try JSONEncoder().encode(appearanceSettings),
       continuousSpellCheckingEnabled: continuousSpellCheckingEnabled,
       newNoteDefaultRawValue: newNoteDefault.rawValue,
-      dailyNoteStorageModeRawValue: dailyNoteStorageMode.rawValue,
+      dailyNoteStorageModeRawValue: ScealArchiveAuthority.structured.rawValue,
       backupScheduleRawValue: backupSettings.schedule.rawValue,
       backupOnInactive: backupSettings.backupOnInactive,
       themeID: appearanceSettings.themeID,
@@ -61,7 +59,6 @@ extension NotesStore {
       from: settings.appearanceSettingsData
     )
     guard let newNoteDefault = NewNoteDefault(rawValue: settings.newNoteDefaultRawValue),
-      let storageMode = DailyNoteStorageMode(rawValue: settings.dailyNoteStorageModeRawValue),
       let backupSchedule = BackupSchedule(rawValue: settings.backupScheduleRawValue)
     else {
       throw ScealArchiveSettingsError.invalidAppearanceSettings
@@ -77,8 +74,6 @@ extension NotesStore {
       schedule: backupSchedule,
       backupOnInactive: settings.backupOnInactive
     )
-    dailyNoteStorageMode = storageMode
-    settingsRepository.saveDailyNoteStorageMode(storageMode)
     settingsRepository.saveArchiveLayoutSettings(settings.layoutSettings)
     refreshBackupHealth()
   }

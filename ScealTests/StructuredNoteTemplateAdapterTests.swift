@@ -67,6 +67,34 @@ final class StructuredNoteTemplateAdapterTests: XCTestCase {
     XCTAssertEqual(result.focusSectionID, result.sections.last?.id)
   }
 
+  // A template color styles the retained section when insertion does not create a sibling.
+  func testInlineTemplateAppliesItsConfiguredSectionColor() throws {
+    let existingSection = StructuredNoteSection(markdown: "/plan")
+    let template = NoteTemplate(
+      title: "Plan",
+      command: "plan",
+      body: "# Plan\n\n- ",
+      sectionColorName: "blue"
+    )
+
+    let result = try StructuredNoteTemplateAdapter.insert(
+      StructuredTemplateInsertionRequest(
+        leadingMarkdown: "",
+        trailingMarkdown: "",
+        template: template,
+        preservesReplacedLineBreak: false
+      ),
+      replacing: existingSection
+    )
+
+    let section = try XCTUnwrap(result.sections.first)
+    XCTAssertEqual(section.id, existingSection.id)
+    XCTAssertEqual(section.markdown, "# Plan\n\n- ")
+    XCTAssertEqual(section.styleOverrides.effectiveColorOverride(for: .heading), .colorName("blue"))
+    XCTAssertEqual(section.styleOverrides.effectiveColorOverride(for: .border), .colorName("blue"))
+    XCTAssertEqual(section.styleOverrides.effectiveColorOverride(for: .bullet), .colorName("blue"))
+  }
+
   // Replaces a grouped section with multiple children without promoting them to the document root.
   func testDocumentReplacementKeepsTemplateSectionsInsideCurrentGroup() throws {
     let existingSection = StructuredNoteSection(markdown: "Command")

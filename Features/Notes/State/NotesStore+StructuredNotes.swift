@@ -2,7 +2,7 @@
 //  NotesStore+StructuredNotes.swift
 //
 
-// NotesStore state and actions for the isolated experimental structured daily-note mode.
+// NotesStore state and actions for structured daily notes.
 
 import Foundation
 import OSLog
@@ -14,37 +14,20 @@ nonisolated struct StructuredNoteSaveKey: Hashable, Sendable {
 }
 
 extension NotesStore {
-  var isStructuredDailyNoteMode: Bool {
-    #if DEBUG
-      if isDemoModeEnabled {
-        return enforcesStructuredCutover
-      }
-    #endif
-    return dailyNoteStorageMode == .structuredExperimental
-  }
-
-  var isStructuredDailyModeActive: Bool {
-    isStructuredDailyNoteMode && sidebarMode.usesDailyNotes
-  }
-
-  var isStructuredEditorActive: Bool {
-    isStructuredDailyNoteMode
-  }
-
   var activeDailySelectedNoteID: DayNote.ID? {
-    isStructuredDailyNoteMode ? selectedStructuredNoteID : selectedNoteID
+    selectedStructuredNoteID
   }
 
   var activeDailySearchText: String {
-    isStructuredDailyNoteMode ? structuredSearchText : searchText
+    structuredSearchText
   }
 
   var activeDailySearchBarExpanded: Bool {
-    isStructuredDailyNoteMode ? isStructuredSearchBarExpanded : isSearchBarExpanded
+    isStructuredSearchBarExpanded
   }
 
   var activeDailyCalendarBrowseYear: Int {
-    isStructuredDailyNoteMode ? structuredCalendarBrowseYear : calendarBrowseYear
+    structuredCalendarBrowseYear
   }
 
   var selectedStructuredNote: StructuredNoteDocument? {
@@ -76,7 +59,7 @@ extension NotesStore {
   }
 
   var activeDailyNotesStorageURL: URL {
-    isStructuredDailyNoteMode ? structuredDailyNotesStorageURL : legacyDailyNotesStorageURL
+    structuredDailyNotesStorageURL
   }
 
   // Converts validated structured documents into sidebar and calendar summaries.
@@ -92,85 +75,12 @@ extension NotesStore {
     }
   }
 
-  // Returns the active daily-note summary used by shared sidebar dialogs.
+  // Returns the daily-note summary used by shared sidebar dialogs.
   func activeDailyNoteSummary(withID noteID: DayNote.ID) -> DayNote? {
-    if isStructuredDailyNoteMode {
-      return structuredNoteSummaries.first(where: { $0.id == noteID })
-    }
-    return note(withID: noteID)
+    structuredNoteSummaries.first(where: { $0.id == noteID })
   }
 
-  // Switches daily-note storage without resetting or rewriting either isolated library.
-  func updateDailyNoteStorageMode(_ mode: DailyNoteStorageMode) {
-    guard !enforcesStructuredCutover else {
-      userMessage = (
-        text: "Structured notes are the only editing mode. Use Import for older notes.", kind: .info
-      )
-      return
-    }
-    guard dailyNoteStorageMode != mode else { return }
-    guard canBeginLibraryFileOperation() else { return }
-    do {
-      try flushPendingSavesForLibraryOperation()
-    } catch {
-      report(error, context: "Switching daily-note storage failed")
-      return
-    }
-
-    #if DEBUG
-      if mode == .structuredExperimental, isDemoModeEnabled {
-        setDemoModeEnabled(false)
-      }
-    #endif
-
-    dailyNoteStorageMode = mode
-    settingsRepository.saveDailyNoteStorageMode(mode)
-    cachedMonthSections = nil
-
-    guard hasLoaded else { return }
-    do {
-      switch mode {
-      case .legacyMarkdown:
-        try loadLegacyDailyNotesIfNeeded()
-      case .structuredExperimental:
-        try loadStructuredDailyNotesIfNeeded()
-      }
-      if sidebarMode == .list {
-        loadListNotesIfNeeded()
-      }
-      userMessage = nil
-    } catch {
-      report(error, context: "Switching daily-note storage failed")
-    }
-  }
-
-  // Explicitly copies legacy Markdown notes into the isolated structured repository.
-  func copyLegacyDailyNotesToStructuredLibrary() {
-    guard canBeginLibraryFileOperation() else { return }
-
-    isPerformingFileOperation = true
-    progressMessage = "Copying legacy notes into Structured Notes V2..."
-    defer {
-      isPerformingFileOperation = false
-      progressMessage = nil
-    }
-
-    do {
-      try flushPendingSavesForLibraryOperation()
-      let result = try structuredNoteRepository.copyLegacyDailyNotes()
-      hasLoadedStructuredNotes = false
-      try loadStructuredDailyNotesIfNeeded()
-      userMessage = (
-        text:
-          "Copied \(result.imported) legacy notes into Structured Notes V2; \(result.skipped) existing copies were kept.",
-        kind: .info
-      )
-    } catch {
-      report(error, context: "Copying legacy notes into Structured Notes V2 failed")
-    }
-  }
-
-  // Loads structured documents once and restores their independent selection when possible.
+  // Loads structured documents once and restores the current selection when possible.
   func loadStructuredDailyNotesIfNeeded() throws {
     guard !hasLoadedStructuredNotes else { return }
     let loadedDocuments = try structuredNoteRepository.loadDocuments()
@@ -182,7 +92,7 @@ extension NotesStore {
     hasLoadedStructuredNotes = true
   }
 
-  // Selects a structured note without changing the retained legacy selection.
+  // Selects a structured daily note and flushes the note being left.
   func selectStructuredNote(_ noteID: DayNote.ID?) {
     guard noteID == nil || structuredNotes.contains(where: { $0.id == noteID }) else { return }
     if selectedStructuredNoteID != noteID, let selectedStructuredNoteID {
@@ -271,61 +181,15 @@ extension NotesStore {
     }
   }
 
-  // Updates the isolated structured search query.
+  // Updates the structured search query.
   func updateStructuredSearchText(_ text: String) {
     structuredSearchText = text
     cachedMonthSections = nil
   }
 
-  // Updates the isolated structured search expansion state.
+  // Updates the structured search expansion state.
   func updateStructuredSearchBarExpanded(_ isExpanded: Bool) {
     isStructuredSearchBarExpanded = isExpanded
-  }
-
-  // Routes calendar browsing to the active daily-note store.
-  func updateActiveDailyCalendarBrowseYear(_ year: Int) {
-    if isStructuredDailyNoteMode {
-      structuredCalendarBrowseYear = year
-    } else {
-      calendarBrowseYear = year
-    }
-  }
-
-  // Loads the selected store during launch without touching the inactive daily-note library.
-  func loadSelectedDailyNoteStore() {
-    do {
-      if isStructuredDailyNoteMode {
-        try loadStructuredDailyNotesIfNeeded()
-        Self.logger.info("Loaded \(self.structuredNotes.count) structured notes")
-      } else {
-        try loadLegacyDailyNotesIfNeeded()
-        Self.logger.info("Loaded \(self.notes.count) notes")
-      }
-      userMessage = nil
-    } catch {
-      if isStructuredDailyNoteMode {
-        structuredNotes = []
-        selectedStructuredNoteID = nil
-        report(error, context: "Loading structured notes failed")
-      } else {
-        recoverLegacyDailyNotes(after: error)
-      }
-    }
-  }
-
-  // Keeps the legacy recovery behavior isolated from structured-mode loading failures.
-  private func recoverLegacyDailyNotes(after error: Error) {
-    report(error, context: "Loading notes failed")
-    notes = [DayNote.empty(for: .now, calendar: calendar)]
-    rebuildNoteIndex()
-    selectedNoteID = notes.first?.id
-
-    do {
-      try save(notes[0])
-      hasLoadedLegacyNotes = true
-    } catch {
-      report(error, context: "Creating today's note failed")
-    }
   }
 
   // Opens an existing structured day or creates a blank structured document for that date.
@@ -342,7 +206,7 @@ extension NotesStore {
     }
   }
 
-  // Moves a structured note while preserving section identity and leaving legacy attachments intact.
+  // Moves a structured note while preserving section identity and retained Markdown.
   func changeStructuredNoteDate(noteID: DayNote.ID, to newDate: Date) {
     let targetDate = calendar.startOfDay(for: newDate)
     let targetID = NoteDateFormatters.storageDate.string(from: targetDate)

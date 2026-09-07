@@ -25,7 +25,6 @@ final class StructuredArchivePreservationTests: NotesStoreTestCase {
     )
     try StructuredNoteRepository(libraryLocation: location).save(document)
     let store = makeStore(libraryLocation: location)
-    store.updateDailyNoteStorageMode(.structuredExperimental)
     let snapshot = try store.makeLibrarySnapshot()
     XCTAssertEqual(snapshot.authority, .structured)
     XCTAssertEqual(snapshot.legacySourceFiles, sourceFiles)
@@ -60,13 +59,11 @@ final class StructuredArchivePreservationTests: NotesStoreTestCase {
     XCTAssertEqual(secondRestore.structuredDailyNotes, [document])
   }
 
-  // Explicit authority, not a saved UI preference, determines whether old notes are active.
-  func testArchiveAuthorityOverridesHistoricalModeSettingIncludingEmptyStructuredLibrary() throws {
+  // Explicit archive authority determines whether old notes are imported into structured storage.
+  func testArchiveAuthorityControlsLegacyImportIncludingEmptyStructuredLibrary() throws {
     let legacy = makeDailyNote(year: 2026, month: 9, day: 1, body: "Legacy only")
     let store = makeStore()
     for authority in [ScealArchiveAuthority.legacy, .structured] {
-      store.updateDailyNoteStorageMode(
-        authority == .legacy ? .structuredExperimental : .legacyMarkdown)
       let settings = try store.makeArchiveSettings()
       let archiveURL = try ScealBackupArchiveExporter.exportBackup(
         dailyNotes: [legacy], listNotes: [], manifest: .empty,

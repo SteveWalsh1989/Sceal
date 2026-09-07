@@ -32,7 +32,6 @@ extension NotesStore {
       try replaceNoteTemplates(transaction.record.configuration.templates)
       try StructuredLibraryState.markCompleted(at: libraryLocation)
       setStructuredCutoverStatus(.completed)
-      activateStructuredLibraryAfterCutover()
       // This rare cross-files/preferences commit must reach disk before its recovery record is removed.
       guard settingsRepository.userDefaults.synchronize() else {
         throw LibraryInstallTransactionError.pendingRecovery
@@ -41,7 +40,6 @@ extension NotesStore {
     case .committed:
       try transaction.discard()
     }
-    hasLoadedLegacyNotes = false
     hasLoadedStructuredNotes = false
     hasLoadedStructuredListNotes = false
     isLibraryRecoveryBlocked = false

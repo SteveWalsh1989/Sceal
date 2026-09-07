@@ -8,7 +8,7 @@ import Foundation
 
 extension NotesStore {
   var isLibraryReadyForEditing: Bool {
-    hasLoaded && isStructuredDailyNoteMode && !isLibraryRecoveryBlocked
+    hasLoaded && !isLibraryRecoveryBlocked
       && (!enforcesStructuredCutover || structuredNotesCutoverStatus == .completed)
   }
 
@@ -36,7 +36,6 @@ extension NotesStore {
           try StructuredLibraryState.markCompleted(at: libraryLocation)
         }
         setStructuredCutoverStatus(.completed)
-        activateStructuredLibraryAfterCutover()
         loadValidatedLibraryIfNeeded()
         return
       }
@@ -49,7 +48,6 @@ extension NotesStore {
         try validateCompletedStructuredCutover()
         try StructuredLibraryState.markCompleted(at: libraryLocation)
         setStructuredCutoverStatus(.completed)
-        activateStructuredLibraryAfterCutover()
         loadValidatedLibraryIfNeeded()
         return
       }
@@ -58,8 +56,6 @@ extension NotesStore {
         throw StructuredLibraryStateError.ambiguousLibraries
       }
       setStructuredCutoverStatus(.conversionRequired)
-      dailyNoteStorageMode = .legacyMarkdown
-      settingsRepository.saveDailyNoteStorageMode(.legacyMarkdown)
     } catch {
       markStructuredCutoverFailed(error)
       blockEditingIfLibraryRecoveryIsPending()
@@ -77,7 +73,6 @@ extension NotesStore {
     try validateCompletedStructuredCutover()
     try StructuredLibraryState.markCompleted(at: libraryLocation)
     setStructuredCutoverStatus(.completed)
-    activateStructuredLibraryAfterCutover()
   }
 
   // Starts a conversion whose only live-library mutation is the validated structured-folder swap.
@@ -165,7 +160,6 @@ extension NotesStore {
         self.selectedStructuredListNoteID =
           result.listManifest.ungroupedNoteIDs.first ?? result.listDocuments.first?.id
         self.setStructuredCutoverStatus(.completed)
-        self.activateStructuredLibraryAfterCutover()
         self.isPerformingFileOperation = false
         self.progressMessage = nil
         self.loadIfNeeded()
@@ -193,11 +187,6 @@ extension NotesStore {
     )
   }
 
-  func activateStructuredLibraryAfterCutover() {
-    dailyNoteStorageMode = .structuredExperimental
-    settingsRepository.saveDailyNoteStorageMode(.structuredExperimental)
-  }
-
   func setStructuredCutoverStatus(_ status: StructuredNotesCutoverStatus) {
     structuredNotesCutoverStatus = status
     settingsRepository.saveStructuredNotesCutoverStatus(status)
@@ -212,6 +201,5 @@ extension NotesStore {
       structuredNotesCutoverStatus == .completed
       || structuredNotesCutoverStatus == .recoveryRequired
     setStructuredCutoverStatus(needsRecovery ? .recoveryRequired : .failedValidation)
-    dailyNoteStorageMode = .legacyMarkdown
   }
 }

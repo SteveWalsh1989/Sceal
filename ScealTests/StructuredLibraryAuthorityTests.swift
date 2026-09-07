@@ -11,7 +11,6 @@ final class StructuredLibraryAuthorityTests: NotesStoreTestCase {
     let store = makeStore(libraryLocation: location, enforcesStructuredCutover: true)
     store.prepareStructuredCutoverForProductionLaunch()
     XCTAssertTrue(store.hasLoaded)
-    XCTAssertEqual(store.dailyNoteStorageMode, .structuredExperimental)
     XCTAssertEqual(store.structuredNotesCutoverStatus, .completed)
     XCTAssertTrue(try StructuredLibraryState.isCompleted(at: location))
   }
@@ -40,7 +39,6 @@ final class StructuredLibraryAuthorityTests: NotesStoreTestCase {
     )
     relaunchedStore.prepareStructuredCutoverForProductionLaunch()
     XCTAssertEqual(relaunchedStore.structuredNotes, [document])
-    XCTAssertEqual(relaunchedStore.dailyNoteStorageMode, .structuredExperimental)
     XCTAssertFalse(relaunchedStore.isStructuredCutoverPromptPresented)
     XCTAssertEqual(try Data(contentsOf: sourceURL), sourceData)
   }
@@ -76,6 +74,71 @@ final class StructuredLibraryAuthorityTests: NotesStoreTestCase {
     XCTAssertTrue(store.hasLoaded)
     XCTAssertFalse(store.structuredNotes.contains(where: { $0.id == legacy.id }))
     XCTAssertEqual(store.structuredNotesCutoverStatus, .completed)
+  }
+
+  // Editing and deleting active documents must never rewrite retained recovery Markdown.
+  func testStructuredRuntimeMutationsLeaveRecoveryMarkdownUnchanged() throws {
+    let location = makeLibraryLocation()
+    let libraryRepository = LibraryRepository(libraryLocation: location)
+    let dailyNote = makeDailyNote(
+      year: 2026, month: 9, day: 1, title: "Legacy daily", body: "Daily recovery"
+    )
+    let listNote = makeListNote(
+      id: "legacy-list", year: 2026, month: 9, day: 1, title: "Legacy list",
+      body: "List recovery"
+    )
+    try libraryRepository.saveDailyNote(dailyNote)
+    try libraryRepository.saveListNote(listNote)
+    try libraryRepository.saveListNotesManifest(
+      ListNotesManifest(ungroupedNoteIDs: [listNote.id], groups: [])
+    )
+
+    let dailyDocument = try LegacyMarkdownStructuredNoteAdapter.importDocument(dailyNote)
+    let listDocument = try LegacyMarkdownStructuredNoteAdapter.importDocument(listNote)
+    try saveStructuredLibrary([dailyDocument], at: location)
+    try StructuredNoteRepository.listNotes(libraryLocation: location).save(listDocument)
+    try libraryRepository.saveStructuredListNotesManifest(
+      ListNotesManifest(ungroupedNoteIDs: [listDocument.id], groups: [])
+    )
+    try StructuredLibraryState.markCompleted(at: location)
+
+    let originalSources = try LegacyArchiveSourceFiles.read(
+      dailyURL: location.legacyNotesDirectoryURL,
+      listURL: location.rootURL.appendingPathComponent(
+        ScealLibraryLocation.listNotesFolderName, isDirectory: true
+      )
+    )
+    let store = makeStore(libraryLocation: location, enforcesStructuredCutover: true)
+    store.prepareStructuredCutoverForProductionLaunch()
+
+    let dailySectionID = try XCTUnwrap(dailyDocument.nodes.first?.id)
+    store.structuredTitleBinding(for: dailyDocument.id).wrappedValue = "Edited daily"
+    store.structuredSectionMarkdownBinding(
+      documentID: dailyDocument.id, sectionID: dailySectionID
+    ).wrappedValue = "Edited daily content"
+    try store.flushPendingSavesForLibraryOperation()
+    store.deleteStructuredNote(noteID: dailyDocument.id)
+
+    store.sidebarMode = .list
+    store.structuredTitleBinding(for: listDocument.id).wrappedValue = "Edited list"
+    try store.flushPendingSavesForLibraryOperation()
+    store.deleteStructuredListNote(noteID: listDocument.id)
+
+    let relaunchedStore = makeStore(
+      libraryLocation: location, enforcesStructuredCutover: true
+    )
+    relaunchedStore.prepareStructuredCutoverForProductionLaunch()
+    XCTAssertTrue(relaunchedStore.structuredNotes.isEmpty)
+    XCTAssertTrue(relaunchedStore.structuredListNotes.isEmpty)
+    XCTAssertEqual(
+      try LegacyArchiveSourceFiles.read(
+        dailyURL: location.legacyNotesDirectoryURL,
+        listURL: location.rootURL.appendingPathComponent(
+          ScealLibraryLocation.listNotesFolderName, isDirectory: true
+        )
+      ),
+      originalSources
+    )
   }
 
   // Mixed libraries without provenance must never be replaced by a fresh legacy conversion.
@@ -118,7 +181,6 @@ final class StructuredLibraryAuthorityTests: NotesStoreTestCase {
     store.backUpAndConvertLegacyLibrary()
     XCTAssertFalse(store.isPerformingFileOperation)
     XCTAssertEqual(store.structuredNotesCutoverStatus, .completed)
-    XCTAssertEqual(store.dailyNoteStorageMode, .structuredExperimental)
     XCTAssertEqual(store.structuredNotes, currentDocuments)
   }
 

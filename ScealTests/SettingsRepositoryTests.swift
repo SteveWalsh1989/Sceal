@@ -26,7 +26,6 @@ final class SettingsRepositoryTests: NotesStoreTestCase {
     try repository.saveAppearanceSettings(appearance)
     repository.saveContinuousSpellCheckingEnabled(false)
     repository.saveNewNoteDefault(.template(template.id))
-    repository.saveDailyNoteStorageMode(.structuredExperimental)
     repository.saveStructuredNotesCutoverStatus(.completed)
     repository.saveDeveloperPlan(.free)
     try repository.saveBackupSettings(backupSettings)
@@ -43,11 +42,6 @@ final class SettingsRepositoryTests: NotesStoreTestCase {
     )
     XCTAssertFalse(userDefaults.bool(forKey: "sceal.continuousSpellCheckingEnabled"))
     XCTAssertEqual(userDefaults.string(forKey: "sceal.newNoteDefault"), "template:\(template.id)")
-    XCTAssertEqual(
-      userDefaults.string(forKey: "sceal.dailyNoteStorageMode"),
-      "structuredExperimental"
-    )
-    XCTAssertEqual(repository.loadDailyNoteStorageMode(), .structuredExperimental)
     XCTAssertEqual(repository.loadStructuredNotesCutoverStatus(), .completed)
     XCTAssertEqual(userDefaults.string(forKey: "sceal.developer.plan"), "free")
     XCTAssertEqual(
@@ -57,17 +51,12 @@ final class SettingsRepositoryTests: NotesStoreTestCase {
     XCTAssertTrue(userDefaults.bool(forKey: "sceal.noteTemplatesSeeded"))
   }
 
-  // Unknown or absent experimental storage values never opt the app out of legacy mode.
-  func testDailyNoteStorageModeDefaultsSafely() {
+  // Unknown or absent cutover values never bypass the production conversion gate.
+  func testStructuredNotesCutoverStatusDefaultsSafely() {
     let userDefaults = makeUserDefaults()
     let repository = SettingsRepository(userDefaults: userDefaults)
 
-    XCTAssertEqual(repository.loadDailyNoteStorageMode(), .legacyMarkdown)
     XCTAssertEqual(repository.loadStructuredNotesCutoverStatus(), .notStarted)
-
-    userDefaults.set("future-mode", forKey: "sceal.dailyNoteStorageMode")
-
-    XCTAssertEqual(repository.loadDailyNoteStorageMode(), .legacyMarkdown)
 
     userDefaults.set("future-status", forKey: "sceal.structuredNotesCutoverStatus")
     XCTAssertEqual(repository.loadStructuredNotesCutoverStatus(), .notStarted)

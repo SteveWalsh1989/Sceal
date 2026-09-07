@@ -77,6 +77,20 @@ class NotesStoreTestCase: XCTestCase {
     return .test(rootURL: rootURL)
   }
 
+  // Converts legacy-shaped test fixtures into the structured documents used by the store.
+  func makeStructuredDocuments(
+    from notes: [DayNote],
+    file: StaticString = #filePath,
+    line: UInt = #line
+  ) -> [StructuredNoteDocument] {
+    do {
+      return try notes.map(LegacyMarkdownStructuredNoteAdapter.importDocument)
+    } catch {
+      XCTFail("Expected valid preview notes: \(error.localizedDescription)", file: file, line: line)
+      return []
+    }
+  }
+
   // Builds a store with injected notes and defaults while avoiding disk-backed loading.
   func makeStore(
     previewNotes: [DayNote] = [],
@@ -85,11 +99,12 @@ class NotesStoreTestCase: XCTestCase {
     enforcesStructuredCutover: Bool = false
   ) -> NotesStore {
     let resolvedUserDefaults = userDefaults ?? makeUserDefaults()
+    let structuredNotes = makeStructuredDocuments(from: previewNotes)
     return NotesStore(
       calendar: Calendar(identifier: .gregorian),
       userDefaults: resolvedUserDefaults,
       libraryLocation: libraryLocation ?? makeLibraryLocation(),
-      previewNotes: previewNotes,
+      previewStructuredNotes: structuredNotes,
       enforcesStructuredCutover: enforcesStructuredCutover
     )
   }

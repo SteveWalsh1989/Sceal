@@ -2,7 +2,7 @@
 //  NotesStore+StructuredListNotes.swift
 //
 
-// Isolated structured list-note state, persistence, migration, and sidebar summaries.
+// Structured list-note state, persistence, and sidebar summaries.
 
 import Foundation
 
@@ -25,29 +25,17 @@ extension NotesStore {
   }
 
   var activeListNoteSummaries: [DayNote] {
-    isStructuredDailyNoteMode ? structuredListNoteSummaries : listNotes
+    structuredListNoteSummaries
   }
 
   var activeListNoteManifest: ListNotesManifest {
-    get { isStructuredDailyNoteMode ? structuredListNoteManifest : listNoteManifest }
-    set {
-      if isStructuredDailyNoteMode {
-        structuredListNoteManifest = newValue
-      } else {
-        listNoteManifest = newValue
-      }
-    }
+    get { structuredListNoteManifest }
+    set { structuredListNoteManifest = newValue }
   }
 
   var activeListSelectedNoteID: DayNote.ID? {
-    get { isStructuredDailyNoteMode ? selectedStructuredListNoteID : selectedListNoteID }
-    set {
-      if isStructuredDailyNoteMode {
-        selectStructuredListNote(newValue)
-      } else {
-        selectedListNoteID = newValue
-      }
-    }
+    get { selectedStructuredListNoteID }
+    set { selectStructuredListNote(newValue) }
   }
 
   // Loads structured list documents and reconciles their independent sidebar manifest.
@@ -68,30 +56,7 @@ extension NotesStore {
     hasLoadedStructuredListNotes = true
   }
 
-  // Copies legacy list notes and their top-level library grouping without changing either source.
-  func copyLegacyListNotesToStructuredLibrary() throws -> StructuredNoteImportResult {
-    guard !isPerformingFileOperation, !isBackupRunning else {
-      throw LibraryOperationError.operationInProgress
-    }
-    try flushPendingSavesForLibraryOperation()
-    let legacySnapshot = try libraryRepository.loadArchiveSourceSnapshot()
-    let preparedDocuments = try structuredListNoteRepository.prepareLegacyDocuments()
-    let existingDocuments = try structuredListNoteRepository.loadDocuments()
-    var manifest = try libraryRepository.loadStructuredListNotesManifestForArchive(
-      noteIDs: Set(existingDocuments.map(\.id))
-    )
-    let result = try structuredListNoteRepository.importPreparedDocuments(preparedDocuments)
-    let importedIDs = Set(preparedDocuments.map(\.id)).subtracting(
-      Set(existingDocuments.map(\.id))
-    )
-    manifest.appendImportedNotes(from: legacySnapshot.listManifest, importedIDs: importedIDs)
-    try libraryRepository.saveStructuredListNotesManifest(manifest)
-    hasLoadedStructuredListNotes = false
-    try loadStructuredListNotesIfNeeded()
-    return result
-  }
-
-  // Selects one structured list note while retaining the legacy list selection for rollback.
+  // Selects one structured list note and flushes the note being left.
   func selectStructuredListNote(_ noteID: DayNote.ID?) {
     guard noteID == nil || structuredListNotes.contains(where: { $0.id == noteID }) else { return }
     if selectedStructuredListNoteID != noteID, let selectedStructuredListNoteID {
@@ -114,7 +79,7 @@ extension NotesStore {
     }
   }
 
-  // Deletes one structured list document while leaving any same-ID legacy attachment source intact.
+  // Deletes one structured list document while leaving any same-ID retained Markdown intact.
   func deleteStructuredListNote(noteID: DayNote.ID) {
     flushPendingStructuredNoteSave(for: noteID)
     guard structuredListNotes.contains(where: { $0.id == noteID }) else { return }
@@ -132,14 +97,10 @@ extension NotesStore {
     }
   }
 
-  // Persists the active list-library grouping to its matching legacy or structured store.
+  // Persists list-library grouping to structured storage.
   func saveActiveListManifest() {
     do {
-      if isStructuredDailyNoteMode {
-        try libraryRepository.saveStructuredListNotesManifest(structuredListNoteManifest)
-      } else {
-        try libraryRepository.saveListNotesManifest(listNoteManifest)
-      }
+      try libraryRepository.saveStructuredListNotesManifest(structuredListNoteManifest)
     } catch {
       report(error, context: "Saving list notes manifest failed")
     }
@@ -147,28 +108,6 @@ extension NotesStore {
 }
 
 extension ListNotesManifest {
-  // Adds only newly imported notes while preserving existing structured grouping and order.
-  mutating func appendImportedNotes(
-    from sourceManifest: ListNotesManifest,
-    importedIDs: Set<String>
-  ) {
-    for noteID in sourceManifest.ungroupedNoteIDs where importedIDs.contains(noteID) {
-      ungroupedNoteIDs.append(noteID)
-    }
-    for sourceGroup in sourceManifest.groups {
-      let groupNoteIDs = sourceGroup.noteIDs.filter(importedIDs.contains)
-      guard !groupNoteIDs.isEmpty else { continue }
-
-      if let groupIndex = groups.firstIndex(where: { $0.id == sourceGroup.id }) {
-        groups[groupIndex].noteIDs.append(contentsOf: groupNoteIDs)
-      } else {
-        var importedGroup = sourceGroup
-        importedGroup.noteIDs = groupNoteIDs
-        groups.append(importedGroup)
-      }
-    }
-  }
-
   // Returns display order without conflating sidebar groups with within-note section groups.
   func flattenedNoteIDs(includingCollapsedGroups: Bool) -> [String] {
     ungroupedNoteIDs

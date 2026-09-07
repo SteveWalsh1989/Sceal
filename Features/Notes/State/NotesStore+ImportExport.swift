@@ -110,22 +110,14 @@ extension NotesStore {
     let filtered: [DayNote]
     do {
       try flushPendingSavesForLibraryOperation()
-      if isStructuredDailyNoteMode {
-        filtered =
-          try structuredNotes
-          .filter { document in
-            let noteDay = calendar.startOfDay(for: document.date)
-            return noteDay >= calendar.startOfDay(for: startDate)
-              && noteDay <= calendar.startOfDay(for: endDate)
-          }
-          .map(StructuredNoteMarkdownExporter.dayNote(for:))
-      } else {
-        filtered = notes.filter { note in
-          let noteDay = calendar.startOfDay(for: note.date)
+      filtered =
+        try structuredNotes
+        .filter { document in
+          let noteDay = calendar.startOfDay(for: document.date)
           return noteDay >= calendar.startOfDay(for: startDate)
             && noteDay <= calendar.startOfDay(for: endDate)
         }
-      }
+        .map(StructuredNoteMarkdownExporter.dayNote(for:))
     } catch {
       report(error, context: "Preparing notes for export failed")
       return
@@ -382,24 +374,16 @@ extension NotesStore {
             self.progressMessage = nil
             return
           }
-          self.notes = result.dailyNotes
-          self.listNotes = result.listNotes
-          self.listNoteManifest = result.manifest
           self.structuredNotes = result.structuredDailyNotes
           self.structuredListNotes = result.structuredListNotes
           self.structuredListNoteManifest = result.structuredListManifest
-          self.rebuildNoteIndex()
-          self.rebuildListNoteIndex()
-          self.hasLoadedLegacyNotes = false
           self.hasLoadedStructuredNotes = true
           self.hasLoadedStructuredListNotes = true
-          self.selectedNoteID = result.dailyNotes.first?.id
-          self.selectedListNoteID = result.listNotes.first?.id
           self.selectedStructuredNoteID = self.structuredNotes.first?.id
           self.selectedStructuredListNoteID =
             self.structuredListNoteManifest.ungroupedNoteIDs.first
             ?? self.structuredListNotes.first?.id
-          self.searchText = ""
+          self.structuredSearchText = ""
           self.listSearchText = ""
 
           if self.sidebarMode == .list, self.activeListNoteSummaries.isEmpty {
@@ -502,17 +486,12 @@ extension NotesStore {
       ImportOutcome
   ) {
     guard canBeginLibraryFileOperation() else { return }
-    let importsIntoStructuredStorage = isStructuredDailyNoteMode
-    let existingIDs = Set(
-      importsIntoStructuredStorage ? structuredNotes.map(\.id) : notes.map(\.id)
-    )
+    let existingIDs = Set(structuredNotes.map(\.id))
 
     // Resolve storage on the main actor before starting background work.
-    let notesDir: URL?
     let attachmentsDir: URL
     do {
       try flushPendingSavesForLibraryOperation()
-      notesDir = importsIntoStructuredStorage ? nil : try notesDirectoryURL()
       attachmentsDir = try libraryRepository.attachmentsRootDirectoryURL()
     } catch {
       report(error, context: context)
@@ -550,57 +529,29 @@ extension NotesStore {
         // Step 2: Write imported notes to disk off the main thread.
         var importedStructuredDocuments: [StructuredNoteDocument] = []
         if !outcome.imported.isEmpty {
-          if importsIntoStructuredStorage {
-            importedStructuredDocuments = try outcome.imported.map(
-              LegacyMarkdownStructuredNoteAdapter.importDocument
-            )
-            if let sourceRootURL = outcome.attachmentSourceRootURL {
-              try NoteImageAttachmentStore.copyAttachmentFolders(
-                for: Set(outcome.imported.map(\.id)),
-                from: sourceRootURL,
-                to: attachmentsDir,
-                fileManager: fm
-              )
-            }
-            try structuredRepository.importNewDocuments(importedStructuredDocuments)
-          } else if let notesDir {
-            for (index, note) in outcome.imported.enumerated() {
-              let fileURL = notesDir.appendingPathComponent(note.fileName)
-              let contents = try MarkdownNoteCodec.encode(note)
-              try contents.write(to: fileURL, atomically: true, encoding: .utf8)
-
-              if index % 10 == 0 || index == outcome.imported.count - 1 {
-                await MainActor.run { [weak self] in
-                  self?.progressMessage = "Saving \(index + 1)/\(outcome.imported.count)…"
-                }
-              }
-            }
-          }
-        }
-
-        if !importsIntoStructuredStorage, let sourceRootURL = outcome.attachmentSourceRootURL {
-          try NoteImageAttachmentStore.copyAttachmentFolders(
-            for: Set(outcome.imported.map(\.id)),
-            from: sourceRootURL,
-            to: attachmentsDir,
-            fileManager: fm
+          importedStructuredDocuments = try outcome.imported.map(
+            LegacyMarkdownStructuredNoteAdapter.importDocument
           )
+          if let sourceRootURL = outcome.attachmentSourceRootURL {
+            try NoteImageAttachmentStore.copyAttachmentFolders(
+              for: Set(outcome.imported.map(\.id)),
+              from: sourceRootURL,
+              to: attachmentsDir,
+              fileManager: fm
+            )
+          }
+          try structuredRepository.importNewDocuments(importedStructuredDocuments)
         }
         let structuredDocumentsForState = importedStructuredDocuments
 
         // Step 3: Update in-memory state and notify the user on the main actor.
         await MainActor.run { [weak self] in
           guard let self else { return }
-          if importsIntoStructuredStorage {
-            self.structuredNotes = (self.structuredNotes + structuredDocumentsForState).sorted(
-              by: { $0.date > $1.date }
-            )
-            self.selectedStructuredNoteID = structuredDocumentsForState.first?.id
-            self.cachedMonthSections = nil
-          } else {
-            self.notes = (self.notes + outcome.imported).sorted(by: { $0.date > $1.date })
-            self.rebuildNoteIndex()
-          }
+          self.structuredNotes = (self.structuredNotes + structuredDocumentsForState).sorted(
+            by: { $0.date > $1.date }
+          )
+          self.selectedStructuredNoteID = structuredDocumentsForState.first?.id
+          self.cachedMonthSections = nil
           self.mergeImportedNoteTemplates(outcome.templates)
           self.showImportMessage(outcome, emptyMessage: emptyMessage)
           self.isPerformingFileOperation = false
@@ -700,11 +651,7 @@ extension NotesStore {
       userMessage = (text: "Imported \(outcome.imported.count) notes.\(suffix)", kind: .info)
     }
     if let firstImportedNoteID = outcome.imported.first?.id {
-      if isStructuredDailyNoteMode {
-        selectedStructuredNoteID = firstImportedNoteID
-      } else {
-        selectedNoteID = firstImportedNoteID
-      }
+      selectedStructuredNoteID = firstImportedNoteID
     }
   }
 }

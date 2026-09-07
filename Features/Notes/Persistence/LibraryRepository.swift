@@ -107,11 +107,6 @@ nonisolated struct LibraryRepository {
     try write(note, to: listNotesDirectoryURL().appendingPathComponent(note.fileName))
   }
 
-  // Removes a list note file when it exists.
-  func deleteListNoteFile(for note: DayNote) throws {
-    try deleteFileIfPresent(at: listNotesDirectoryURL().appendingPathComponent(note.fileName))
-  }
-
   var attachmentsRootURL: URL {
     libraryLocation.rootURL.appendingPathComponent(
       NoteImageAttachmentStore.attachmentsFolderName,
