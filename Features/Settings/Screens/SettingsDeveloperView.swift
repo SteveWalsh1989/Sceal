@@ -76,7 +76,7 @@
         }
 
         Section("Storage") {
-          LabeledContent("Daily-note mode") {
+          LabeledContent("Daily-note storage") {
             Text("Structured notes")
               .foregroundStyle(.secondary)
           }

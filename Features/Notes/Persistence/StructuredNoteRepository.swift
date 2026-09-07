@@ -2,14 +2,9 @@
 //  StructuredNoteRepository.swift
 //
 
-// Isolated file-backed persistence and explicit legacy-copy import for structured notes.
+// File-backed structured-note persistence with read-only legacy Markdown conversion.
 
 import Foundation
-
-nonisolated struct StructuredNoteImportResult: Equatable, Sendable {
-  let imported: Int
-  let skipped: Int
-}
 
 nonisolated enum StructuredNoteRepositoryKind: Hashable, Sendable {
   case daily
@@ -90,11 +85,6 @@ nonisolated struct StructuredNoteRepository {
     try fileManager.removeItem(at: documentURL)
   }
 
-  // Copies all legacy Markdown daily notes after validating the complete source set first.
-  func copyLegacyDailyNotes() throws -> StructuredNoteImportResult {
-    try importPreparedDocuments(prepareLegacyDocuments())
-  }
-
   // Decodes and validates the complete legacy source set without creating structured files.
   func prepareLegacyDocuments() throws -> [StructuredNoteDocument] {
     try validateStorageTarget()
@@ -120,23 +110,6 @@ nonisolated struct StructuredNoteRepository {
     }
     try validateUniqueDocumentIDs(documents)
     return documents
-  }
-
-  // Writes a prevalidated source set while preserving any existing same-ID structured document.
-  func importPreparedDocuments(
-    _ documents: [StructuredNoteDocument]
-  ) throws -> StructuredNoteImportResult {
-    try validateUniqueDocumentIDs(documents)
-    let existingDocumentIDs = Set(try loadDocuments().map(\.id))
-    let documentsToImport = documents.filter { !existingDocumentIDs.contains($0.id) }
-    for document in documentsToImport {
-      try save(document)
-    }
-
-    return StructuredNoteImportResult(
-      imported: documentsToImport.count,
-      skipped: documents.count - documentsToImport.count
-    )
   }
 
   // Imports a new source set only when no stable ID already exists in structured storage.

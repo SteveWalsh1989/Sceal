@@ -41,7 +41,6 @@ struct MarkdownEditorView: NSViewRepresentable {
   var libraryRootURL: URL? = nil
   var imageAttachmentRootURL: URL? = nil
   var allowsImageAttachments: Bool = true
-  var allowsSectionColorEditing: Bool = true
   var allowsSlashCommands: Bool = true
   var interpretsSectionDirectives: Bool = true
   var debouncesMarkdownUpdates: Bool = true
@@ -94,7 +93,6 @@ struct MarkdownEditorView: NSViewRepresentable {
       refresh: continuousSpellCheckingEnabled
     )
     context.coordinator.syncTypingAttributesToCurrentSelection(in: textView)
-    textView.updateActiveSectionIcon(forSelection: textView.selectedRange())
     context.coordinator.lastPushedMarkdown = text
     context.coordinator.lastAppliedAppearance = appearanceSettings
     context.coordinator.lastContinuousSpellCheckingEnabled = continuousSpellCheckingEnabled
@@ -207,10 +205,6 @@ struct MarkdownEditorView: NSViewRepresentable {
         clampedRange(selectedRange, maxLength: textView.string.utf16.count)
       )
       context.coordinator.syncTypingAttributesToCurrentSelection(in: textView)
-      if let interactiveTextView = textView as? MarkdownEditorTextView {
-        interactiveTextView.updateActiveSectionIcon(
-          forSelection: interactiveTextView.selectedRange())
-      }
 
       if noteChanged {
         scrollView.contentView.scroll(to: .zero)
@@ -254,7 +248,6 @@ struct MarkdownEditorView: NSViewRepresentable {
       libraryRootURL: libraryRootURL,
       imageAttachmentRootURL: imageAttachmentRootURL,
       allowsImageAttachments: allowsImageAttachments,
-      allowsSectionColorEditing: allowsSectionColorEditing,
       delegate: coordinator
     )
     if let interactiveTextView = textView as? MarkdownEditorTextView {
@@ -304,7 +297,6 @@ struct MarkdownEditorView: NSViewRepresentable {
     libraryRootURL: URL? = nil,
     imageAttachmentRootURL: URL? = nil,
     allowsImageAttachments: Bool = true,
-    allowsSectionColorEditing: Bool = true,
     delegate: NSTextViewDelegate?
   ) {
     if let interactiveTextView = textView as? MarkdownEditorTextView {
@@ -313,7 +305,6 @@ struct MarkdownEditorView: NSViewRepresentable {
       interactiveTextView.libraryRootURL = libraryRootURL
       interactiveTextView.imageAttachmentRootURL = imageAttachmentRootURL
       interactiveTextView.allowsImageAttachments = allowsImageAttachments
-      interactiveTextView.allowsSectionColorEditing = allowsSectionColorEditing
       interactiveTextView.registerForDraggedTypes([.fileURL, .tiff, .png])
     }
     textView.isRichText = true
@@ -416,7 +407,7 @@ struct MarkdownEditorView: NSViewRepresentable {
     ceil(max(documentHeight, minimumHeight))
   }
 
-  // Applies either legacy scroll-past-end sizing or content-sized section layout.
+  // Applies either scrolling-document sizing or content-sized section layout.
   private func applyEditorSizing(
     to textView: NSTextView,
     in scrollView: NSScrollView,
@@ -788,14 +779,10 @@ extension MarkdownEditorView {
       if let editorTextView = textView as? MarkdownEditorTextView,
         editorTextView.editorNormalizeSelectionIfNeeded()
       {
-        editorTextView.updateActiveSectionIcon(forSelection: editorTextView.selectedRange())
         return
       }
 
       let range = textView.selectedRange()
-      if let editorTextView = textView as? MarkdownEditorTextView {
-        editorTextView.updateActiveSectionIcon(forSelection: range)
-      }
 
       if slashPopup.isVisible, let triggerLoc = slashTriggerLocation {
         let nsString = textView.string as NSString
@@ -834,7 +821,7 @@ extension MarkdownEditorView {
       isUpdating = false
       parent.onTextChange?()
 
-      // Slash commands and structured sections push immediately; legacy typing remains debounced.
+      // Slash commands and section editors push immediately; other content edits remain debounced.
       if isApplyingSlashCommand || !parent.debouncesMarkdownUpdates {
         executePushMarkdown(from: textStorage)
       } else {
@@ -850,7 +837,6 @@ extension MarkdownEditorView {
           editorTextView.updateTrackingAreas()
           textView.setNeedsDisplay(textView.bounds)
         }
-        editorTextView.updateActiveSectionIcon(forSelection: editorTextView.selectedRange())
         lastDividerCount = dividerCount
       } else {
         textView.setNeedsDisplay(textView.bounds)

@@ -99,7 +99,7 @@ nonisolated enum LibraryArchiveFilesError: LocalizedError {
   }
 }
 
-// Historical raw values remain readable without depending on the removable UI mode enum.
+// These version-2 archive raw values predate structured storage becoming the only runtime.
 nonisolated enum ScealArchiveAuthority: String, Sendable {
   case legacy = "legacyMarkdown"
   case structured = "structuredExperimental"

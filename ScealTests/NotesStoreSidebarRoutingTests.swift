@@ -4,7 +4,7 @@ import XCTest
 @testable import Sceal
 
 @MainActor
-final class NotesStoreModeTests: NotesStoreTestCase {
+final class NotesStoreSidebarRoutingTests: NotesStoreTestCase {
   // Prevents stale daily search text from leaking into list mode.
   func testSwitchingToListClearsDailySearch() {
     let store = makeStore(previewNotes: [makeDailyNote(year: 2026, month: 4, day: 1)])

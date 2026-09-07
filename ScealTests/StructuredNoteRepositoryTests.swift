@@ -30,8 +30,8 @@ final class StructuredNoteRepositoryTests: XCTestCase {
     )
   }
 
-  // Copies representative legacy notes without rewriting sources or replacing stable imports.
-  func testCopiesLegacyNotesAndSkipsExistingStructuredDocuments() throws {
+  // Prepares representative legacy notes without rewriting either library.
+  func testPreparesLegacyNotesWithoutWritingStructuredDocuments() throws {
     let fixture = makeRepository()
     try fixture.fileManager.createDirectory(
       at: fixture.repository.legacyNotesDirectoryURL,
@@ -42,17 +42,13 @@ final class StructuredNoteRepositoryTests: XCTestCase {
     }
     let sourceData = try sourceURLs.map { try Data(contentsOf: $0) }
 
-    let firstResult = try fixture.repository.copyLegacyDailyNotes()
-    let firstDocuments = try fixture.repository.loadDocuments()
-    let firstSectionIDs = firstDocuments.flatMap(sectionIDs(in:))
-    let secondResult = try fixture.repository.copyLegacyDailyNotes()
-    let secondDocuments = try fixture.repository.loadDocuments()
+    let documents = try fixture.repository.prepareLegacyDocuments()
 
-    XCTAssertEqual(firstResult, StructuredNoteImportResult(imported: 2, skipped: 0))
-    XCTAssertEqual(secondResult, StructuredNoteImportResult(imported: 0, skipped: 2))
-    XCTAssertEqual(secondDocuments.map(\.id), firstDocuments.map(\.id))
-    XCTAssertEqual(secondDocuments.flatMap(sectionIDs(in:)), firstSectionIDs)
+    XCTAssertEqual(documents.map(\.id), ["2026-05-10", "2026-05-11"])
     XCTAssertEqual(try sourceURLs.map { try Data(contentsOf: $0) }, sourceData)
+    XCTAssertFalse(
+      fixture.fileManager.fileExists(atPath: fixture.repository.storageDirectoryURL.path)
+    )
   }
 
   // Refuses a stale import snapshot rather than silently keeping or replacing a same-ID note.
@@ -82,7 +78,7 @@ final class StructuredNoteRepositoryTests: XCTestCase {
     try copyFixture(
       "malformed-missing-frontmatter.md", to: fixture.repository.legacyNotesDirectoryURL)
 
-    XCTAssertThrowsError(try fixture.repository.copyLegacyDailyNotes()) { error in
+    XCTAssertThrowsError(try fixture.repository.prepareLegacyDocuments()) { error in
       XCTAssertTrue(error.localizedDescription.contains("malformed-missing-frontmatter.md"))
     }
     XCTAssertFalse(
@@ -175,18 +171,6 @@ final class StructuredNoteRepositoryTests: XCTestCase {
       tags: ["v2"],
       nodes: [.section(StructuredNoteSection(markdown: "# \(title)"))]
     )
-  }
-
-  // Collects every stable section ID regardless of root or grouped placement.
-  private func sectionIDs(in document: StructuredNoteDocument) -> [UUID] {
-    document.nodes.flatMap { node in
-      switch node {
-      case .section(let section):
-        return [section.id]
-      case .group(let group):
-        return group.sections.map(\.id)
-      }
-    }
   }
 
   // Copies one bundled migration fixture into the injected legacy directory.

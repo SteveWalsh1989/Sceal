@@ -194,7 +194,6 @@ struct StructuredNoteEditorView: View {
       .popover(isPresented: $isShowingAppearancePopover, arrowEdge: .top) {
         QuickAppearancePopover(
           store: store,
-          showsStructuredSectionControls: true,
           openSettings: {
             isShowingAppearancePopover = false
             openWindow(id: "settings")
@@ -218,7 +217,7 @@ struct StructuredNoteEditorView: View {
     Color(nsColor: store.effectiveAppearanceSettings.accentColor)
   }
 
-  // Reuses the legacy header's quick font picker from the structured appearance popover.
+  // Presents the shared quick font picker from the structured appearance popover.
   private func openFontPanel() {
     isShowingAppearancePopover = false
     fontPanelController.present(
@@ -1326,7 +1325,6 @@ private struct StructuredSectionEditorCard: View {
             libraryRootURL: store.libraryLocation.rootURL,
             imageAttachmentRootURL: store.libraryRepository.attachmentsRootURL,
             allowsImageAttachments: true,
-            allowsSectionColorEditing: false,
             allowsSlashCommands: true,
             interpretsSectionDirectives: false,
             debouncesMarkdownUpdates: false,

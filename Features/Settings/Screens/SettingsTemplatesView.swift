@@ -365,7 +365,6 @@ private struct TemplateDetailView: View {
                 continuousSpellCheckingEnabled: store.continuousSpellCheckingEnabled,
                 customSlashTemplates: store.enabledSlashCommandTemplates(excluding: template.id),
                 allowsImageAttachments: false,
-                allowsSectionColorEditing: false,
                 appliesTemplateSectionColorOverride: true,
                 templateSectionColorName: template.sectionColorName
               )

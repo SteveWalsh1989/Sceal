@@ -2,13 +2,12 @@
 //  QuickAppearancePopover.swift
 //
 
-// Shared compact appearance controls used by legacy and structured note headers.
+// Shared compact appearance controls used by note and section headers.
 
 import SwiftUI
 
 struct QuickAppearancePopover: View {
   @ObservedObject var store: NotesStore
-  let showsStructuredSectionControls: Bool
   let openSettings: () -> Void
   let openFontPanel: () -> Void
   let confirmDelete: () -> Void
@@ -120,18 +119,16 @@ struct QuickAppearancePopover: View {
         onSelect: store.updateAccentColorName
       )
 
-      if showsStructuredSectionControls {
-        Toggle(
-          "Highlight focused section border",
-          isOn: Binding(
-            get: { store.appearanceSettings.highlightsFocusedSectionBorder },
-            set: { store.updateHighlightsFocusedSectionBorder($0) }
-          )
+      Toggle(
+        "Highlight focused section border",
+        isOn: Binding(
+          get: { store.appearanceSettings.highlightsFocusedSectionBorder },
+          set: { store.updateHighlightsFocusedSectionBorder($0) }
         )
-        .font(.system(size: 12, weight: .medium))
-        .toggleStyle(.switch)
-        .controlSize(.small)
-      }
+      )
+      .font(.system(size: 12, weight: .medium))
+      .toggleStyle(.switch)
+      .controlSize(.small)
 
       Divider()
 

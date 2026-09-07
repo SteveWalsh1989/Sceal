@@ -4,9 +4,9 @@ import XCTest
 @testable import Sceal
 
 @MainActor
-final class NotesStoreStructuredModeTests: NotesStoreTestCase {
-  // Launches directly into an empty structured library without creating retained Markdown storage.
-  func testStructuredLaunchDoesNotCreateOrWriteLegacyNotesDirectory() {
+final class NotesStorePersistenceTests: NotesStoreTestCase {
+  // Launches directly into an empty library without creating retained Markdown storage.
+  func testLaunchDoesNotCreateOrWriteLegacyNotesDirectory() {
     let userDefaults = makeUserDefaults()
     let libraryLocation = makeLibraryLocation()
     let store = makeStore(userDefaults: userDefaults, libraryLocation: libraryLocation)
@@ -22,7 +22,7 @@ final class NotesStoreStructuredModeTests: NotesStoreTestCase {
   }
 
   // Creates complete archive snapshots with structured authority.
-  func testStructuredModePreparesCompleteLosslessLibrarySnapshot() throws {
+  func testPreparesCompleteLosslessStructuredLibrarySnapshot() throws {
     let userDefaults = makeUserDefaults()
     let store = makeStore(
       userDefaults: userDefaults,
@@ -38,7 +38,7 @@ final class NotesStoreStructuredModeTests: NotesStoreTestCase {
   }
 
   // Creates and immediately persists a valid blank structured note for an empty day.
-  func testOpenStructuredDailyDateCreatesPersistedBlankDocument() throws {
+  func testOpenDailyDateCreatesPersistedBlankDocument() throws {
     let userDefaults = makeUserDefaults()
     let libraryLocation = makeLibraryLocation()
     let store = makeStore(userDefaults: userDefaults, libraryLocation: libraryLocation)
@@ -64,7 +64,7 @@ final class NotesStoreStructuredModeTests: NotesStoreTestCase {
   }
 
   // Persists title, normalized tags, and root/group section edits exactly across relaunch.
-  func testStructuredEditorBindingsSaveAndReloadStableSections() throws {
+  func testEditorBindingsSaveAndReloadStableSections() throws {
     let userDefaults = makeUserDefaults()
     let libraryLocation = makeLibraryLocation()
     let rootSection = StructuredNoteSection(markdown: "Original root")

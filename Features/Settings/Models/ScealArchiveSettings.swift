@@ -13,6 +13,7 @@ nonisolated struct ScealArchiveSettings: Codable, Equatable, Sendable {
   let appearanceSettingsData: Data
   let continuousSpellCheckingEnabled: Bool
   let newNoteDefaultRawValue: String
+  // Preserves the historical archive authority field so existing backups remain readable.
   let dailyNoteStorageModeRawValue: String
   let backupScheduleRawValue: String
   let backupOnInactive: Bool

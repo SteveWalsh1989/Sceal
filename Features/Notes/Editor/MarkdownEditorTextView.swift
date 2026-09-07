@@ -2,7 +2,7 @@
 //  MarkdownEditorTextView.swift
 //
 
-// Custom TextKit 2 NSTextView subclass handling section cards, divider navigation, and checkboxes.
+// Custom TextKit 2 NSTextView subclass handling editor layout, navigation, and checkboxes.
 
 import AppKit
 import UniformTypeIdentifiers
@@ -25,15 +25,6 @@ final class MarkdownEditorTextView: NSTextView {
 
   private struct SectionCardGeometry {
     let cardRect: NSRect
-    let previousDividerRange: NSRange?
-  }
-
-  private struct SectionIconGeometry {
-    let dividerRange: NSRange
-    let symbolRect: NSRect
-    let buttonRect: NSRect
-    let hitRect: NSRect
-    let revealRect: NSRect
   }
 
   private struct TableBlockGeometry {
@@ -50,7 +41,6 @@ final class MarkdownEditorTextView: NSTextView {
   var imageAttachmentRootURL: URL?
   var imageAttachmentFileManager: FileManager = .default
   var allowsImageAttachments = true
-  var allowsSectionColorEditing = true
   var onPromptCopied: (() -> Void)?
   var onStructuredUndo: (() -> Bool)?
   var onStructuredRedo: (() -> Bool)?
@@ -87,17 +77,6 @@ final class MarkdownEditorTextView: NSTextView {
   private var hoveredTableCloseID: String? = nil
   private var tableBlockTrackingAreas: [NSTrackingArea] = []
   private var tableCloseTrackingAreas: [NSTrackingArea] = []
-
-  // Section icon rendering and hit testing constants.
-  private let sectionIconSize: CGFloat = 18
-  private let sectionIconPadding: CGFloat = 24
-  private let sectionIconButtonSize: CGFloat = 36
-  private let sectionIconHitSize: CGFloat = 44
-  private let sectionIconRevealSize = NSSize(width: 120, height: 72)
-  private var hoveredSectionIconLocation: Int? = nil
-  private var activeSectionIconLocation: Int? = nil
-  private var isSectionIconCursorPushed = false
-  private var sectionIconTrackingAreas: [NSTrackingArea] = []
 
   override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
@@ -495,54 +474,6 @@ final class MarkdownEditorTextView: NSTextView {
     return result
   }
 
-  // Resolves the section divider that owns a collapsed editor selection.
-  func activeSectionDividerRange(forSelection range: NSRange) -> NSRange? {
-    guard allowsSectionColorEditing, range.length == 0,
-      let textStorage,
-      let snapshot = sectionLayoutSnapshot()
-    else { return nil }
-
-    let location = min(max(range.location, 0), textStorage.length)
-    guard let section = sectionContentRange(containing: location, in: snapshot),
-      let dividerIndex = section.previousDividerIndex
-    else { return nil }
-
-    return snapshot.dividerLineRanges[dividerIndex]
-  }
-
-  // Updates the caret-driven visible section color affordance.
-  func updateActiveSectionIcon(forSelection range: NSRange) {
-    let newLocation = activeSectionDividerRange(forSelection: range)?.location
-    guard activeSectionIconLocation != newLocation else { return }
-
-    activeSectionIconLocation = newLocation
-    setNeedsDisplay(bounds)
-  }
-
-  // Reports whether a divider's icon should be shown from hover or caret activity.
-  private func sectionIconIsRevealed(for dividerRange: NSRange) -> Bool {
-    hoveredSectionIconLocation == dividerRange.location
-      || activeSectionIconLocation == dividerRange.location
-  }
-
-  // Finds the rendered section content range that contains a collapsed selection.
-  private func sectionContentRange(
-    containing location: Int,
-    in snapshot: SectionLayoutSnapshot
-  ) -> SectionContentRange? {
-    snapshot.sections.first { section in
-      if section.range.length == 0 {
-        return location == section.range.location
-      }
-
-      if NSLocationInRange(location, section.range) {
-        return true
-      }
-
-      return section.nextDividerIndex == nil && location == NSMaxRange(section.range)
-    }
-  }
-
   // MARK: - Section Layout Snapshot
 
   // Finds line ranges for a markdown display attribute like dividers or horizontal rules.
@@ -645,9 +576,6 @@ final class MarkdownEditorTextView: NSTextView {
         cardBottom = viewBottom
       }
 
-      let previousDividerRange = section.previousDividerIndex.map {
-        snapshot.dividerLineRanges[$0]
-      }
       let cardRect = NSRect(
         x: cardHInset,
         y: cardTop,
@@ -656,61 +584,13 @@ final class MarkdownEditorTextView: NSTextView {
       )
 
       guard cardRect.height > 0 else { return nil }
-      return SectionCardGeometry(
-        cardRect: cardRect,
-        previousDividerRange: previousDividerRange
-      )
+      return SectionCardGeometry(cardRect: cardRect)
     }
-  }
-
-  // Builds the visible button, click target, and larger reveal zone for a section palette icon.
-  private func sectionIconGeometry(for cardGeometry: SectionCardGeometry) -> SectionIconGeometry? {
-    guard let dividerRange = cardGeometry.previousDividerRange else { return nil }
-
-    let iconCenter = NSPoint(
-      x: cardGeometry.cardRect.maxX - sectionIconPadding - (sectionIconSize / 2),
-      y: cardGeometry.cardRect.minY + sectionIconPadding + (sectionIconSize / 2)
-    )
-    let symbolRect = NSRect(
-      x: iconCenter.x - (sectionIconSize / 2),
-      y: iconCenter.y - (sectionIconSize / 2),
-      width: sectionIconSize,
-      height: sectionIconSize
-    )
-    let buttonRect = NSRect(
-      x: iconCenter.x - (sectionIconButtonSize / 2),
-      y: iconCenter.y - (sectionIconButtonSize / 2),
-      width: sectionIconButtonSize,
-      height: sectionIconButtonSize
-    )
-    let hitRect = NSRect(
-      x: iconCenter.x - (sectionIconHitSize / 2),
-      y: iconCenter.y - (sectionIconHitSize / 2),
-      width: sectionIconHitSize,
-      height: sectionIconHitSize
-    )
-    let revealWidth = min(sectionIconRevealSize.width, cardGeometry.cardRect.width)
-    let revealHeight = min(sectionIconRevealSize.height, cardGeometry.cardRect.height)
-    let anchoredRevealRect = NSRect(
-      x: cardGeometry.cardRect.maxX - revealWidth,
-      y: cardGeometry.cardRect.minY,
-      width: revealWidth,
-      height: revealHeight
-    )
-    let revealRect = anchoredRevealRect.union(hitRect)
-
-    return SectionIconGeometry(
-      dividerRange: dividerRange,
-      symbolRect: symbolRect,
-      buttonRect: buttonRect,
-      hitRect: hitRect,
-      revealRect: revealRect
-    )
   }
 
   // MARK: - Section Card Backgrounds
 
-  // Draws section card backgrounds and palette icons instead of the default background.
+  // Draws section card backgrounds instead of the default background.
   override func drawBackground(in rect: NSRect) {
     guard let textStorage, textStorage.length > 0 else {
       drawSingleCard(in: rect)
@@ -735,16 +615,6 @@ final class MarkdownEditorTextView: NSTextView {
       let path = NSBezierPath(roundedRect: cardRect, xRadius: cardRadius, yRadius: cardRadius)
       cardColor.setFill()
       path.fill()
-
-      if allowsSectionColorEditing,
-        let iconGeometry = sectionIconGeometry(for: cardGeometry),
-        sectionIconIsRevealed(for: iconGeometry.dividerRange)
-      {
-        drawSectionIconButton(
-          in: iconGeometry,
-          hovered: hoveredSectionIconLocation == iconGeometry.dividerRange.location
-        )
-      }
     }
     drawCodeBlocks(in: rect, textStorage: textStorage)
     drawPromptBlocks(in: rect, textStorage: textStorage)
@@ -1406,33 +1276,10 @@ final class MarkdownEditorTextView: NSTextView {
     return lines.joined(separator: "\n")
   }
 
-  // Draws the palette glyph when the section is active or inside the reveal zone.
-  private func drawSectionIconButton(in geometry: SectionIconGeometry, hovered: Bool) {
-    let iconColor: NSColor = hovered ? .labelColor : .secondaryLabelColor
-    guard
-      let image = NSImage(
-        systemSymbolName: "paintpalette",
-        accessibilityDescription: "Section colors"
-      )?
-      .withSymbolConfiguration(
-        NSImage.SymbolConfiguration(pointSize: sectionIconSize, weight: .regular)
-          .applying(NSImage.SymbolConfiguration(paletteColors: [iconColor]))
-      )
-    else { return }
-    image.draw(
-      in: geometry.symbolRect, from: .zero, operation: .sourceOver, fraction: 1.0,
-      respectFlipped: true, hints: nil
-    )
-  }
-
-  // MARK: - Section Icon Hover Tracking
-
-  // Creates hover tracking areas over each section's enlarged palette reveal zone.
+  // Rebuilds tracking areas for embedded prompt and table controls.
   override func updateTrackingAreas() {
     super.updateTrackingAreas()
 
-    for area in sectionIconTrackingAreas { removeTrackingArea(area) }
-    sectionIconTrackingAreas.removeAll()
     for area in promptBlockTrackingAreas { removeTrackingArea(area) }
     promptBlockTrackingAreas.removeAll()
     for area in promptCopyTrackingAreas { removeTrackingArea(area) }
@@ -1448,26 +1295,6 @@ final class MarkdownEditorTextView: NSTextView {
 
     addPromptActionTrackingAreas()
     addTableActionTrackingAreas()
-
-    guard allowsSectionColorEditing, let layoutSnapshot = sectionLayoutSnapshot() else {
-      clearHoveredSectionIcon()
-      return
-    }
-
-    for cardGeometry in sectionCardGeometries(in: layoutSnapshot) {
-      guard let iconGeometry = sectionIconGeometry(for: cardGeometry) else { continue }
-
-      let area = NSTrackingArea(
-        rect: iconGeometry.revealRect,
-        options: [.mouseEnteredAndExited, .mouseMoved, .activeInActiveApp],
-        owner: self,
-        userInfo: ["dividerLocation": iconGeometry.dividerRange.location]
-      )
-      addTrackingArea(area)
-      sectionIconTrackingAreas.append(area)
-    }
-
-    refreshHoveredSectionIconFromCurrentMouseLocation()
   }
 
   // Adds hover tracking over prompt blocks and their action buttons.
@@ -1570,20 +1397,7 @@ final class MarkdownEditorTextView: NSTextView {
       NSCursor.pointingHand.push()
       return
     }
-    if event.trackingArea?.userInfo?["dividerLocation"] is Int {
-      updateHoveredSectionIcon(at: convert(event.locationInWindow, from: nil))
-      return
-    }
     super.mouseEntered(with: event)
-  }
-
-  // Keeps the section affordance visible while the cursor moves within the reveal zone.
-  override func mouseMoved(with event: NSEvent) {
-    if updateHoveredSectionIcon(at: convert(event.locationInWindow, from: nil)) {
-      return
-    }
-
-    super.mouseMoved(with: event)
   }
 
   // Restores the default cursor when leaving actionable controls.
@@ -1622,92 +1436,7 @@ final class MarkdownEditorTextView: NSTextView {
       NSCursor.pop()
       return
     }
-    if event.trackingArea?.userInfo?["dividerLocation"] != nil {
-      updateHoveredSectionIcon(at: convert(event.locationInWindow, from: nil))
-      return
-    }
     super.mouseExited(with: event)
-  }
-
-  // MARK: - Section Icon Hit Testing
-
-  @discardableResult
-  private func updateHoveredSectionIcon(at point: NSPoint?) -> Bool {
-    let iconGeometry = point.flatMap { sectionIconRevealHitTest(at: $0) }
-    let newLocation = iconGeometry?.dividerRange.location
-    let previousLocation = hoveredSectionIconLocation
-
-    hoveredSectionIconLocation = newLocation
-    updateSectionIconCursor(isVisible: point.flatMap { sectionIconButtonHitTest(at: $0) } != nil)
-
-    if previousLocation != newLocation {
-      setNeedsDisplay(bounds)
-    }
-
-    return newLocation != nil
-  }
-
-  private func refreshHoveredSectionIconFromCurrentMouseLocation() {
-    guard let window else {
-      clearHoveredSectionIcon()
-      return
-    }
-
-    let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
-    if bounds.contains(point) {
-      updateHoveredSectionIcon(at: point)
-    } else {
-      clearHoveredSectionIcon()
-    }
-  }
-
-  private func clearHoveredSectionIcon() {
-    let hadHoveredIcon = hoveredSectionIconLocation != nil
-    hoveredSectionIconLocation = nil
-    updateSectionIconCursor(isVisible: false)
-
-    if hadHoveredIcon {
-      setNeedsDisplay(bounds)
-    }
-  }
-
-  private func updateSectionIconCursor(isVisible: Bool) {
-    if isVisible, !isSectionIconCursorPushed {
-      NSCursor.pointingHand.push()
-      isSectionIconCursorPushed = true
-    } else if !isVisible, isSectionIconCursorPushed {
-      NSCursor.pop()
-      isSectionIconCursorPushed = false
-    }
-  }
-
-  private func sectionIconRevealHitTest(at point: NSPoint) -> SectionIconGeometry? {
-    guard allowsSectionColorEditing, let layoutSnapshot = sectionLayoutSnapshot() else {
-      return nil
-    }
-
-    for cardGeometry in sectionCardGeometries(in: layoutSnapshot) {
-      guard let iconGeometry = sectionIconGeometry(for: cardGeometry) else { continue }
-      if iconGeometry.revealRect.contains(point) {
-        return iconGeometry
-      }
-    }
-    return nil
-  }
-
-  // Computes fresh button rects on every call so hit testing never relies on stale cache.
-  private func sectionIconButtonHitTest(at point: NSPoint) -> SectionIconGeometry? {
-    guard allowsSectionColorEditing, let layoutSnapshot = sectionLayoutSnapshot() else {
-      return nil
-    }
-
-    for cardGeometry in sectionCardGeometries(in: layoutSnapshot) {
-      guard let iconGeometry = sectionIconGeometry(for: cardGeometry) else { continue }
-      if iconGeometry.hitRect.contains(point) {
-        return iconGeometry
-      }
-    }
-    return nil
   }
 
   // MARK: - Navigation
@@ -2164,7 +1893,7 @@ final class MarkdownEditorTextView: NSTextView {
 
   // MARK: - Mouse Handling
 
-  // Handles section icon clicks, checkbox toggles, and divider selection.
+  // Handles embedded actions, checkbox toggles, and divider selection.
   override func mouseDown(with event: NSEvent) {
     if window?.firstResponder !== self {
       window?.makeFirstResponder(self)
@@ -2198,12 +1927,6 @@ final class MarkdownEditorTextView: NSTextView {
 
     if let promptRange = promptCopyHitTest(at: point) {
       copyPromptBlock(in: promptRange, textStorage: textStorage)
-      return
-    }
-
-    // Section color icon click — computed fresh each time.
-    if let iconGeometry = sectionIconButtonHitTest(at: point) {
-      showSectionColorPopover(for: iconGeometry.dividerRange, at: iconGeometry.buttonRect)
       return
     }
 
@@ -2382,213 +2105,6 @@ final class MarkdownEditorTextView: NSTextView {
     return nil
   }
 
-  // MARK: - Section Color Popover
-
-  // Presents the color picker popover for a section divider.
-  private func showSectionColorPopover(for dividerRange: NSRange, at iconRect: NSRect) {
-    guard let textStorage else { return }
-    let attrs = textStorage.attributes(at: dividerRange.location, effectiveRange: nil)
-
-    let currentHeading = attrs[.markdownSectionHeadingColor] as? String
-    let currentBullet = attrs[.markdownSectionBulletColor] as? String
-    let currentUseSC = attrs[.markdownSectionUseSectionColor] as? Bool ?? true
-
-    let popover = NSPopover()
-    popover.behavior = .transient
-    popover.contentSize = EditorSectionColorPopoverViewController.contentSize(
-      useSectionColor: currentUseSC)
-
-    let controller = EditorSectionColorPopoverViewController(
-      headingColorName: currentHeading,
-      bulletColorName: currentBullet,
-      useSectionColor: currentUseSC
-    ) { [weak self] newHeading, newBullet, newUseSC in
-      self?.applySectionColorChange(
-        dividerRange: dividerRange,
-        headingColorName: newHeading,
-        bulletColorName: newBullet,
-        useSectionColor: newUseSC
-      )
-    }
-
-    popover.contentViewController = controller
-    popover.show(relativeTo: iconRect, of: self, preferredEdge: .maxX)
-  }
-
-  // Updates the divider's section color attributes and re-applies colors to affected content.
-  private func applySectionColorChange(
-    dividerRange: NSRange,
-    headingColorName: String?,
-    bulletColorName: String?,
-    useSectionColor: Bool
-  ) {
-    guard let textStorage else { return }
-
-    let nsString = textStorage.string as NSString
-    var trimmed = dividerRange
-    if trimmed.length > 0,
-      nsString.character(at: trimmed.location + trimmed.length - 1) == 0x0A
-    {
-      trimmed.length -= 1
-    }
-    guard trimmed.length > 0, trimmed.location < textStorage.length else { return }
-
-    _ = performEditorEdit(
-      affectedRange: trimmed,
-      actionName: "Section Colors"
-    ) { textStorage in
-      if let name = headingColorName {
-        textStorage.addAttribute(.markdownSectionHeadingColor, value: name, range: trimmed)
-      } else {
-        textStorage.removeAttribute(.markdownSectionHeadingColor, range: trimmed)
-      }
-      if !useSectionColor, let name = bulletColorName {
-        textStorage.addAttribute(.markdownSectionBulletColor, value: name, range: trimmed)
-      } else {
-        textStorage.removeAttribute(.markdownSectionBulletColor, range: trimmed)
-      }
-      if useSectionColor {
-        textStorage.addAttribute(.markdownSectionUseSectionColor, value: true, range: trimmed)
-      } else if headingColorName != nil || bulletColorName != nil {
-        textStorage.addAttribute(.markdownSectionUseSectionColor, value: false, range: trimmed)
-      } else {
-        textStorage.removeAttribute(.markdownSectionUseSectionColor, range: trimmed)
-      }
-      return nil
-    }
-
-    reapplySectionColorsAfterDivider(at: dividerRange)
-  }
-
-  // Walks forward from a divider and recolors headings/bullets within that section.
-  private func reapplySectionColorsAfterDivider(at dividerRange: NSRange) {
-    guard let textStorage else { return }
-
-    let nsString = textStorage.string as NSString
-    let dividerAttrs = textStorage.attributes(at: dividerRange.location, effectiveRange: nil)
-
-    let headingColorName = dividerAttrs[.markdownSectionHeadingColor] as? String
-    let bulletColorName = dividerAttrs[.markdownSectionBulletColor] as? String
-    let useSC = dividerAttrs[.markdownSectionUseSectionColor] as? Bool ?? true
-
-    let headingColor = headingColorName.flatMap { MarkdownEditorFormatter.headingColor(named: $0) }
-    let bulletColor: NSColor? = {
-      if useSC, let n = headingColorName { return MarkdownEditorFormatter.headingColor(named: n) }
-      if let n = bulletColorName { return MarkdownEditorFormatter.headingColor(named: n) }
-      return nil
-    }()
-
-    var lineStart = NSMaxRange(dividerRange)
-    while lineStart < nsString.length {
-      let lineRange = nsString.lineRange(for: NSRange(location: lineStart, length: 0))
-      var trimmed = lineRange
-      if trimmed.length > 0,
-        nsString.character(at: trimmed.location + trimmed.length - 1) == 0x0A
-      {
-        trimmed.length -= 1
-      }
-      guard trimmed.length > 0 else {
-        lineStart = NSMaxRange(lineRange)
-        continue
-      }
-
-      let attrs = textStorage.attributes(at: trimmed.location, effectiveRange: nil)
-      if attrs[.markdownSectionDivider] as? Bool == true { break }
-
-      if attrs[.markdownHeadingLevel] != nil, attrs[.markdownHeadingColor] == nil {
-        if let color = headingColor {
-          textStorage.addAttribute(.foregroundColor, value: color, range: trimmed)
-        } else {
-          textStorage.addAttribute(.foregroundColor, value: NSColor.labelColor, range: trimmed)
-        }
-      }
-
-      if useSC, let color = bulletColor,
-        let rawType = attrs[.markdownListType] as? String,
-        let listType = MarkdownListType(rawValue: rawType)
-      {
-        switch listType {
-        case .bullet:
-          textStorage.addAttributes(
-            [
-              .foregroundColor: color,
-              .font: NSFont.systemFont(ofSize: appearanceSettings.bulletSize, weight: .bold),
-            ], range: NSRange(location: trimmed.location, length: 1))
-        case .checkboxChecked, .checkboxUnchecked:
-          let checked = listType == .checkboxChecked
-          let newAttachment = NSAttributedString(
-            attachment: MarkdownEditorFormatter.checkboxAttachment(checked: checked, color: color))
-          let preservedParagraphStyle = attrs[.paragraphStyle]
-          let preservedIndentLevel = attrs[.markdownIndentLevel]
-          textStorage.replaceCharacters(
-            in: NSRange(location: trimmed.location, length: 1), with: newAttachment)
-          textStorage.addAttribute(
-            .markdownListType, value: rawType,
-            range: NSRange(location: trimmed.location, length: 1))
-          if let preservedParagraphStyle {
-            textStorage.addAttribute(
-              .paragraphStyle,
-              value: preservedParagraphStyle,
-              range: NSRange(location: trimmed.location, length: 1)
-            )
-          }
-          if let preservedIndentLevel {
-            textStorage.addAttribute(
-              .markdownIndentLevel,
-              value: preservedIndentLevel,
-              range: NSRange(location: trimmed.location, length: 1)
-            )
-          }
-        case .numbered:
-          break
-        }
-      } else if !useSC,
-        let rawType = attrs[.markdownListType] as? String,
-        let listType = MarkdownListType(rawValue: rawType)
-      {
-        switch listType {
-        case .bullet:
-          textStorage.addAttributes(
-            [
-              .foregroundColor: MarkdownEditorFormatter.bulletColor(for: appearanceSettings),
-              .font: NSFont.systemFont(ofSize: appearanceSettings.bulletSize, weight: .bold),
-            ], range: NSRange(location: trimmed.location, length: 1))
-        case .checkboxChecked, .checkboxUnchecked:
-          let checked = listType == .checkboxChecked
-          let newAttachment = NSAttributedString(
-            attachment: MarkdownEditorFormatter.checkboxAttachment(
-              checked: checked, appearance: appearanceSettings))
-          let preservedParagraphStyle = attrs[.paragraphStyle]
-          let preservedIndentLevel = attrs[.markdownIndentLevel]
-          textStorage.replaceCharacters(
-            in: NSRange(location: trimmed.location, length: 1), with: newAttachment)
-          textStorage.addAttribute(
-            .markdownListType, value: rawType,
-            range: NSRange(location: trimmed.location, length: 1))
-          if let preservedParagraphStyle {
-            textStorage.addAttribute(
-              .paragraphStyle,
-              value: preservedParagraphStyle,
-              range: NSRange(location: trimmed.location, length: 1)
-            )
-          }
-          if let preservedIndentLevel {
-            textStorage.addAttribute(
-              .markdownIndentLevel,
-              value: preservedIndentLevel,
-              range: NSRange(location: trimmed.location, length: 1)
-            )
-          }
-        case .numbered:
-          break
-        }
-      }
-
-      lineStart = NSMaxRange(lineRange)
-    }
-
-    setNeedsDisplay(bounds)
-  }
 }
 
 extension MarkdownEditorTextView: EditorTableBlockViewDelegate {
