@@ -49,7 +49,7 @@
           )
 
           Text(
-            "Shows four in-memory daily notes dated from today through the previous three days. Real notes are restored when this is turned off."
+            "Shows four structured daily notes in disposable storage. Your real library and selection return when this is turned off. Demo edits are not copied back."
           )
           .font(.footnote)
           .foregroundStyle(.secondary)
@@ -60,16 +60,16 @@
             store.copyProductionLibraryToDeveloperLibrary()
           }
           .disabled(
-            !store.canCopyProductionLibraryToDeveloper || store.isStructuredDailyNoteMode
+            !store.canCopyProductionLibraryToDeveloper || store.isDemoModeEnabled
           )
 
           Button("Reset and seed developer library", role: .destructive) {
             store.resetDeveloperLibrary()
           }
-          .disabled(!store.canResetDeveloperLibrary || store.isStructuredDailyNoteMode)
+          .disabled(!store.canResetDeveloperLibrary || store.isDemoModeEnabled)
 
           Text(
-            "Use the production copy when you need real notes in DEBUG without writing to the production library. Reset replaces the active non-production library with deterministic test data."
+            "Use the production copy when you need real notes in DEBUG without writing to the production library. Reset preserves the previous developer folder beside it and creates deterministic structured test data."
           )
           .font(.footnote)
           .foregroundStyle(.secondary)
@@ -77,7 +77,7 @@
 
         Section("Storage") {
           LabeledContent("Daily-note mode") {
-            Text(store.dailyNoteStorageMode.displayName)
+            Text("Structured notes")
               .foregroundStyle(.secondary)
           }
 
@@ -95,7 +95,7 @@
               .textSelection(.enabled)
           }
 
-          LabeledContent("Legacy Markdown folder") {
+          LabeledContent("Original Markdown (recovery)") {
             Text(store.legacyDailyNotesStorageURL.path)
               .font(.caption)
               .foregroundStyle(.secondary)

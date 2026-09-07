@@ -7,6 +7,11 @@
 import Foundation
 
 extension NotesStore {
+  var isLibraryReadyForEditing: Bool {
+    hasLoaded && isStructuredDailyNoteMode && !isLibraryRecoveryBlocked
+      && (!enforcesStructuredCutover || structuredNotesCutoverStatus == .completed)
+  }
+
   var isStructuredCutoverPromptPresented: Bool {
     guard !isPerformingFileOperation else { return false }
     return structuredNotesCutoverStatus == .conversionRequired
@@ -31,10 +36,8 @@ extension NotesStore {
           try StructuredLibraryState.markCompleted(at: libraryLocation)
         }
         setStructuredCutoverStatus(.completed)
-        dailyNoteStorageMode =
-          settingsRepository.loadSavedDailyNoteStorageMode()
-          ?? .structuredExperimental
-        loadIfNeeded()
+        activateStructuredLibraryAfterCutover()
+        loadValidatedLibraryIfNeeded()
         return
       }
 
@@ -47,7 +50,7 @@ extension NotesStore {
         try StructuredLibraryState.markCompleted(at: libraryLocation)
         setStructuredCutoverStatus(.completed)
         activateStructuredLibraryAfterCutover()
-        loadIfNeeded()
+        loadValidatedLibraryIfNeeded()
         return
       }
 
@@ -61,15 +64,6 @@ extension NotesStore {
       markStructuredCutoverFailed(error)
       blockEditingIfLibraryRecoveryIsPending()
     }
-  }
-
-  // Keeps the current legacy editor available without treating conversion as complete.
-  func continueUsingLegacyForNow() {
-    guard recoverLibraryInstallationBeforeLoading() else { return }
-    dailyNoteStorageMode = .legacyMarkdown
-    settingsRepository.saveDailyNoteStorageMode(.legacyMarkdown)
-    structuredNotesCutoverFailureDescription = nil
-    loadIfNeeded()
   }
 
   // Records that a full-library restore installed and reloaded valid structured storage.

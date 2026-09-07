@@ -155,28 +155,6 @@ extension NotesStore {
 
   // MARK: - Bindings
 
-  // Two-way binding for a list note's title, with debounced save.
-  func listNoteTitleBinding(for noteID: DayNote.ID) -> Binding<String> {
-    Binding(
-      get: { self.listNote(withID: noteID)?.title ?? "" },
-      set: { self.updateListNote(noteID: noteID) { $0.title = $1 }($0) }
-    )
-  }
-
-  // Two-way binding for a list note's tags, with debounced save.
-  func listNoteTagsBinding(for noteID: DayNote.ID) -> Binding<String> {
-    Binding(
-      get: { self.listNote(withID: noteID)?.tags.joined(separator: ", ") ?? "" },
-      set: { newValue in
-        self.updateListNote(noteID: noteID) { note, _ in
-          note.tags = newValue.split(separator: ",", omittingEmptySubsequences: false)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        }(newValue)
-      }
-    )
-  }
-
   // Two-way binding for a list note's body, with debounced save.
   func listNoteBodyBinding(for noteID: DayNote.ID) -> Binding<String> {
     Binding(
@@ -435,27 +413,4 @@ extension NotesStore {
     }
   }
 
-  // Title binding that routes to daily or list note by ID.
-  func activeTitleBinding(for noteID: DayNote.ID) -> Binding<String> {
-    switch activeNoteRoute {
-    case .daily: return titleBinding(for: noteID)
-    case .list: return listNoteTitleBinding(for: noteID)
-    }
-  }
-
-  // Tags binding that routes to daily or list note by ID.
-  func activeTagsBinding(for noteID: DayNote.ID) -> Binding<String> {
-    switch activeNoteRoute {
-    case .daily: return tagsBinding(for: noteID)
-    case .list: return listNoteTagsBinding(for: noteID)
-    }
-  }
-
-  // Body binding that routes to daily or list note by ID.
-  func activeBodyBinding(for noteID: DayNote.ID) -> Binding<String> {
-    switch activeNoteRoute {
-    case .daily: return bodyBinding(for: noteID)
-    case .list: return listNoteBodyBinding(for: noteID)
-    }
-  }
 }

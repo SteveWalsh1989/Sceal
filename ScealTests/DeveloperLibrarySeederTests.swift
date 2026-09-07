@@ -26,6 +26,17 @@
       XCTAssertEqual(snapshot.listNotes.map(\.id), ["developer-library-checklist"])
       XCTAssertEqual(snapshot.manifest.allNoteIDs, ["developer-library-checklist"])
       XCTAssertFalse(FileManager.default.fileExists(atPath: staleURL.path))
+      let preserved = try XCTUnwrap(snapshot.developerBackupURL)
+      addTeardownBlock { try? FileManager.default.removeItem(at: preserved) }
+      XCTAssertEqual(
+        try Data(contentsOf: preserved.appendingPathComponent("stale.txt")), Data("stale".utf8))
+      XCTAssertTrue(try StructuredLibraryState.isCompleted(at: location))
+      XCTAssertEqual(
+        try StructuredNoteRepository(libraryLocation: location).loadDocuments().map(\.id),
+        snapshot.dailyNotes.map(\.id))
+      XCTAssertEqual(
+        try StructuredNoteRepository.listNotes(libraryLocation: location).loadDocuments().map(\.id),
+        snapshot.listNotes.map(\.id))
       XCTAssertTrue(
         FileManager.default.fileExists(
           atPath: rootURL.appendingPathComponent("Notes/2026-05-10.md").path
@@ -160,6 +171,58 @@
         guard case DeveloperLibrarySeederError.missingProductionLibrary = error else {
           return XCTFail("Expected missing production library, got \(error).")
         }
+      }
+    }
+
+    // Completed structured libraries do not depend on retained Markdown being parseable.
+    func testStructuredCopyPreservesSourceAndDoesNotParseObsoleteMarkdown() throws {
+      let workspace = try makeTemporaryDirectory()
+      let source = ScealLibraryLocation.test(rootURL: workspace.appendingPathComponent("Source"))
+      let destination = ScealLibraryLocation.test(
+        rootURL: workspace.appendingPathComponent("Destination"))
+      let document = StructuredNoteDocument.empty(
+        id: "2026-09-01", date: makeDate(year: 2026, month: 9, day: 1))
+      try StructuredNoteRepository(libraryLocation: source).save(document)
+      try LibraryRepository(libraryLocation: source).saveStructuredListNotesManifest(.empty)
+      try StructuredLibraryState.markCompleted(at: source)
+      try LibraryArchiveFiles(files: ["bad.md": Data([0xFF, 0xFE])]).write(
+        to: source.legacyNotesDirectoryURL)
+      let before = try LibraryArchiveFiles.read(from: source.rootURL)
+      let snapshot = try DeveloperLibrarySeeder.copyProductionLibraryToDeveloper(
+        at: destination, productionLocation: source)
+      XCTAssertEqual(snapshot.dailyNotes.map(\.id), [document.id])
+      XCTAssertEqual(try LibraryArchiveFiles.read(from: source.rootURL), before)
+      XCTAssertEqual(try LibraryArchiveFiles.read(from: destination.rootURL), before)
+    }
+
+    // Source validation happens in staging, before the existing developer folder is displaced.
+    func testInvalidStructuredCopyLeavesDeveloperLibraryUntouched() throws {
+      let workspace = try makeTemporaryDirectory()
+      let source = ScealLibraryLocation.test(rootURL: workspace.appendingPathComponent("Source"))
+      let destination = ScealLibraryLocation.test(
+        rootURL: workspace.appendingPathComponent("Destination"))
+      try LibraryArchiveFiles(files: ["broken.scealnote": Data("broken".utf8)]).write(
+        to: source.structuredNotesDirectoryURL)
+      try LibraryRepository(libraryLocation: source).saveStructuredListNotesManifest(.empty)
+      try StructuredLibraryState.markCompleted(at: source)
+      let original = LibraryArchiveFiles(files: ["Notes/keep.md": Data("keep".utf8)])
+      try original.write(to: destination.rootURL)
+      XCTAssertThrowsError(
+        try DeveloperLibrarySeeder.copyProductionLibraryToDeveloper(
+          at: destination, productionLocation: source))
+      XCTAssertEqual(try LibraryArchiveFiles.read(from: destination.rootURL), original)
+    }
+
+    func testDeveloperCopyRejectsOverlappingRootsAndSymlinksToSource() throws {
+      let workspace = try makeTemporaryDirectory()
+      let source = ScealLibraryLocation.test(rootURL: workspace.appendingPathComponent("Source"))
+      try FileManager.default.createDirectory(at: source.rootURL, withIntermediateDirectories: true)
+      let link = workspace.appendingPathComponent("Alias")
+      try FileManager.default.createSymbolicLink(at: link, withDestinationURL: source.rootURL)
+      for root in [source.rootURL.appendingPathComponent("Nested"), workspace, link] {
+        XCTAssertFalse(
+          DeveloperLibrarySeeder.canCopyProductionLibraryToDeveloper(
+            at: .test(rootURL: root), productionLocation: source))
       }
     }
 

@@ -50,10 +50,6 @@ extension NotesStore {
     }
   }
 
-  var structuredListNotesStorageURL: URL {
-    structuredListNoteRepository.storageDirectoryURL
-  }
-
   // Loads structured list documents and reconciles their independent sidebar manifest.
   func loadStructuredListNotesIfNeeded() throws {
     guard !hasLoadedStructuredListNotes else { return }

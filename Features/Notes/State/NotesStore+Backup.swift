@@ -186,6 +186,14 @@ extension NotesStore {
   }
 
   private func performBackup(trigger: BackupTrigger, respectSchedule: Bool) {
+    guard !isDemoModeEnabled, !enforcesStructuredCutover || isLibraryReadyForEditing else {
+      if trigger == .manual || trigger == .locationConfigured {
+        userMessage = (
+          text: "Open your library and leave Demo Library before running a backup.", kind: .info
+        )
+      }
+      return
+    }
     guard backupSettings.isConfigured else {
       return
     }

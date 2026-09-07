@@ -18,6 +18,11 @@ extension NotesStore {
         throw LibraryInstallTransactionError.pendingRecovery
       }
       try transaction.rollback()
+      if fileManager.fileExists(
+        atPath: LibraryInstallTransaction.recoveryHoldURL(in: libraryLocation.rootURL).path)
+      {
+        throw LibraryInstallTransactionError.pendingRecovery
+      }
     case .configuration:
       try transaction.validateInstalled()
       try validateCompletedStructuredCutover()

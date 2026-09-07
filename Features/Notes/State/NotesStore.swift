@@ -110,10 +110,10 @@ final class NotesStore: ObservableObject {
   let fileManager: FileManager
   let calendar: Calendar
   let enforcesStructuredCutover: Bool
-  let libraryLocation: ScealLibraryLocation
-  let libraryRepository: LibraryRepository
-  let structuredNoteRepository: StructuredNoteRepository
-  let structuredListNoteRepository: StructuredNoteRepository
+  private(set) var libraryLocation: ScealLibraryLocation
+  private(set) var libraryRepository: LibraryRepository
+  private(set) var structuredNoteRepository: StructuredNoteRepository
+  private(set) var structuredListNoteRepository: StructuredNoteRepository
   let settingsRepository: SettingsRepository
   let appearanceSettingsStore: AppearanceSettingsStore
   let backupSettingsStore: BackupSettingsStore
@@ -136,16 +136,17 @@ final class NotesStore: ObservableObject {
   private var userMessageDismissTask: Task<Void, Never>?
   #if DEBUG
     private var demoReturnContext: DemoReturnContext?
+    private var structuredDemoReturnContext:
+      (
+        location: ScealLibraryLocation, notes: [StructuredNoteDocument], selectedID: String?,
+        query: String, expanded: Bool, year: Int
+      )?
   #endif
 
   static let logger = Logger(subsystem: "com.sceal.app", category: "store")
 
   nonisolated static var defaultEnforcesStructuredCutover: Bool {
-    #if DEBUG
-      return false
-    #else
-      return true
-    #endif
+    true
   }
 
   init(
@@ -433,7 +434,7 @@ final class NotesStore: ObservableObject {
   }
 
   #if DEBUG
-    // Toggles the in-memory demo library used for screenshot and local testing flows.
+    // Switches to disposable structured samples without replacing the user's library.
     func setDemoModeEnabled(_ enabled: Bool, referenceDate: Date = .now) {
       guard enabled != isDemoModeEnabled else { return }
 
@@ -441,11 +442,11 @@ final class NotesStore: ObservableObject {
         guard canBeginLibraryFileOperation() else { return }
         do {
           try flushPendingSavesForLibraryOperation()
+          try enableDemoMode(relativeTo: referenceDate)
         } catch {
           report(error, context: "Opening demo library failed")
           return
         }
-        enableDemoMode(relativeTo: referenceDate)
       } else {
         disableDemoMode()
       }
@@ -473,6 +474,7 @@ final class NotesStore: ObservableObject {
         try flushPendingSavesForLibraryOperation()
         if isDemoModeEnabled {
           disableDemoMode()
+          guard !isDemoModeEnabled else { return }
         }
 
         let snapshot = try DeveloperLibrarySeeder.resetLibrary(
@@ -510,6 +512,7 @@ final class NotesStore: ObservableObject {
         try flushPendingSavesForLibraryOperation()
         if isDemoModeEnabled {
           disableDemoMode()
+          guard !isDemoModeEnabled else { return }
         }
 
         let snapshot = try DeveloperLibrarySeeder.copyProductionLibraryToDeveloper(
@@ -531,6 +534,14 @@ final class NotesStore: ObservableObject {
     }
 
     private func applyDeveloperLibrarySnapshot(_ snapshot: DeveloperLibrarySeedSnapshot) {
+      if enforcesStructuredCutover {
+        hasLoaded = false
+        hasLoadedStructuredNotes = false
+        hasLoadedStructuredListNotes = false
+        setStructuredCutoverStatus(.notStarted)
+        prepareStructuredCutoverForProductionLaunch()
+        return
+      }
       notes = snapshot.dailyNotes
       listNotes = snapshot.listNotes
       listNoteManifest = snapshot.manifest
@@ -546,7 +557,30 @@ final class NotesStore: ObservableObject {
       hasLoaded = true
     }
 
-    private func enableDemoMode(relativeTo referenceDate: Date) {
+    private func enableDemoMode(relativeTo referenceDate: Date) throws {
+      if enforcesStructuredCutover {
+        let location = ScealLibraryLocation.test(
+          rootURL: fileManager.temporaryDirectory.appendingPathComponent(
+            "sceal-demo-\(UUID().uuidString)"))
+        let documents = try DayNote.demoModeNotes(relativeTo: referenceDate, calendar: calendar)
+          .map(LegacyMarkdownStructuredNoteAdapter.importDocument)
+        let repository = StructuredNoteRepository(
+          libraryLocation: location, fileManager: fileManager)
+        for document in documents { try repository.save(document) }
+        try LibraryRepository(libraryLocation: location, fileManager: fileManager)
+          .saveStructuredListNotesManifest(.empty)
+        try StructuredLibraryState.markCompleted(at: location)
+        structuredDemoReturnContext = (
+          libraryLocation, structuredNotes, selectedStructuredNoteID, structuredSearchText,
+          isStructuredSearchBarExpanded, structuredCalendarBrowseYear
+        )
+        useDeveloperLibraryLocation(location)
+        structuredNotes = documents
+        selectedStructuredNoteID = documents.first?.id
+        structuredSearchText = ""
+        isStructuredSearchBarExpanded = false
+        structuredCalendarBrowseYear = calendar.component(.year, from: referenceDate)
+      }
       demoReturnContext = DemoReturnContext(
         sidebarMode: sidebarMode,
         selectedNoteID: selectedNoteID,
@@ -568,6 +602,19 @@ final class NotesStore: ObservableObject {
     }
 
     private func disableDemoMode() {
+      if let context = structuredDemoReturnContext {
+        do { try flushPendingSavesForLibraryOperation() } catch {
+          report(error, context: "Leaving demo library failed")
+          return
+        }
+        useDeveloperLibraryLocation(context.location)
+        structuredNotes = context.notes
+        selectedStructuredNoteID = context.selectedID
+        structuredSearchText = context.query
+        isStructuredSearchBarExpanded = context.expanded
+        structuredCalendarBrowseYear = context.year
+        structuredDemoReturnContext = nil
+      }
       let returnContext = demoReturnContext
       demoReturnContext = nil
       isDemoModeEnabled = false
@@ -586,6 +633,17 @@ final class NotesStore: ObservableObject {
       listSearchText = returnContext.listSearchText
       isListSearchBarExpanded = returnContext.isListSearchBarExpanded
       calendarBrowseYear = returnContext.calendarBrowseYear
+    }
+
+    // Only the demo workflow changes repositories, and always to a newly created disposable root.
+    private func useDeveloperLibraryLocation(_ location: ScealLibraryLocation) {
+      libraryLocation = location
+      libraryRepository = LibraryRepository(libraryLocation: location, fileManager: fileManager)
+      structuredNoteRepository = StructuredNoteRepository(
+        libraryLocation: location, fileManager: fileManager)
+      structuredListNoteRepository = StructuredNoteRepository.listNotes(
+        libraryLocation: location, fileManager: fileManager)
+      cachedMonthSections = nil
     }
   #endif
 
@@ -672,15 +730,36 @@ final class NotesStore: ObservableObject {
       return
     }
 
+    if enforcesStructuredCutover {
+      prepareStructuredCutoverForProductionLaunch()
+      return
+    }
+    loadValidatedLibraryIfNeeded()
+  }
+
+  // Production callers must pass the authority/conversion gate before loading editable data.
+  func loadValidatedLibraryIfNeeded() {
+    guard !hasLoaded else { return }
     guard recoverLibraryInstallationBeforeLoading() else { return }
     isLoading = true
+    defer { isLoading = false }
 
-    loadSelectedDailyNoteStore()
-
-    loadListNotesIfNeeded()
+    if enforcesStructuredCutover {
+      do {
+        try loadStructuredDailyNotesIfNeeded()
+        try loadStructuredListNotesIfNeeded()
+      } catch {
+        structuredNotesCutoverFailureDescription = error.localizedDescription
+        setStructuredCutoverStatus(.recoveryRequired)
+        report(error, context: "Opening the structured library failed")
+        return
+      }
+    } else {
+      loadSelectedDailyNoteStore()
+      loadListNotesIfNeeded()
+    }
 
     hasLoaded = true
-    isLoading = false
     startPeriodicFlush()
     startPeriodicBackupChecks()
     refreshBackupHealth()
@@ -824,6 +903,13 @@ final class NotesStore: ObservableObject {
 
   // Shared admission check also covers automatic backups, which have no blocking progress UI.
   func canBeginLibraryFileOperation() -> Bool {
+    guard !enforcesStructuredCutover || isLibraryReadyForEditing else {
+      userMessage = (
+        text: "Finish opening or recovering the library before starting this operation.",
+        kind: .info
+      )
+      return false
+    }
     guard !isLibraryRecoveryBlocked else {
       userMessage = (
         text: LibraryInstallTransactionError.pendingRecovery.localizedDescription, kind: .error
@@ -1025,22 +1111,6 @@ final class NotesStore: ObservableObject {
     return (previousNoteID, nextNoteID)
   }
 
-  // Two-way binding for the note title, auto-saving on change.
-  func titleBinding(for noteID: DayNote.ID) -> Binding<String> {
-    Binding(
-      get: { self.note(withID: noteID)?.title ?? "" },
-      set: { self.updateTitle($0, for: noteID) }
-    )
-  }
-
-  // Two-way binding for the raw tags string, auto-saving on change.
-  func tagsBinding(for noteID: DayNote.ID) -> Binding<String> {
-    Binding(
-      get: { self.note(withID: noteID)?.tags.joined(separator: ", ") ?? "" },
-      set: { self.updateTags($0, for: noteID) }
-    )
-  }
-
   // Two-way binding for the note body, auto-saving on change.
   func bodyBinding(for noteID: DayNote.ID) -> Binding<String> {
     Binding(
@@ -1131,20 +1201,6 @@ final class NotesStore: ObservableObject {
     }
 
     return DayNote.empty(for: startOfDay, calendar: calendar)
-  }
-
-  // Updates a note's title and schedules a save.
-  private func updateTitle(_ title: String, for noteID: DayNote.ID) {
-    update(noteID: noteID) { note in
-      note.title = title
-    }
-  }
-
-  // Updates a note's tags (normalized) and schedules a save.
-  private func updateTags(_ rawTags: String, for noteID: DayNote.ID) {
-    update(noteID: noteID) { note in
-      note.tags = normalizedTags(from: rawTags)
-    }
   }
 
   // Updates a note's body and schedules a save.

@@ -61,11 +61,6 @@ struct DayNote: Identifiable, Equatable, Sendable {
     NoteDateFormatters.weekday.string(from: date)
   }
 
-  // Full date string shown in the editor header.
-  var editorDateText: String {
-    NoteDateFormatters.editorDate.string(from: date)
-  }
-
   // Formats the date using the user's chosen sidebar date format.
   func sidebarDateText(using format: SidebarDateFormat) -> String {
     format.string(from: date)

@@ -39,11 +39,11 @@
     ) throws -> DeveloperLibrarySeedSnapshot {
       try validateResetRoot(location.rootURL, fileManager: fileManager)
 
-      if fileManager.fileExists(atPath: location.rootURL.path) {
-        try fileManager.removeItem(at: location.rootURL)
-      }
-
-      let repository = LibraryRepository(libraryLocation: location, fileManager: fileManager)
+      let staged = ScealLibraryLocation.test(
+        rootURL: location.rootURL.deletingLastPathComponent()
+          .appendingPathComponent("Sceal Developer Seed \(UUID().uuidString)"))
+      defer { try? fileManager.removeItem(at: staged.rootURL) }
+      let repository = LibraryRepository(libraryLocation: staged, fileManager: fileManager)
       let dailyNotes = DayNote.demoModeNotes(relativeTo: referenceDate, calendar: calendar)
       let listNote = makeListNote(referenceDate: referenceDate, calendar: calendar)
       let manifest = ListNotesManifest(
@@ -56,13 +56,25 @@
       }
       try repository.saveListNote(listNote)
       try repository.saveListNotesManifest(manifest)
+      let structuredDaily = StructuredNoteRepository(
+        libraryLocation: staged, fileManager: fileManager)
+      for note in dailyNotes {
+        try structuredDaily.save(LegacyMarkdownStructuredNoteAdapter.importDocument(note))
+      }
+      try StructuredNoteRepository.listNotes(libraryLocation: staged, fileManager: fileManager)
+        .save(LegacyMarkdownStructuredNoteAdapter.importDocument(listNote))
+      try repository.saveStructuredListNotesManifest(manifest)
+      try StructuredLibraryState.markCompleted(at: staged)
       try writeAttachment(for: listNote.id, repository: repository, fileManager: fileManager)
       _ = try repository.restoreSafetyArchiveDirectoryURL()
+      let backupURL = try installDeveloperLibrary(
+        from: staged.rootURL, at: location.rootURL, fileManager: fileManager)
 
       return DeveloperLibrarySeedSnapshot(
         dailyNotes: dailyNotes,
         listNotes: [listNote],
-        manifest: manifest
+        manifest: manifest,
+        developerBackupURL: backupURL
       )
     }
 
@@ -97,14 +109,28 @@
         folderName: "\(ScealLibraryLocation.developerFolderName) Import \(timestamp)",
         fileManager: fileManager
       )
-      let backupURL = uniqueSiblingURL(
-        in: parentURL,
-        folderName: "\(ScealLibraryLocation.developerFolderName) Backup \(timestamp)",
-        fileManager: fileManager
-      )
-
       try fileManager.copyItem(at: sourceRootURL, to: stagingURL)
+      defer { try? fileManager.removeItem(at: stagingURL) }
+      let stagedSnapshot = try loadSnapshot(
+        at: .test(rootURL: stagingURL), fileManager: fileManager)
 
+      let backupURL = try installDeveloperLibrary(
+        from: stagingURL, at: destinationRootURL, fileManager: fileManager)
+
+      return DeveloperLibrarySeedSnapshot(
+        dailyNotes: stagedSnapshot.dailyNotes,
+        listNotes: stagedSnapshot.listNotes,
+        manifest: stagedSnapshot.manifest,
+        developerBackupURL: backupURL
+      )
+    }
+
+    // Both developer replacement workflows prepare their data first and retain the previous folder.
+    private static func installDeveloperLibrary(
+      from stagingURL: URL, at destinationRootURL: URL, fileManager: FileManager
+    ) throws -> URL? {
+      let backupURL = destinationRootURL.deletingLastPathComponent().appendingPathComponent(
+        "\(destinationRootURL.lastPathComponent) Backup \(UUID().uuidString)")
       let existingDeveloperLibraryWasBackedUp: Bool
       if fileManager.fileExists(atPath: destinationRootURL.path) {
         try fileManager.moveItem(at: destinationRootURL, to: backupURL)
@@ -119,23 +145,37 @@
         if existingDeveloperLibraryWasBackedUp,
           !fileManager.fileExists(atPath: destinationRootURL.path)
         {
-          try? fileManager.moveItem(at: backupURL, to: destinationRootURL)
+          try fileManager.moveItem(at: backupURL, to: destinationRootURL)
         }
         throw error
       }
 
-      let repository = LibraryRepository(
-        libraryLocation: developerLocation, fileManager: fileManager)
-      let dailyNotes = try repository.loadDailyNotes()
-      let listSnapshot = try repository.loadListNotes()
-      _ = try repository.restoreSafetyArchiveDirectoryURL()
+      return existingDeveloperLibraryWasBackedUp ? backupURL : nil
+    }
 
+    // Validate the active format before swapping the developer copy; original Markdown may be stale.
+    private static func loadSnapshot(at location: ScealLibraryLocation, fileManager: FileManager)
+      throws -> DeveloperLibrarySeedSnapshot
+    {
+      let repository = LibraryRepository(libraryLocation: location, fileManager: fileManager)
+      if try StructuredLibraryState.isCompleted(at: location) {
+        try StructuredLibraryState.requireStorageDirectories(at: location)
+        let daily = try StructuredNoteRepository(
+          libraryLocation: location, fileManager: fileManager
+        ).loadDocuments()
+        let lists = try StructuredNoteRepository.listNotes(
+          libraryLocation: location, fileManager: fileManager
+        ).loadDocuments()
+        let manifest = try repository.loadStructuredListNotesManifestForArchive(
+          noteIDs: Set(lists.map(\.id)))
+        return try DeveloperLibrarySeedSnapshot(
+          dailyNotes: daily.map(StructuredNoteMarkdownExporter.dayNote),
+          listNotes: lists.map(StructuredNoteMarkdownExporter.dayNote), manifest: manifest)
+      }
+      let lists = try repository.loadListNotes()
       return DeveloperLibrarySeedSnapshot(
-        dailyNotes: dailyNotes,
-        listNotes: listSnapshot.notes,
-        manifest: listSnapshot.manifest,
-        developerBackupURL: existingDeveloperLibraryWasBackedUp ? backupURL : nil
-      )
+        dailyNotes: try repository.loadDailyNotes(), listNotes: lists.notes,
+        manifest: lists.manifest)
     }
 
     // Returns whether production can be copied into the active DEBUG library.
@@ -153,14 +193,18 @@
 
     // Refuses roots that could target production or broad user directories.
     static func validateResetRoot(_ rootURL: URL, fileManager: FileManager = .default) throws {
-      let targetURL = rootURL.standardizedFileURL
+      let targetURL = rootURL.resolvingSymlinksInPath().standardizedFileURL
       let productionURL = ScealLibraryLocation.production(fileManager: fileManager)
         .rootURL
+        .resolvingSymlinksInPath().standardizedFileURL
+      let homeURL = fileManager.homeDirectoryForCurrentUser.resolvingSymlinksInPath()
         .standardizedFileURL
-      let homeURL = fileManager.homeDirectoryForCurrentUser.standardizedFileURL
       let applicationSupportURL = productionURL.deletingLastPathComponent().standardizedFileURL
 
-      guard targetURL != productionURL else {
+      guard targetURL != productionURL,
+        !targetURL.path.hasPrefix(productionURL.path + "/"),
+        !productionURL.path.hasPrefix(targetURL.path + "/")
+      else {
         throw DeveloperLibrarySeederError.refusingProductionLibrary
       }
       guard targetURL != homeURL, targetURL != applicationSupportURL else {
@@ -178,9 +222,12 @@
     ) throws {
       try validateResetRoot(developerRootURL, fileManager: fileManager)
 
-      let sourceRootURL = productionRootURL.standardizedFileURL
-      let destinationRootURL = developerRootURL.standardizedFileURL
-      guard sourceRootURL != destinationRootURL else {
+      let sourceRootURL = productionRootURL.resolvingSymlinksInPath().standardizedFileURL
+      let destinationRootURL = developerRootURL.resolvingSymlinksInPath().standardizedFileURL
+      guard sourceRootURL != destinationRootURL,
+        !sourceRootURL.path.hasPrefix(destinationRootURL.path + "/"),
+        !destinationRootURL.path.hasPrefix(sourceRootURL.path + "/")
+      else {
         throw DeveloperLibrarySeederError.refusingMatchingSourceAndDestination
       }
 

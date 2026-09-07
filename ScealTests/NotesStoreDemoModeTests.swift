@@ -5,6 +5,49 @@
 
   @MainActor
   final class NotesStoreDemoModeTests: NotesStoreTestCase {
+    // The shipping structured view uses disposable repositories for samples, including delayed saves.
+    func testStructuredDemoEditsStayDisposableAndRestoreRealNavigation() throws {
+      let location = makeLibraryLocation()
+      let original = try LegacyMarkdownStructuredNoteAdapter.importDocument(
+        makeDailyNote(year: 2026, month: 4, day: 4, title: "Real", body: "Keep this"))
+      try StructuredNoteRepository(libraryLocation: location).save(original)
+      try LibraryRepository(libraryLocation: location).saveStructuredListNotesManifest(.empty)
+      try StructuredLibraryState.markCompleted(at: location)
+      let store = makeStore(libraryLocation: location, enforcesStructuredCutover: true)
+      store.loadIfNeeded()
+      store.structuredSearchText = "Real"
+      store.isStructuredSearchBarExpanded = true
+      let before = try LibraryArchiveFiles.read(from: location.rootURL)
+      store.setDemoModeEnabled(true, referenceDate: original.date)
+      XCTAssertTrue(store.isDemoModeEnabled)
+      XCTAssertTrue(store.isLibraryReadyForEditing)
+      XCTAssertTrue(store.isStructuredEditorActive)
+      XCTAssertEqual(store.structuredNotes.count, 4)
+      store.backupSettingsStore.configureFolder(
+        bookmarkData: Data("not opened".utf8), displayPath: "/unused-demo-backup")
+      store.runBackupNow()
+      XCTAssertFalse(store.isBackupRunning)
+      XCTAssertNil(store.backupSettings.lastAttemptedBackupAt)
+      let temporary = store.libraryLocation.rootURL
+      XCTAssertNotEqual(temporary, location.rootURL)
+      addTeardownBlock { try? FileManager.default.removeItem(at: temporary) }
+      store.structuredTitleBinding(for: original.id).wrappedValue = "Demo edit with same ID"
+      store.sidebarMode = .list
+      XCTAssertEqual(store.sidebarMode, .daily)
+      store.setDemoModeEnabled(false)
+      XCTAssertFalse(store.isDemoModeEnabled)
+      XCTAssertEqual(store.libraryLocation, location)
+      XCTAssertEqual(store.structuredNotes, [original])
+      XCTAssertEqual(store.activeSelectedNoteID, original.id)
+      XCTAssertEqual(store.structuredSearchText, "Real")
+      XCTAssertTrue(store.isStructuredSearchBarExpanded)
+      try store.flushPendingSavesForLibraryOperation()
+      XCTAssertEqual(try LibraryArchiveFiles.read(from: location.rootURL), before)
+      XCTAssertEqual(
+        try StructuredNoteRepository(libraryLocation: .test(rootURL: temporary)).loadDocuments()
+          .first?.title, "Demo edit with same ID")
+    }
+
     // Keeps the demo library anchored to exactly four recent daily notes.
     func testDemoModeNotesUseTodayThroughPreviousThreeDays() {
       let referenceDate = makeDate(year: 2026, month: 4, day: 4)

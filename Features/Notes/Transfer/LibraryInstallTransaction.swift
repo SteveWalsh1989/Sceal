@@ -23,6 +23,12 @@ nonisolated struct LibraryInstallTransaction {
     var phase: Phase
     let folders: [Folder]
     let configuration: Configuration
+    let recoveryID: UUID?
+  }
+
+  private struct RecoveryHold: Codable {
+    let id: UUID
+    let preservedLibrary: String
   }
 
   let rootURL: URL
@@ -40,10 +46,19 @@ nonisolated struct LibraryInstallTransaction {
   }
 
   // Missing is distinct from malformed: damaged recovery metadata must block editing.
-  static func read(at rootURL: URL, fileManager: FileManager = .default) throws -> Self? {
+  static func read(at rootURL: URL, fileManager: FileManager = .default, recoveryID: UUID? = nil)
+    throws -> Self?
+  {
+    let holdURL = recoveryHoldURL(in: rootURL)
+    let hold =
+      fileManager.fileExists(atPath: holdURL.path)
+      ? try JSONDecoder().decode(RecoveryHold.self, from: Data(contentsOf: holdURL)) : nil
     let data: Data
     do { data = try Data(contentsOf: journalURL(in: rootURL)) } catch CocoaError.fileReadNoSuchFile
     {
+      if let hold, hold.id != recoveryID {
+        throw LibraryInstallTransactionError.pendingRecovery
+      }
       if fileManager.fileExists(atPath: rootURL.path),
         try fileManager.contentsOfDirectory(atPath: rootURL.path).contains(where: {
           $0.hasPrefix(".sceal-structured-rollback-")
@@ -54,6 +69,10 @@ nonisolated struct LibraryInstallTransaction {
       return nil
     }
     let record = try JSONDecoder().decode(Record.self, from: data)
+    // An older journal must never finish a newly requested recovery restore.
+    if let hold, hold.id != record.recoveryID {
+      throw LibraryInstallTransactionError.pendingRecovery
+    }
     let names = record.folders.map(\.name)
     guard record.version == 1, Set(names).count == names.count,
       Set(names).isSubset(of: Set(allowedFolders)),
@@ -66,9 +85,9 @@ nonisolated struct LibraryInstallTransaction {
   // Preparation cannot modify live folders and cannot replace another unfinished operation.
   static func prepare(
     at rootURL: URL, replacements: [String: URL], configuration: Configuration,
-    fileManager: FileManager = .default
+    fileManager: FileManager = .default, recoveryID: UUID? = nil
   ) throws -> Self {
-    guard try read(at: rootURL, fileManager: fileManager) == nil else {
+    guard try read(at: rootURL, fileManager: fileManager, recoveryID: recoveryID) == nil else {
       throw LibraryInstallTransactionError.pendingRecovery
     }
     guard Set(replacements.keys).isSubset(of: Set(allowedFolders)),
@@ -105,7 +124,8 @@ nonisolated struct LibraryInstallTransaction {
     let transaction = Self(
       rootURL: rootURL,
       record: Record(
-        version: 1, id: id, phase: .installing, folders: folders, configuration: configuration),
+        version: 1, id: id, phase: .installing, folders: folders, configuration: configuration,
+        recoveryID: recoveryID),
       fileManager: fileManager
     )
     try synchronizeTree(workspace, fileManager: fileManager)
@@ -171,8 +191,30 @@ nonisolated struct LibraryInstallTransaction {
     try discard()
   }
 
+  // Retain a blocking record across recovery-restore preparation and any subsequent rollback.
+  static func recoveryHoldURL(in rootURL: URL) -> URL {
+    rootURL.appendingPathComponent(".sceal-recovery-restore.json")
+  }
+
+  static func holdForRecovery(at rootURL: URL, preservedCopyURL: URL) throws -> UUID {
+    let url = recoveryHoldURL(in: rootURL)
+    let id = UUID()
+    try synchronizeTree(preservedCopyURL, fileManager: .default)
+    try JSONEncoder().encode(RecoveryHold(id: id, preservedLibrary: preservedCopyURL.path)).write(
+      to: url, options: .atomic)
+    let handle = try FileHandle(forWritingTo: url)
+    defer { try? handle.close() }
+    try handle.synchronize()
+    try synchronizeDirectory(rootURL)
+    return id
+  }
+
   // Removing the journal first makes leftover workspace cleanup harmless after completion.
   func discard() throws {
+    if record.phase == .committed, record.recoveryID != nil {
+      let holdURL = Self.recoveryHoldURL(in: rootURL)
+      if fileManager.fileExists(atPath: holdURL.path) { try fileManager.removeItem(at: holdURL) }
+    }
     try fileManager.removeItem(at: Self.journalURL(in: rootURL))
     try Self.synchronizeDirectory(rootURL)
     try? fileManager.removeItem(at: workspaceURL)

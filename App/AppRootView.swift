@@ -14,8 +14,6 @@ struct AppRootView: View {
   @State private var notePendingDeletionID: DayNote.ID?
   @State private var notePendingDateChangeID: DayNote.ID?
   @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
-  @State private var transientToast: AppToastMessage?
-  @State private var transientToastDismissTask: Task<Void, Never>?
   @State private var hasAppliedLaunchDemoMode = false
 
   // Prevents app-hosted unit tests from loading real user data into the test runner.
@@ -30,17 +28,13 @@ struct AppRootView: View {
         notePendingDateChangeID = noteID
       }
       .navigationSplitViewColumnWidth(min: 240, ideal: 290, max: 360)
-      .disabled(store.isLibraryRecoveryBlocked || store.isPerformingFileOperation)
+      .disabled(!store.isLibraryReadyForEditing || store.isPerformingFileOperation)
     } detail: {
       Group {
         if store.isPerformingFileOperation {
           ProgressView(store.progressMessage ?? "Working...")
-        } else if store.isLibraryRecoveryBlocked {
-          ContentUnavailableView(
-            "Library recovery required", systemImage: "externaldrive.badge.exclamationmark",
-            description: Text(
-              store.structuredNotesCutoverFailureDescription
-                ?? "Retry opening the library before editing. Recovery copies have been retained."))
+        } else if !store.isLibraryReadyForEditing {
+          librarySetupView
         } else if store.isStructuredEditorActive {
           StructuredNoteEditorView(
             store: store,
@@ -49,15 +43,7 @@ struct AppRootView: View {
               notePendingDeletionID = noteID
             }
           )
-        } else if let activeNoteID = store.activeSelectedNoteID {
-          NotesEditorView(
-            store: store,
-            noteID: activeNoteID,
-            sidebarCollapsed: columnVisibility == .detailOnly,
-            showToast: showToast
-          ) { noteID in
-            notePendingDeletionID = noteID
-          }
+          .id(store.libraryLocation.rootURL)
         } else if store.isLoading {
           ProgressView("Loading notes…")
         } else {
@@ -79,44 +65,12 @@ struct AppRootView: View {
     .navigationSplitViewStyle(.balanced)
     .task {
       if !isRunningUnitTests {
-        #if DEBUG
-          store.loadIfNeeded()
-        #else
-          store.prepareStructuredCutoverForProductionLaunch()
-        #endif
+        store.prepareStructuredCutoverForProductionLaunch()
       }
 
       #if DEBUG
         applyLaunchDemoModeIfNeeded()
       #endif
-    }
-    .alert(
-      structuredCutoverAlertTitle,
-      isPresented: structuredCutoverPromptBinding
-    ) {
-      Button(
-        store.structuredNotesCutoverStatus == .recoveryRequired
-          ? "Retry Opening Library" : "Back Up and Convert"
-      ) {
-        if store.structuredNotesCutoverStatus == .recoveryRequired {
-          store.prepareStructuredCutoverForProductionLaunch()
-        } else {
-          store.backUpAndConvertLegacyLibrary()
-        }
-      }
-      .keyboardShortcut(.defaultAction)
-
-      if !store.isLibraryRecoveryBlocked {
-        Button("Use Legacy for Now", role: .cancel) {
-          store.continueUsingLegacyForNow()
-        }
-      }
-
-      Button("Quit") {
-        NSApplication.shared.terminate(nil)
-      }
-    } message: {
-      Text(structuredCutoverAlertMessage)
     }
     .alert("Delete this note?", isPresented: isShowingDeleteConfirmation) {
       Button("Delete", role: .destructive) {
@@ -183,20 +137,12 @@ struct AppRootView: View {
           .transition(.move(edge: .trailing).combined(with: .opacity))
         }
 
-        if let transientToast {
-          AppToastView(message: transientToast.text, kind: transientToast.kind)
-            .transition(.move(edge: .trailing).combined(with: .opacity))
-        }
       }
       .frame(maxWidth: 360, alignment: .trailing)
       .padding(.trailing, 18)
       .padding(.bottom, 18)
     }
     .animation(.spring(response: 0.28, dampingFraction: 0.9), value: store.userMessage?.text)
-    .animation(.spring(response: 0.28, dampingFraction: 0.9), value: transientToast?.id)
-    .onDisappear {
-      transientToastDismissTask?.cancel()
-    }
   }
 
   // Keeps delete confirmation shared between header settings and sidebar actions.
@@ -227,11 +173,25 @@ struct AppRootView: View {
     )
   }
 
-  private var structuredCutoverPromptBinding: Binding<Bool> {
-    Binding(
-      get: { store.isStructuredCutoverPromptPresented },
-      set: { _ in }
-    )
+  private var librarySetupView: some View {
+    VStack(spacing: 18) {
+      Image(systemName: "externaldrive.badge.checkmark").font(.largeTitle)
+      Text(structuredCutoverAlertTitle).font(.title2.bold())
+      Text(structuredCutoverAlertMessage).foregroundStyle(.secondary)
+        .multilineTextAlignment(.center).frame(maxWidth: 560)
+      HStack {
+        if store.structuredNotesCutoverStatus == .conversionRequired {
+          Button("Back Up and Convert") { store.backUpAndConvertLegacyLibrary() }
+            .keyboardShortcut(.defaultAction)
+        } else {
+          Button("Retry Opening Library") { store.prepareStructuredCutoverForProductionLaunch() }
+            .keyboardShortcut(.defaultAction)
+        }
+        Button("Restore Backup...") { store.restoreLibraryFromRecoveryScreen() }
+        Button("Quit") { NSApplication.shared.terminate(nil) }
+      }
+    }
+    .padding(32)
   }
 
   private var structuredCutoverAlertTitle: String {
@@ -241,7 +201,7 @@ struct AppRootView: View {
     case .failedValidation:
       return "Conversion needs attention"
     default:
-      return "Upgrade notes for Structured Notes V2?"
+      return "Open your notes in structured format"
     }
   }
 
@@ -265,40 +225,18 @@ struct AppRootView: View {
       guard !store.isLibraryRecoveryBlocked else { return }
       guard enablesDemoModeOnLaunch,
         !hasAppliedLaunchDemoMode,
-        store.dailyNoteStorageMode != .structuredExperimental
+        store.isLibraryReadyForEditing
       else { return }
       hasAppliedLaunchDemoMode = true
       store.setDemoModeEnabled(true)
     }
   #endif
 
-  // Shows short-lived local feedback for AppKit-hosted controls inside the editor.
-  private func showToast(_ message: String, kind: UserMessageKind) {
-    transientToastDismissTask?.cancel()
-
-    let toast = AppToastMessage(text: message, kind: kind)
-    transientToast = toast
-
-    transientToastDismissTask = Task { @MainActor in
-      try? await Task.sleep(nanoseconds: 1_800_000_000)
-      guard !Task.isCancelled, transientToast?.id == toast.id else { return }
-
-      withAnimation(.easeOut(duration: 0.18)) {
-        transientToast = nil
-      }
-    }
-  }
 }
 
 private struct DateChangeContext: Identifiable {
   let id: DayNote.ID
   let date: Date
-}
-
-private struct AppToastMessage: Identifiable, Equatable {
-  let id = UUID()
-  let text: String
-  let kind: UserMessageKind
 }
 
 private struct ChangeDateSheet: View {

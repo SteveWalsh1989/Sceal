@@ -5,6 +5,32 @@ import XCTest
 
 @MainActor
 final class StructuredLibraryStage11Tests: NotesStoreTestCase {
+  // A final load failure after validation still cannot expose a partly loaded library as ready.
+  func testManifestWriteFailureDuringActivationKeepsSetupVisibleAndCanRetry() throws {
+    let location = makeLibraryLocation()
+    try StructuredNoteRepository(libraryLocation: location).save(
+      .empty(id: "2026-09-03", date: makeDate(year: 2026, month: 9, day: 3)))
+    try LibraryRepository(libraryLocation: location).saveStructuredListNotesManifest(.empty)
+    try StructuredLibraryState.markCompleted(at: location)
+    let original = try LibraryArchiveFiles.read(from: location.rootURL)
+    let directory = location.structuredListNotesDirectoryURL
+    try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: directory.path)
+    defer {
+      try? FileManager.default.setAttributes(
+        [.posixPermissions: 0o700], ofItemAtPath: directory.path)
+    }
+    let store = makeStore(libraryLocation: location, enforcesStructuredCutover: true)
+    store.loadIfNeeded()
+    XCTAssertFalse(store.isLibraryReadyForEditing)
+    XCTAssertFalse(store.hasLoaded)
+    XCTAssertEqual(store.structuredNotesCutoverStatus, .recoveryRequired)
+    XCTAssertEqual(try LibraryArchiveFiles.read(from: location.rootURL), original)
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+    store.loadIfNeeded()
+    XCTAssertTrue(store.isLibraryReadyForEditing)
+    XCTAssertEqual(store.structuredNotes.map(\.id), ["2026-09-03"])
+  }
+
   func testProductionLaunchRequiresConversionBeforeLoadingLegacyLibrary() throws {
     let location = makeLibraryLocation()
     let note = makeDailyNote(year: 2026, month: 9, day: 3, body: "Legacy")
@@ -28,7 +54,7 @@ final class StructuredLibraryStage11Tests: NotesStoreTestCase {
     )
   }
 
-  func testDeferringCutoverLoadsOnlyLegacyLibrary() throws {
+  func testUnconvertedLibraryCannotBypassSetupByLoadingOrSwitchingMode() throws {
     let location = makeLibraryLocation()
     let note = makeDailyNote(year: 2026, month: 9, day: 3, body: "Legacy")
     try LibraryRepository(libraryLocation: location).saveDailyNote(note)
@@ -39,10 +65,16 @@ final class StructuredLibraryStage11Tests: NotesStoreTestCase {
     )
     store.prepareStructuredCutoverForProductionLaunch()
 
-    store.continueUsingLegacyForNow()
+    store.loadIfNeeded()
+    store.updateDailyNoteStorageMode(.structuredExperimental)
 
-    XCTAssertTrue(store.hasLoaded)
-    XCTAssertEqual(store.notes.map(\.id), [note.id])
+    XCTAssertFalse(store.hasLoaded)
+    XCTAssertFalse(store.isLibraryReadyForEditing)
+    XCTAssertTrue(store.notes.isEmpty)
+    XCTAssertEqual(
+      try String(
+        contentsOf: location.legacyNotesDirectoryURL.appendingPathComponent(note.fileName),
+        encoding: .utf8), try MarkdownNoteCodec.encode(note))
     XCTAssertEqual(store.dailyNoteStorageMode, .legacyMarkdown)
     XCTAssertEqual(store.structuredNotesCutoverStatus, .conversionRequired)
   }
@@ -168,7 +200,7 @@ final class StructuredLibraryStage11Tests: NotesStoreTestCase {
     XCTAssertEqual(store.structuredNotes.map(\.id), ["2026-09-03"])
   }
 
-  func testCompletedCutoverRespectsExplicitLegacyRollbackMode() throws {
+  func testCompletedCutoverIgnoresSavedLegacyModeAndCannotReturnToOldEditor() throws {
     let location = makeLibraryLocation()
     let legacyNote = makeDailyNote(year: 2026, month: 9, day: 3, body: "Legacy")
     try LibraryRepository(libraryLocation: location).saveDailyNote(legacyNote)
@@ -187,11 +219,16 @@ final class StructuredLibraryStage11Tests: NotesStoreTestCase {
       enforcesStructuredCutover: true
     )
 
-    store.prepareStructuredCutoverForProductionLaunch()
+    store.loadIfNeeded()
+    store.updateDailyNoteStorageMode(.legacyMarkdown)
 
-    XCTAssertTrue(store.hasLoaded)
-    XCTAssertEqual(store.dailyNoteStorageMode, .legacyMarkdown)
-    XCTAssertEqual(store.notes.map(\.id), [legacyNote.id])
+    XCTAssertTrue(store.isLibraryReadyForEditing)
+    XCTAssertEqual(store.dailyNoteStorageMode, .structuredExperimental)
+    XCTAssertEqual(store.structuredNotes.map(\.id), [legacyNote.id])
+    XCTAssertEqual(
+      try String(
+        contentsOf: location.legacyNotesDirectoryURL.appendingPathComponent(legacyNote.fileName),
+        encoding: .utf8), try MarkdownNoteCodec.encode(legacyNote))
   }
 
   func testProductionModeCannotEnableStructuredLibraryBeforeValidation() {
@@ -202,7 +239,7 @@ final class StructuredLibraryStage11Tests: NotesStoreTestCase {
     XCTAssertEqual(store.dailyNoteStorageMode, .legacyMarkdown)
     XCTAssertEqual(
       store.userMessage?.text,
-      "Back up and convert the legacy library before enabling Structured Notes V2."
+      "Structured notes are the only editing mode. Use Import for older notes."
     )
   }
 

@@ -144,6 +144,23 @@ struct SettingsBackupView: View {
         }
       }
 
+      Section("Library storage") {
+        LabeledContent("Library") {
+          Text(store.libraryLocation.rootURL.path).textSelection(.enabled)
+        }
+        LabeledContent("Daily notes") {
+          Text(store.structuredDailyNotesStorageURL.path).textSelection(.enabled)
+        }
+        LabeledContent("List notes") {
+          Text(store.libraryLocation.structuredListNotesDirectoryURL.path).textSelection(.enabled)
+        }
+        Text(
+          "Original Markdown files are retained for recovery. Structured notes are the editable library included in full backups."
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
+      }
+
       Section("Status") {
         LabeledContent("Last successful backup") {
           Text(formattedDate(store.backupSettings.lastSuccessfulBackupAt))
