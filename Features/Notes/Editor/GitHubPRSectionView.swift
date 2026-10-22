@@ -135,7 +135,7 @@ struct GitHubPRSectionView: View {
           }
           VStack(alignment: .leading, spacing: 4) {
             Link(entry.title, destination: entry.url)
-              .foregroundStyle(hoveredTitleID == entry.id ? Color.accentColor : .primary)
+              .foregroundStyle(Color.primary.opacity(hoveredTitleID == entry.id ? 0.75 : 1))
               .onHover { isHovering in
                 if isHovering {
                   hoveredTitleID = entry.id
