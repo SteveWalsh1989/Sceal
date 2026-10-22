@@ -59,3 +59,45 @@ extension StructuredNoteSection {
       || markdown.trimmingCharacters(in: .whitespacesAndNewlines) == Self.githubMarker
   }
 }
+
+extension GitHubPRSectionLayout {
+  // Unranked PRs appear first after a refresh; saved ranks remain stable for existing work.
+  func orderedEntries(_ entries: [GitHubPREntry]) -> [GitHubPREntry] {
+    let ranks = Dictionary(
+      (manualOrder ?? []).enumerated().map { ($0.element, $0.offset) },
+      uniquingKeysWith: { first, _ in first })
+    return entries.sorted { left, right in
+      switch sortOrder ?? .newest {
+      case .newest: break
+      case .alphabetical:
+        let comparison = left.title.localizedStandardCompare(right.title)
+        if comparison != .orderedSame { return comparison == .orderedAscending }
+      case .manual:
+        let leftRank = ranks[left.id] ?? -1
+        let rightRank = ranks[right.id] ?? -1
+        if leftRank != rightRank { return leftRank < rightRank }
+      }
+      return left.createdAt == right.createdAt
+        ? left.id > right.id : left.createdAt > right.createdAt
+    }
+  }
+
+  // A drop changes order within its date group without moving PRs between historical categories.
+  mutating func moveEntry(
+    _ entryID: Int, to targetID: Int, entries: [GitHubPREntry], date: Date,
+    calendar: Calendar = .current
+  ) -> Bool {
+    guard sortOrder == .manual, entryID != targetID,
+      let source = entries.first(where: { $0.id == entryID }),
+      let target = entries.first(where: { $0.id == targetID }),
+      calendar.isDate(source.createdAt, inSameDayAs: date)
+        == calendar.isDate(target.createdAt, inSameDayAs: date)
+    else { return false }
+    var ordered = orderedEntries(entries).map(\.id)
+    guard let targetIndex = ordered.firstIndex(of: targetID) else { return false }
+    ordered.removeAll { $0 == entryID }
+    ordered.insert(entryID, at: min(targetIndex, ordered.count))
+    manualOrder = ordered
+    return true
+  }
+}

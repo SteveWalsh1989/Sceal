@@ -1317,7 +1317,8 @@ private struct StructuredSectionEditorCard: View {
           store: store, documentID: documentID, section: item.section,
           sectionColorName: item.section.styleOverrides.primaryColor?.resolvedValue(
             groupValue: item.groupStyle?.headingColorName, themeValue: nil
-          ) ?? resolvedStyle.headingColorName
+          ) ?? resolvedStyle.headingColorName,
+          onReorder: reorderGitHubEntry
         )
         .padding(28)
         .contentShape(Rectangle())
@@ -1531,6 +1532,16 @@ private struct StructuredSectionEditorCard: View {
           ) {
             ForEach(GitHubPRGroup.allCases) { group in
               Text(store.githubPRAppearance.label(for: group)).tag(group)
+            }
+          }
+          .pickerStyle(.menu)
+          .labelsHidden()
+          .frame(maxWidth: .infinity, alignment: .leading)
+
+          Text("Sort order").font(.subheadline.weight(.medium))
+          Picker("Sort order", selection: githubLayoutBinding(\.sortOrder, default: .newest)) {
+            ForEach(GitHubPRSortOrder.allCases, id: \.self) { order in
+              Text(order.title).tag(order)
             }
           }
           .pickerStyle(.menu)
@@ -1990,6 +2001,18 @@ private struct StructuredSectionEditorCard: View {
     ) { document in
       try document.deleteSection(id: item.id)
     }
+  }
+
+  // Manual reordering uses structural history and leaves PR statuses untouched.
+  private func reorderGitHubEntry(_ entryID: Int, _ targetID: Int) {
+    guard let document = currentDocument else { return }
+    var layout = item.section.githubLayout ?? GitHubPRSectionLayout()
+    guard
+      layout.moveEntry(
+        entryID, to: targetID,
+        entries: item.section.githubSnapshot?.entries ?? [], date: document.date)
+    else { return }
+    updateGitHubLayout(layout)
   }
 
   // Optional fields preserve compatibility with notes saved before these controls existed.

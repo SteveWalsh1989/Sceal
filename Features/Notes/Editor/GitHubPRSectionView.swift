@@ -7,6 +7,11 @@ struct GitHubPRSectionView: View {
   let section: StructuredNoteSection
   var previewDate: Date? = nil
   var sectionColorName: String? = nil
+  var onReorder: ((Int, Int) -> Void)? = nil
+  @State private var hoveredEntryID: Int?
+  @State private var dropTargetEntryID: Int?
+
+  private var layout: GitHubPRSectionLayout { section.githubLayout ?? GitHubPRSectionLayout() }
 
   private var appearance: GitHubPRAppearance {
     var appearance = store.githubPRAppearance
@@ -113,7 +118,7 @@ struct GitHubPRSectionView: View {
   private func entryGroup(_ title: String, entries: [GitHubPREntry]) -> some View {
     VStack(alignment: .leading, spacing: isCompact ? 5 : 12) {
       Text("\(title)  \(entries.count)").font(.system(size: bodySize, weight: .semibold))
-      ForEach(entries) { entry in
+      ForEach(layout.orderedEntries(entries)) { entry in
         HStack(alignment: isCompact ? .center : .top, spacing: 12) {
           if section.githubLayout?.showsIcons ?? true {
             // The overlay grows the symbol without contributing to the row's measured height.
@@ -139,12 +144,54 @@ struct GitHubPRSectionView: View {
             }
           }
           Spacer(minLength: 8)
+          if layout.sortOrder == .manual && onReorder != nil {
+            Image(systemName: "line.3.horizontal")
+              .font(.system(size: 13, weight: .medium))
+              .foregroundStyle(.secondary)
+              .frame(width: 20, height: bodySize)
+              .contentShape(Rectangle())
+              .opacity(hoveredEntryID == entry.id ? 1 : 0)
+              .draggable("sceal-pr:\(section.id):\(entry.id)")
+              .help("Drag to reorder PR")
+              .accessibilityLabel("Reorder \(entry.title)")
+          }
           Text(entry.status)
             .font(.system(size: detailSize, weight: .medium))
             .foregroundStyle(statusColor(entry))
             .padding(.horizontal, 8).padding(.vertical, 3)
             .background(statusColor(entry).opacity(0.14), in: Capsule())
             .fixedSize(horizontal: true, vertical: false)
+        }
+        .contentShape(Rectangle())
+        .onHover { isHovering in
+          if isHovering {
+            hoveredEntryID = entry.id
+          } else if hoveredEntryID == entry.id {
+            hoveredEntryID = nil
+          }
+        }
+        .dropDestination(for: String.self) { items, _ in
+          guard layout.sortOrder == .manual, let payload = items.first,
+            payload.hasPrefix("sceal-pr:\(section.id):"),
+            let sourceID = Int(payload.split(separator: ":").last ?? ""),
+            let source = snapshot.entries.first(where: { $0.id == sourceID }),
+            Calendar.current.isDate(source.createdAt, inSameDayAs: date)
+              == Calendar.current.isDate(entry.createdAt, inSameDayAs: date),
+            let onReorder, sourceID != entry.id
+          else { return false }
+          onReorder(sourceID, entry.id)
+          return true
+        } isTargeted: { isTargeted in
+          if isTargeted && layout.sortOrder == .manual {
+            dropTargetEntryID = entry.id
+          } else if dropTargetEntryID == entry.id {
+            dropTargetEntryID = nil
+          }
+        }
+        .background {
+          if dropTargetEntryID == entry.id {
+            RoundedRectangle(cornerRadius: 5).fill(Color.accentColor.opacity(0.12))
+          }
         }
         if section.githubLayout?.showsDividers ?? true { Divider() }
       }

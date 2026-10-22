@@ -58,6 +58,39 @@ final class GitHubPRAppearanceTests: NotesStoreTestCase {
     XCTAssertEqual(layout.colorMode ?? .standard, .standard)
   }
 
+  // Sorting remains deterministic, and manual ranks survive refreshes and carry-forward.
+  func testPRSortingAndManualOrder() throws {
+    let today = Calendar.current.startOfDay(for: Date())
+    func entry(_ id: Int, _ title: String, _ offset: TimeInterval) -> GitHubPREntry {
+      GitHubPREntry(
+        id: id, number: id, title: title, repository: "repo",
+        url: URL(string: "https://github.com/org/repo/pull/\(id)")!,
+        createdAt: today.addingTimeInterval(offset), isDraft: false)
+    }
+    let older = entry(1, "Companies > Zebra", 1)
+    let newer = entry(2, "Companies > Alpha", 2)
+    let latest = entry(3, "Utilization", 3)
+    let entries = [older, newer, latest]
+    var layout = GitHubPRSectionLayout()
+    XCTAssertEqual(layout.orderedEntries(entries).map(\.id), [3, 2, 1])
+    layout.sortOrder = .alphabetical
+    XCTAssertEqual(layout.orderedEntries(entries).map(\.id), [2, 1, 3])
+    layout.sortOrder = .manual
+    XCTAssertTrue(layout.moveEntry(3, to: 1, entries: entries, date: today))
+    XCTAssertEqual(layout.orderedEntries(entries).map(\.id), [2, 1, 3])
+    let snapshot = GitHubPRSnapshot(entries: entries).refreshed(
+      with: [entry(4, "New work", 4)], on: today, at: Date(), account: "author")
+    XCTAssertEqual(layout.orderedEntries(snapshot.entries).map(\.id), [4, 2, 1, 3])
+    XCTAssertEqual(
+      layout.orderedEntries(snapshot.carriedForward().entries).map(\.id), [4, 2, 1, 3])
+    XCTAssertEqual(
+      try JSONDecoder().decode(
+        GitHubPRSectionLayout.self,
+        from: JSONEncoder().encode(layout)), layout)
+    let yesterday = entry(5, "Older work", -86400)
+    XCTAssertFalse(layout.moveEntry(1, to: 5, entries: entries + [yesterday], date: today))
+  }
+
   // Blank labels retain readable headings while a user edits their preferences.
   func testBlankLabelsUseDefaults() {
     var appearance = GitHubPRAppearance()

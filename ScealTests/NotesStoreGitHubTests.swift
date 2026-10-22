@@ -40,7 +40,7 @@ final class NotesStoreGitHubTests: NotesStoreTestCase {
               entries: [open, merged], refreshedAt: yesterday, account: "author"),
             githubLayout: GitHubPRSectionLayout(
               firstGroup: .carriedForward, isCompact: true, showsIcons: false, showsDividers: false,
-              colorMode: .section)))
+              colorMode: .section, sortOrder: .manual, manualOrder: [1, 2])))
       ])
     let store = makeStore()
     store.structuredNotes = [source]
