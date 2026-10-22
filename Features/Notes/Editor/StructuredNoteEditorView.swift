@@ -1490,13 +1490,18 @@ private struct StructuredSectionEditorCard: View {
     .help("Section options")
     .popover(isPresented: isShowingOptionsPopover, arrowEdge: .trailing) {
       if item.section.isGitHubSection {
-        ScrollView {
+        ViewThatFits(in: .vertical) {
           sectionOptionsPopover
+            .fixedSize(horizontal: false, vertical: true)
+          ScrollView {
+            sectionOptionsPopover
+          }
         }
         .frame(
-          width: StructuredSectionOptionsLayout.githubPopoverWidth,
-          height: min(720, (NSScreen.main?.visibleFrame.height ?? 900) - 160)
+          width: StructuredSectionOptionsLayout.githubPopoverWidth
         )
+        .frame(maxHeight: (NSScreen.main?.visibleFrame.height ?? 900) - 100)
+        .fixedSize(horizontal: false, vertical: true)
       } else {
         sectionOptionsPopover
       }
