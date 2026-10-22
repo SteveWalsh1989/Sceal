@@ -20,6 +20,32 @@ final class GitHubPRAppearanceTests: NotesStoreTestCase {
     XCTAssertEqual(makeStore(userDefaults: defaults).githubPRAppearance, GitHubPRAppearance())
   }
 
+  // Section choices round-trip independently of PR records and can return to inheritance.
+  func testSectionLayoutPersistenceAndReset() throws {
+    let section = StructuredNoteSection(markdown: "<!-- sceal:github-prs -->")
+    var document = StructuredNoteDocument(
+      id: "2026-10-22", date: Date(), title: "", tags: [], nodes: [.section(section)])
+    let layout = GitHubPRSectionLayout(firstGroup: .carriedForward, isCompact: true)
+    try document.setGitHubLayout(layout, sectionID: section.id)
+    let encoded = try JSONEncoder().encode(document)
+    let decoded = try JSONDecoder().decode(StructuredNoteDocument.self, from: encoded)
+    guard case .section(let savedSection) = decoded.nodes[0] else {
+      return XCTFail("Expected a section")
+    }
+    XCTAssertEqual(savedSection.githubLayout, layout)
+    XCTAssertNil(savedSection.githubSnapshot)
+    try document.setGitHubLayout(nil, sectionID: section.id)
+    XCTAssertEqual(document.nodes, [.section(section)])
+  }
+
+  // Notes saved before section layout existed retain app defaults.
+  func testLegacySectionHasNoLayoutOverride() throws {
+    let section = StructuredNoteSection()
+    let encoded = try JSONEncoder().encode(section)
+    let decoded = try JSONDecoder().decode(StructuredNoteSection.self, from: encoded)
+    XCTAssertNil(decoded.githubLayout)
+  }
+
   // Blank labels retain readable headings while a user edits their preferences.
   func testBlankLabelsUseDefaults() {
     var appearance = GitHubPRAppearance()

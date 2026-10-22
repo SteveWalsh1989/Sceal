@@ -184,19 +184,22 @@ nonisolated struct StructuredNoteSection: Codable, Equatable, Identifiable, Send
   var styleOverrides: StructuredSectionStyleOverrides
   var isCollapsed: Bool
   var githubSnapshot: GitHubPRSnapshot?
+  var githubLayout: GitHubPRSectionLayout?
 
   init(
     id: UUID = UUID(),
     markdown: String = "",
     styleOverrides: StructuredSectionStyleOverrides = .inherited,
     isCollapsed: Bool = false,
-    githubSnapshot: GitHubPRSnapshot? = nil
+    githubSnapshot: GitHubPRSnapshot? = nil,
+    githubLayout: GitHubPRSectionLayout? = nil
   ) {
     self.id = id
     self.markdown = markdown
     self.styleOverrides = styleOverrides
     self.isCollapsed = isCollapsed
     self.githubSnapshot = githubSnapshot
+    self.githubLayout = githubLayout
   }
 
   // Resolves property-level overrides without copying inherited values into storage.
@@ -514,4 +517,10 @@ nonisolated enum StructuredNoteDocumentError: LocalizedError, Equatable {
       return "GitHub PR sections must stay separate to preserve their saved history."
     }
   }
+}
+
+// Optional overrides keep existing notes following app defaults until customized.
+nonisolated struct GitHubPRSectionLayout: Codable, Equatable, Sendable {
+  var firstGroup: GitHubPRGroup?
+  var isCompact: Bool = false
 }

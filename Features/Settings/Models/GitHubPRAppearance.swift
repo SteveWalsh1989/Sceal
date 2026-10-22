@@ -1,6 +1,6 @@
 import Foundation
 
-nonisolated enum GitHubPRGroup: String, Codable, Identifiable, CaseIterable {
+nonisolated enum GitHubPRGroup: String, Codable, Identifiable, CaseIterable, Sendable {
   case today
   case carriedForward
 

@@ -1407,13 +1407,15 @@ private struct StructuredSectionEditorCard: View {
         addSectionBelow()
       }
 
-      StructuredSectionGutterButton(
-        systemImage: "eraser",
-        helpText: "Clear section",
-        role: .destructive,
-        isDisabled: sectionIsEmpty
-      ) {
-        isConfirmingClear = true
+      if !item.section.isGitHubSection {
+        StructuredSectionGutterButton(
+          systemImage: "eraser",
+          helpText: "Clear section",
+          role: .destructive,
+          isDisabled: sectionIsEmpty
+        ) {
+          isConfirmingClear = true
+        }
       }
 
       StructuredSectionGutterButton(
@@ -1479,7 +1481,17 @@ private struct StructuredSectionEditorCard: View {
     .accessibilityLabel("Section \(item.position) options")
     .help("Section options")
     .popover(isPresented: isShowingOptionsPopover, arrowEdge: .trailing) {
-      sectionOptionsPopover
+      if item.section.isGitHubSection {
+        ScrollView {
+          sectionOptionsPopover
+        }
+        .frame(
+          width: StructuredSectionOptionsLayout.popoverWidth,
+          height: min(720, (NSScreen.main?.visibleFrame.height ?? 900) - 160)
+        )
+      } else {
+        sectionOptionsPopover
+      }
     }
   }
 
@@ -1548,24 +1560,75 @@ private struct StructuredSectionEditorCard: View {
         .menuIndicator(.hidden)
       }
 
-      HStack(spacing: 8) {
-        StructuredOptionsActionButton(
-          title: "Merge Previous",
-          systemImage: "arrow.up.to.line",
-          isDisabled: item.previousMergeSectionID == nil
-        ) {
-          performOptionAction { mergeSection(direction: .previous) }
-        }
-        StructuredOptionsActionButton(
-          title: "Merge Next",
-          systemImage: "arrow.down.to.line",
-          isDisabled: item.nextMergeSectionID == nil
-        ) {
-          performOptionAction { mergeSection(direction: .next) }
+      if !item.section.isGitHubSection {
+        HStack(spacing: 8) {
+          StructuredOptionsActionButton(
+            title: "Merge Previous",
+            systemImage: "arrow.up.to.line",
+            isDisabled: item.previousMergeSectionID == nil
+          ) {
+            performOptionAction { mergeSection(direction: .previous) }
+          }
+          StructuredOptionsActionButton(
+            title: "Merge Next",
+            systemImage: "arrow.down.to.line",
+            isDisabled: item.nextMergeSectionID == nil
+          ) {
+            performOptionAction { mergeSection(direction: .next) }
+          }
         }
       }
 
       Divider()
+
+      if item.section.isGitHubSection {
+        StructuredOptionsSectionTitle("GitHub", systemImage: "arrow.triangle.pull")
+
+        VStack(alignment: .leading, spacing: 12) {
+          Text("First group").font(.subheadline.weight(.medium))
+          Picker(
+            "First group",
+            selection: Binding(
+              get: { item.section.githubLayout?.firstGroup ?? store.githubPRAppearance.firstGroup },
+              set: { value in
+                var layout = item.section.githubLayout ?? GitHubPRSectionLayout()
+                layout.firstGroup = value
+                updateGitHubLayout(layout)
+              }
+            )
+          ) {
+            ForEach(GitHubPRGroup.allCases) { group in
+              Text(store.githubPRAppearance.label(for: group)).tag(group)
+            }
+          }
+          .pickerStyle(.segmented)
+          .labelsHidden()
+
+          Text("Row layout").font(.subheadline.weight(.medium))
+          Picker(
+            "Row layout",
+            selection: Binding(
+              get: { item.section.githubLayout?.isCompact ?? false },
+              set: { value in
+                var layout = item.section.githubLayout ?? GitHubPRSectionLayout()
+                layout.isCompact = value
+                updateGitHubLayout(layout)
+              }
+            )
+          ) {
+            Text("Regular").tag(false)
+            Text("Compact").tag(true)
+          }
+          .pickerStyle(.segmented)
+          .labelsHidden()
+          Text("Compact hides repository details and keeps each PR on one line.")
+            .font(.caption).foregroundStyle(.secondary)
+          Button("Reset to app defaults") { updateGitHubLayout(nil) }
+            .buttonStyle(.link)
+            .disabled(item.section.githubLayout == nil)
+        }
+        Divider()
+      }
 
       StructuredOptionsSectionTitle("Appearance", systemImage: "paintpalette")
 
@@ -1879,6 +1942,14 @@ private struct StructuredSectionEditorCard: View {
       caretPlacement: caretPlacement
     ) { document in
       try document.deleteSection(id: item.id)
+    }
+  }
+
+  // Layout changes share section history so they can be undone independently of syncing.
+  private func updateGitHubLayout(_ layout: GitHubPRSectionLayout?) {
+    performStructuralChange(actionName: "Change GitHub Layout", focusSectionID: item.id) {
+      document in
+      try document.setGitHubLayout(layout, sectionID: item.id)
     }
   }
 

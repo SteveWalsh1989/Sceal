@@ -37,7 +37,8 @@ final class NotesStoreGitHubTests: NotesStoreTestCase {
           StructuredNoteSection(
             markdown: StructuredNoteSection.githubMarker,
             githubSnapshot: GitHubPRSnapshot(
-              entries: [open, merged], refreshedAt: yesterday, account: "author")))
+              entries: [open, merged], refreshedAt: yesterday, account: "author"),
+            githubLayout: GitHubPRSectionLayout(firstGroup: .carriedForward, isCompact: true)))
       ])
     let store = makeStore()
     store.structuredNotes = [source]
@@ -50,6 +51,8 @@ final class NotesStoreGitHubTests: NotesStoreTestCase {
     XCTAssertNotEqual(created.id, source.id)
     XCTAssertEqual(created.githubSections.first?.githubSnapshot?.entries, [open])
     XCTAssertNil(created.githubSections.first?.githubSnapshot?.refreshedAt)
+    XCTAssertEqual(
+      created.githubSections.first?.githubLayout, source.githubSections.first?.githubLayout)
     XCTAssertNotEqual(created.githubSections.first?.id, source.githubSections.first?.id)
     XCTAssertEqual(store.structuredNotes.first(where: { $0.id == source.id }), source)
   }

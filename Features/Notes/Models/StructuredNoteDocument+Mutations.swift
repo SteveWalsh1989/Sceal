@@ -334,6 +334,18 @@ extension StructuredNoteDocument {
     }
   }
 
+  // Persists display choices without touching the historical PR snapshot.
+  mutating func setGitHubLayout(_ layout: GitHubPRSectionLayout?, sectionID: UUID) throws {
+    try applyMutation { document in
+      guard let location = document.sectionLocation(for: sectionID) else {
+        throw StructuredNoteDocumentError.sectionNotFound(sectionID)
+      }
+      var section = try document.section(at: location)
+      section.githubLayout = layout
+      try document.replaceSection(section, at: location)
+    }
+  }
+
   // Replaces the inherited appearance values for one group.
   mutating func setGroupStyle(_ style: StructuredSectionStyle, groupID: UUID) throws {
     try applyMutation { document in

@@ -7,7 +7,12 @@ struct GitHubPRSectionView: View {
   let section: StructuredNoteSection
   var previewDate: Date? = nil
 
-  private var appearance: GitHubPRAppearance { store.githubPRAppearance }
+  private var appearance: GitHubPRAppearance {
+    var appearance = store.githubPRAppearance
+    if let firstGroup = section.githubLayout?.firstGroup { appearance.firstGroup = firstGroup }
+    return appearance
+  }
+  private var isCompact: Bool { section.githubLayout?.isCompact ?? false }
 
   private var bodySize: CGFloat { store.effectiveAppearanceSettings.bodyFontSize }
   private var detailSize: CGFloat { max(13, bodySize - 2) }
@@ -95,16 +100,21 @@ struct GitHubPRSectionView: View {
 
   // The title is the link target; status is separate so completed work stays readable.
   private func entryGroup(_ title: String, entries: [GitHubPREntry]) -> some View {
-    VStack(alignment: .leading, spacing: 12) {
+    VStack(alignment: .leading, spacing: isCompact ? 5 : 12) {
       Text("\(title)  \(entries.count)").font(.system(size: bodySize, weight: .semibold))
       ForEach(entries) { entry in
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: isCompact ? .center : .top, spacing: 12) {
           Image(systemName: entry.mergedAt == nil ? "arrow.triangle.pull" : "arrow.triangle.merge")
             .foregroundStyle(.secondary)
           VStack(alignment: .leading, spacing: 4) {
-            Link(entry.title, destination: entry.url).foregroundStyle(.primary)
-            Text("\(entry.repository) · #\(entry.number)")
-              .font(.system(size: detailSize)).foregroundStyle(.secondary)
+            Link(entry.title, destination: entry.url)
+              .foregroundStyle(.primary)
+              .lineLimit(isCompact ? 1 : nil)
+              .help(entry.title)
+            if !isCompact {
+              Text("\(entry.repository) · #\(entry.number)")
+                .font(.system(size: detailSize)).foregroundStyle(.secondary)
+            }
           }
           Spacer(minLength: 8)
           Text(entry.status)
