@@ -39,6 +39,10 @@ enum UserMessageKind: Equatable {
 
 @MainActor
 final class NotesStore: ObservableObject {
+  @Published var githubAccount: String?
+  @Published var githubError: String?
+  @Published var isRefreshingGitHub = false
+  var githubConnectionGeneration = UUID()
   @Published var sidebarMode: SidebarMode = .daily {
     didSet {
       #if DEBUG
