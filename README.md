@@ -32,16 +32,16 @@ Scéal keeps the underlying notes markdown-based, but the editor renders common 
 
 Type `/` in the editor to insert structure without leaving the keyboard.
 
-| Command | Inserts |
-| --- | --- |
-| `/div` | Visual section divider |
-| `/heading-1` | Level 1 heading |
-| `/heading-2` | Level 2 heading |
-| `/heading-3` | Level 3 heading |
-| `/code` | Fenced code block |
-| `/prompt` | Copyable prompt block |
-| `/table` | Editable table |
-| `/github` | GitHub pull request section |
+| Command                  | Inserts                                          |
+| ------------------------ | ------------------------------------------------ |
+| `/div`                   | Visual section divider                           |
+| `/heading-1`             | Level 1 heading                                  |
+| `/heading-2`             | Level 2 heading                                  |
+| `/heading-3`             | Level 3 heading                                  |
+| `/code`                  | Fenced code block                                |
+| `/prompt`                | Copyable prompt block                            |
+| `/table`                 | Editable table                                   |
+| `/github`                | GitHub pull request section                      |
 | Custom template commands | User-created note structures, such as `/meeting` |
 
 <img width="723" height="564" alt="image" src="https://github.com/user-attachments/assets/e0fc763b-65b1-4e2d-899b-1f1ad48b5178" />
@@ -151,6 +151,18 @@ Support is still release-route dependent: GitHub Issues for an open-source relea
 - macOS 14 or newer
 - Xcode installed locally when building from source
 
+## Download and install
+
+Download **Sceal-mac.zip** from the [latest release](https://github.com/SteveWalsh1989/Sceal/releases/latest). The app supports Apple Silicon and Intel Macs running macOS 14 or newer. You do not need Xcode or a clone of this repository.
+
+1. Unzip the download.
+2. Drag **Sceal.app** into **Applications**.
+3. Open Scéal.
+
+Scéal is distributed without an Apple Developer ID certificate or Apple notarization. macOS may block the first launch. After trying to open it, go to **System Settings → Privacy & Security**, find the message about Scéal, and click **Open Anyway**. Confirm the prompt, then open the app again if needed. Only approve a download you trust.
+
+Release downloads are published separately from the source code; cloning the repository does not download the app. Download a newer release to update your installed copy.
+
 ## Build the app locally
 
 From the repository root, run:
@@ -160,6 +172,8 @@ From the repository root, run:
 ```
 
 You will need Xcode installed locally for the build script to complete successfully.
+
+The script builds both Apple Silicon and Intel versions into one app and applies an ad hoc signature, which does not require a paid Apple Developer account. The resulting app is not notarized.
 
 ## Find the built app
 

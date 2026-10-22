@@ -24,13 +24,17 @@ rm -rf "$DIST_DIR"
 mkdir -p "$DIST_DIR"
 
 echo "Building $APP_NAME..."
-DEVELOPER_DIR="$DEVELOPER_DIR_PATH" \
+env DEVELOPER_DIR="$DEVELOPER_DIR_PATH" \
   xcodebuild \
   -project "$PROJECT_PATH" \
   -scheme "$SCHEME" \
   -configuration "$CONFIGURATION" \
-  -destination 'platform=macOS' \
+  -destination 'generic/platform=macOS' \
   -derivedDataPath "$DERIVED_DATA_PATH" \
+  ARCHS='arm64 x86_64' \
+  ONLY_ACTIVE_ARCH=NO \
+  CODE_SIGN_IDENTITY=- \
+  CODE_SIGNING_ALLOWED=YES \
   build
 
 if [[ ! -d "$APP_SOURCE_PATH" ]]; then
