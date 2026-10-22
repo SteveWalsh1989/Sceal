@@ -60,6 +60,8 @@ struct SettingsRootView: View {
       SettingsThemesView(store: store)
     case .templates:
       SettingsTemplatesView(store: store)
+    case .github:
+      SettingsGitHubView(store: store)
     case .backup:
       SettingsBackupView(store: store)
     case .importData:

@@ -19,8 +19,20 @@ struct StructuredTemplateInsertionResult: Equatable, Sendable {
 }
 
 enum StructuredNoteTemplateAdapter {
-  // Keeps existing content whole while turning only template-owned dividers into new sections.
+  // Integration sections have no text caret, so leave an editable section after insertion.
   static func insert(
+    _ request: StructuredTemplateInsertionRequest,
+    replacing existingSection: StructuredNoteSection
+  ) throws -> StructuredTemplateInsertionResult {
+    let result = try insertMarkdown(request, replacing: existingSection)
+    guard result.sections.contains(where: \.isGitHubSection) else { return result }
+    let writingSection = StructuredNoteSection()
+    return StructuredTemplateInsertionResult(
+      sections: result.sections + [writingSection], focusSectionID: writingSection.id)
+  }
+
+  // Keeps existing content whole while turning only template-owned dividers into new sections.
+  private static func insertMarkdown(
     _ request: StructuredTemplateInsertionRequest,
     replacing existingSection: StructuredNoteSection
   ) throws -> StructuredTemplateInsertionResult {

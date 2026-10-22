@@ -39,6 +39,12 @@ enum EditorSlashCommandHandler {
       command: "/prompt", description: "Insert copyable prompt block", action: .promptBlock),
     SlashCommandEntry(
       command: "/table", description: "Insert table", action: .table),
+    SlashCommandEntry(
+      command: "/github", description: "Insert GitHub PR section",
+      action: .template(
+        NoteTemplate(
+          id: "builtin-github", title: "GitHub PRs", command: "github",
+          body: StructuredNoteSection.githubMarker, createsNewSection: true))),
   ]
 
   private static let hiddenCommands: [SlashCommandEntry] = [

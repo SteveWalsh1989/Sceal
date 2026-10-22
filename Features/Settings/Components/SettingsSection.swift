@@ -9,6 +9,7 @@ enum SettingsSection: String, Identifiable, Hashable {
   case appearance
   case themes
   case templates
+  case github
   case backup
   case importData
   case exportData
@@ -21,6 +22,7 @@ enum SettingsSection: String, Identifiable, Hashable {
       .appearance,
       .themes,
       .templates,
+      .github,
       .backup,
       .importData,
       .exportData,
@@ -38,6 +40,7 @@ enum SettingsSection: String, Identifiable, Hashable {
     case .appearance: return "Appearance"
     case .themes: return "Themes"
     case .templates: return "Templates"
+    case .github: return "GitHub"
     case .backup: return "Backup"
     case .importData: return "Import"
     case .exportData: return "Export"
@@ -52,6 +55,7 @@ enum SettingsSection: String, Identifiable, Hashable {
     case .appearance: return "paintbrush"
     case .themes: return "paintpalette"
     case .templates: return "text.badge.plus"
+    case .github: return "arrow.triangle.branch"
     case .backup: return "externaldrive.badge.timemachine"
     case .importData: return "square.and.arrow.down"
     case .exportData: return "square.and.arrow.up"

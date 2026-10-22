@@ -24,6 +24,14 @@ struct StructuredNoteEditorView: View {
   var body: some View {
     if let document = store.selectedStructuredNote {
       editor(document)
+        .task(id: document.id) {
+          while !Task.isCancelled {
+            if NSApplication.shared.isActive {
+              await store.refreshGitHub(documentID: document.id)
+            }
+            do { try await Task.sleep(for: .seconds(300)) } catch { return }
+          }
+        }
         .onAppear {
           activateEditor(for: document)
         }
@@ -740,7 +748,9 @@ private struct StructuredEditorSectionItem: Identifiable {
   var canMoveUp: Bool { indexInContainer > 0 }
   var canMoveDown: Bool { indexInContainer + 1 < containerCount }
   var canDelete: Bool { totalSectionCount > 1 }
-  var isEditable: Bool { !section.isCollapsed && !isHiddenByCollapsedGroup }
+  var isEditable: Bool {
+    !section.isGitHubSection && !section.isCollapsed && !isHiddenByCollapsedGroup
+  }
   var isGrouped: Bool {
     guard case .group = parent else { return false }
     return true
@@ -1301,6 +1311,9 @@ private struct StructuredSectionEditorCard: View {
     VStack(alignment: .leading, spacing: 0) {
       if item.section.isCollapsed {
         collapsedSectionSummary
+      } else if item.section.isGitHubSection {
+        GitHubPRSectionView(store: store, documentID: documentID, section: item.section)
+          .padding(28)
       } else {
         ZStack(alignment: .topLeading) {
           if item.section.markdown.isEmpty {
@@ -1674,7 +1687,8 @@ private struct StructuredSectionEditorCard: View {
   }
 
   private var collapsedSectionPreview: String {
-    StructuredNoteCollapse.previewText(for: item.section.markdown)
+    item.section.isGitHubSection
+      ? "GitHub PRs" : StructuredNoteCollapse.previewText(for: item.section.markdown)
   }
 
   private var normalizedGroupTitleDraft: String {
