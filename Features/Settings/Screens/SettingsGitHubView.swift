@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsGitHubView: View {
   @ObservedObject var store: NotesStore
   @State private var token = ""
+  @FocusState private var tokenIsFocused: Bool
 
   var body: some View {
     Form {
@@ -10,8 +11,15 @@ struct SettingsGitHubView: View {
         if let account = store.githubAccount {
           Text("Connected as \(account)")
         }
-        SecureField("Fine-grained personal access token", text: $token)
-          .autocorrectionDisabled()
+        VStack(alignment: .leading, spacing: 8) {
+          Text("Personal access token").font(.headline)
+          SecureField("Paste your GitHub token", text: $token)
+            .textFieldStyle(.roundedBorder)
+            .autocorrectionDisabled()
+            .focused($tokenIsFocused)
+          Text("Accepts fine-grained or classic personal access tokens.")
+            .foregroundStyle(.secondary)
+        }
         HStack {
           Button("Connect") {
             Task {
@@ -24,10 +32,16 @@ struct SettingsGitHubView: View {
           }
           .disabled(
             token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-              || store.isRefreshingGitHub)
-          Button("Disconnect", role: .destructive) { store.disconnectGitHub() }
-            .disabled(store.isRefreshingGitHub)
-          if store.isRefreshingGitHub { ProgressView().controlSize(.small) }
+              || store.isConnectingGitHub)
+          if store.githubAccount != nil {
+            Button("Disconnect", role: .destructive) {
+              store.disconnectGitHub()
+              token = ""
+              tokenIsFocused = true
+            }
+            .disabled(store.isConnectingGitHub)
+          }
+          if store.isConnectingGitHub { ProgressView().controlSize(.small) }
         }
         Text("Stored in macOS Keychain. Disconnecting keeps your saved daily PR history.")
           .foregroundStyle(.secondary)

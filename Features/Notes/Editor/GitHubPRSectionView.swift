@@ -1,10 +1,15 @@
 import SwiftUI
 
 struct GitHubPRSectionView: View {
-  @Environment(\.openSettings) private var openSettings
+  @Environment(\.openWindow) private var openWindow
   @ObservedObject var store: NotesStore
   let documentID: String
   let section: StructuredNoteSection
+  @State private var isHovered = false
+  @FocusState private var settingsIsFocused: Bool
+
+  private var bodySize: CGFloat { store.effectiveAppearanceSettings.bodyFontSize }
+  private var detailSize: CGFloat { max(13, bodySize - 2) }
 
   private var date: Date { store.selectedStructuredNote?.date ?? .distantPast }
   private var isToday: Bool { Calendar.current.isDateInToday(date) && store.sidebarMode != .list }
@@ -13,8 +18,17 @@ struct GitHubPRSectionView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 18) {
       HStack {
-        Text("PRs").font(.title3.bold()).foregroundStyle(.pink)
+        Text("PRs").font(.system(size: bodySize + 5, weight: .bold)).foregroundStyle(.pink)
         Spacer()
+        Button(action: showGitHubSettings) {
+          Image(systemName: "gearshape")
+            .frame(width: 28, height: 28)
+        }
+        .buttonStyle(.borderless)
+        .focused($settingsIsFocused)
+        .opacity(isHovered || settingsIsFocused ? 1 : 0)
+        .help("GitHub settings")
+        .accessibilityLabel("Open GitHub settings")
         if isToday {
           if store.isRefreshingGitHub {
             ProgressView().controlSize(.small).accessibilityLabel("Refreshing GitHub PRs")
@@ -35,12 +49,13 @@ struct GitHubPRSectionView: View {
           "Saved snapshot for \(date.formatted(date: .abbreviated, time: .omitted))",
           systemImage: "lock"
         )
-        .font(.caption).foregroundStyle(.secondary)
+        .font(.system(size: detailSize)).foregroundStyle(.secondary)
       } else if let refreshedAt = snapshot.refreshedAt {
         Text("Updated \(refreshedAt.formatted(date: .omitted, time: .shortened))")
-          .font(.caption).foregroundStyle(.secondary)
+          .font(.system(size: detailSize)).foregroundStyle(.secondary)
       } else {
-        Text("Not yet synced for this day").font(.caption).foregroundStyle(.secondary)
+        Text("Not yet synced for this day").font(.system(size: detailSize)).foregroundStyle(
+          .secondary)
       }
       if snapshot.entries.isEmpty {
         Text(
@@ -61,25 +76,33 @@ struct GitHubPRSectionView: View {
           })
       }
       if isToday {
+        if store.githubAccount == nil {
+          Button("Connect GitHub", action: showGitHubSettings)
+            .buttonStyle(.bordered)
+        }
         if let error = store.githubError {
-          Text(error).font(.caption).foregroundStyle(.red)
+          Text(error).font(.system(size: detailSize)).foregroundStyle(.red)
         }
-        HStack {
-          Text("Saved locally · Refreshes every 5 minutes while active")
-            .font(.caption).foregroundStyle(.secondary)
-          Spacer()
-          Button("Settings") { openSettings() }.buttonStyle(.link)
-        }
+        Text("Saved locally · Refreshes every 5 minutes while active")
+          .font(.system(size: detailSize)).foregroundStyle(.secondary)
       }
     }
     .frame(maxWidth: .infinity, alignment: .leading)
+    .font(.system(size: bodySize))
+    .onHover { isHovered = $0 }
     .task(id: section.id) { await store.refreshGitHub(documentID: documentID) }
+  }
+
+  // The app uses a named window rather than SwiftUI's built-in Settings scene.
+  private func showGitHubSettings() {
+    store.selectedSettingsSection = .github
+    openWindow(id: "settings")
   }
 
   // The title is the link target; status is separate so completed work stays readable.
   private func entryGroup(_ title: String, entries: [GitHubPREntry]) -> some View {
     VStack(alignment: .leading, spacing: 12) {
-      Text("\(title)  \(entries.count)").font(.subheadline.weight(.semibold))
+      Text("\(title)  \(entries.count)").font(.system(size: bodySize, weight: .semibold))
       ForEach(entries) { entry in
         HStack(alignment: .top, spacing: 12) {
           Image(systemName: entry.mergedAt == nil ? "arrow.triangle.pull" : "arrow.triangle.merge")
@@ -87,11 +110,11 @@ struct GitHubPRSectionView: View {
           VStack(alignment: .leading, spacing: 4) {
             Link(entry.title, destination: entry.url).foregroundStyle(.primary)
             Text("\(entry.repository) · #\(entry.number)")
-              .font(.caption).foregroundStyle(.secondary)
+              .font(.system(size: detailSize)).foregroundStyle(.secondary)
           }
           Spacer(minLength: 8)
           Text(entry.status)
-            .font(.caption.weight(.medium))
+            .font(.system(size: detailSize, weight: .medium))
             .foregroundStyle(statusColor(entry))
             .padding(.horizontal, 8).padding(.vertical, 3)
             .background(statusColor(entry).opacity(0.14), in: Capsule())

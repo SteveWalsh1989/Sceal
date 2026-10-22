@@ -4,6 +4,18 @@ import XCTest
 
 @MainActor
 final class NotesStoreGitHubTests: NotesStoreTestCase {
+  // A background PR request must not prevent entering or validating a replacement token.
+  func testConnectionValidationIsAvailableDuringBackgroundRefresh() async {
+    let store = makeStore()
+    store.isRefreshingGitHub = true
+
+    await store.connectGitHub(token: " ")
+
+    XCTAssertEqual(store.githubError, "Enter a GitHub personal access token.")
+    XCTAssertFalse(store.isConnectingGitHub)
+    XCTAssertTrue(store.isRefreshingGitHub)
+  }
+
   // The real copy-previous path preserves yesterday and creates only unfinished carryover.
   func testCopyPreviousKeepsSourceSnapshotAndDropsCompletedPRs() throws {
     let calendar = Calendar.current

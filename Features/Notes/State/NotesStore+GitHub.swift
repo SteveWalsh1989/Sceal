@@ -3,31 +3,39 @@ import Foundation
 extension NotesStore {
   // Restores connection feedback without placing the saved token in a view's state.
   func restoreGitHubConnection() async {
-    guard githubAccount == nil, !isRefreshingGitHub else { return }
+    guard githubAccount == nil, !isConnectingGitHub else { return }
+    let generation = githubConnectionGeneration
     do {
       guard let token = try GitHubCredentialStore.token() else { return }
-      let generation = githubConnectionGeneration
       let user = try await GitHubClient(token: token).user()
       if generation == githubConnectionGeneration { githubAccount = user.login }
-    } catch { githubError = error.localizedDescription }
+    } catch {
+      if generation == githubConnectionGeneration { githubError = error.localizedDescription }
+    }
   }
 
   // Validates before replacing a previously working credential.
   func connectGitHub(token: String) async {
-    guard !isRefreshingGitHub else { return }
-    isRefreshingGitHub = true
-    defer { isRefreshingGitHub = false }
+    guard !isConnectingGitHub else { return }
+    isConnectingGitHub = true
+    // A pending PR refresh must not restore the account being replaced.
+    githubConnectionGeneration = UUID()
+    let generation = githubConnectionGeneration
+    defer { isConnectingGitHub = false }
     do {
       let cleanedToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
       guard !cleanedToken.isEmpty else {
         throw GitHubClientError.message("Enter a GitHub personal access token.")
       }
       let user = try await GitHubClient(token: cleanedToken).user()
+      guard generation == githubConnectionGeneration else { return }
       try GitHubCredentialStore.save(cleanedToken)
       githubConnectionGeneration = UUID()
       githubAccount = user.login
       githubError = nil
-    } catch { githubError = error.localizedDescription }
+    } catch {
+      if generation == githubConnectionGeneration { githubError = error.localizedDescription }
+    }
   }
 
   // Keeps historical records when a user disconnects the account.
@@ -42,7 +50,7 @@ extension NotesStore {
 
   // Applies a complete response to the latest document value, preserving edits made during fetching.
   func refreshGitHub(documentID: String) async {
-    guard !isRefreshingGitHub, !isDemoModeEnabled, sidebarMode != .list,
+    guard !isRefreshingGitHub, !isConnectingGitHub, !isDemoModeEnabled, sidebarMode != .list,
       let original = selectedStructuredNote, original.id == documentID,
       Calendar.current.isDateInToday(original.date), !original.githubSections.isEmpty
     else { return }

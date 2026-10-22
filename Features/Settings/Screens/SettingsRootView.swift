@@ -10,7 +10,6 @@ import SwiftUI
 // Root settings view with sidebar navigation and swappable detail panel.
 struct SettingsRootView: View {
   @ObservedObject var store: NotesStore
-  @State private var selectedSection: SettingsSection = .appearance
   @AppStorage("settings.sidebarWidth") private var settingsSidebarWidth = 180.0
   @State private var settingsSidebarDragStartWidth: CGFloat?
 
@@ -43,7 +42,7 @@ struct SettingsRootView: View {
   }
 
   private var settingsSidebar: some View {
-    List(SettingsSection.allCases, selection: $selectedSection) { section in
+    List(SettingsSection.allCases, selection: $store.selectedSettingsSection) { section in
       Label(section.title, systemImage: section.systemImage)
         .tag(section)
     }
@@ -53,7 +52,7 @@ struct SettingsRootView: View {
   // Returns the settings detail view for the current sidebar selection.
   @ViewBuilder
   private var detailView: some View {
-    switch selectedSection {
+    switch store.selectedSettingsSection {
     case .appearance:
       SettingsAppearanceView(store: store)
     case .themes:

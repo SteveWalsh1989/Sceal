@@ -40,6 +40,8 @@ enum UserMessageKind: Equatable {
 @MainActor
 final class NotesStore: ObservableObject {
   @Published var githubAccount: String?
+  @Published var selectedSettingsSection: SettingsSection = .appearance
+  @Published var isConnectingGitHub = false
   @Published var githubError: String?
   @Published var isRefreshingGitHub = false
   var githubConnectionGeneration = UUID()
