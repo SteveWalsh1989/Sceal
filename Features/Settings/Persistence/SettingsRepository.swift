@@ -23,6 +23,19 @@ struct SettingsRepository {
 
   let userDefaults: UserDefaults
 
+  // Loads local display preferences without changing any daily PR snapshots.
+  func loadGitHubPRAppearance() -> GitHubPRAppearance {
+    guard let data = userDefaults.data(forKey: "sceal.githubPRAppearance"),
+      let appearance = try? JSONDecoder().decode(GitHubPRAppearance.self, from: data)
+    else { return GitHubPRAppearance() }
+    return appearance
+  }
+
+  // Persists the same app-wide preference value used by the editor and live preview.
+  func saveGitHubPRAppearance(_ appearance: GitHubPRAppearance) {
+    userDefaults.set(try? JSONEncoder().encode(appearance), forKey: "sceal.githubPRAppearance")
+  }
+
   // Decodes appearance settings from the existing defaults payload.
   func loadAppearanceSettings() -> NoteAppearanceSettings {
     guard

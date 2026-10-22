@@ -5,18 +5,26 @@ struct GitHubPRSectionView: View {
   @ObservedObject var store: NotesStore
   let documentID: String
   let section: StructuredNoteSection
+  var previewDate: Date? = nil
+
+  private var appearance: GitHubPRAppearance { store.githubPRAppearance }
 
   private var bodySize: CGFloat { store.effectiveAppearanceSettings.bodyFontSize }
   private var detailSize: CGFloat { max(13, bodySize - 2) }
 
-  private var date: Date { store.selectedStructuredNote?.date ?? .distantPast }
-  private var isToday: Bool { Calendar.current.isDateInToday(date) && store.sidebarMode != .list }
+  private var date: Date { previewDate ?? store.selectedStructuredNote?.date ?? .distantPast }
+  private var isToday: Bool {
+    previewDate == nil && Calendar.current.isDateInToday(date) && store.sidebarMode != .list
+  }
   private var snapshot: GitHubPRSnapshot { section.githubSnapshot ?? GitHubPRSnapshot() }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 18) {
       HStack {
-        Text("PRs").font(.system(size: bodySize + 5, weight: .bold)).foregroundStyle(.pink)
+        Text(appearance.displayedTitle)
+          .font(.system(size: bodySize + 5, weight: .bold))
+          .foregroundStyle(
+            Color(nsColor: ThemePalette.color(named: appearance.titleColorName) ?? .systemPink))
         Spacer()
         if isToday {
           if let refreshedAt = snapshot.refreshedAt {
@@ -37,13 +45,13 @@ struct GitHubPRSectionView: View {
           }
         }
       }
-      if !isToday {
+      if !isToday && previewDate == nil {
         Label(
           "Saved snapshot for \(date.formatted(date: .abbreviated, time: .omitted))",
           systemImage: "lock"
         )
         .font(.system(size: detailSize)).foregroundStyle(.secondary)
-      } else if snapshot.refreshedAt == nil {
+      } else if snapshot.refreshedAt == nil && previewDate == nil {
         Text("Not yet synced for this day").font(.system(size: detailSize)).foregroundStyle(
           .secondary)
       }
@@ -53,17 +61,14 @@ struct GitHubPRSectionView: View {
             ? "Connect GitHub in Settings, then refresh to load your PRs." : "No PRs for this day."
         )
         .foregroundStyle(.secondary)
-      } else {
-        entryGroup(
-          "Opened today",
-          entries: snapshot.entries.filter {
-            Calendar.current.isDate($0.createdAt, inSameDayAs: date)
-          })
-        entryGroup(
-          "Carried forward",
-          entries: snapshot.entries.filter {
-            !Calendar.current.isDate($0.createdAt, inSameDayAs: date)
-          })
+      }
+      ForEach(appearance.orderedGroups) { group in
+        let entries = snapshot.entries.filter {
+          Calendar.current.isDate($0.createdAt, inSameDayAs: date) == (group == .today)
+        }
+        if !entries.isEmpty || !appearance.hidesEmptyGroups {
+          entryGroup(appearance.label(for: group), entries: entries)
+        }
       }
       if isToday {
         if store.githubAccount == nil {
@@ -77,7 +82,9 @@ struct GitHubPRSectionView: View {
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .font(.system(size: bodySize))
-    .task(id: section.id) { await store.refreshGitHub(documentID: documentID) }
+    .task(id: section.id) {
+      if previewDate == nil { await store.refreshGitHub(documentID: documentID) }
+    }
   }
 
   // The app uses a named window rather than SwiftUI's built-in Settings scene.

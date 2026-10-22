@@ -40,6 +40,9 @@ enum UserMessageKind: Equatable {
 @MainActor
 final class NotesStore: ObservableObject {
   @Published var githubAccount: String?
+  @Published var githubPRAppearance = GitHubPRAppearance() {
+    didSet { settingsRepository.saveGitHubPRAppearance(githubPRAppearance) }
+  }
   @Published var selectedSettingsSection: SettingsSection = .appearance
   @Published var isConnectingGitHub = false
   @Published var githubError: String?
@@ -144,6 +147,7 @@ final class NotesStore: ObservableObject {
     self.enforcesStructuredCutover = enforcesStructuredCutover
     let resolvedSettingsRepository = SettingsRepository(userDefaults: userDefaults)
     self.settingsRepository = resolvedSettingsRepository
+    self.githubPRAppearance = resolvedSettingsRepository.loadGitHubPRAppearance()
     let loadedCutoverStatus = resolvedSettingsRepository.loadStructuredNotesCutoverStatus()
     self.structuredNotesCutoverStatus = loadedCutoverStatus
     self.structuredNotesCutoverFailureDescription = nil
