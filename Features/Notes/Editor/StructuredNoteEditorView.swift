@@ -788,6 +788,7 @@ nonisolated enum StructuredSectionOptionsLayout {
   static let contentWidth: CGFloat = 230
   static let horizontalPadding: CGFloat = 14
   static let popoverWidth = contentWidth + horizontalPadding * 2
+  static let githubPopoverWidth: CGFloat = 380
 }
 
 private struct StructuredSectionGroupContainer: View {
@@ -1319,6 +1320,8 @@ private struct StructuredSectionEditorCard: View {
           ) ?? resolvedStyle.headingColorName
         )
         .padding(28)
+        .contentShape(Rectangle())
+        .onTapGesture { editorCoordinator.didFocus(sectionID: item.id) }
       } else {
         ZStack(alignment: .topLeading) {
           if item.section.markdown.isEmpty {
@@ -1491,7 +1494,7 @@ private struct StructuredSectionEditorCard: View {
           sectionOptionsPopover
         }
         .frame(
-          width: StructuredSectionOptionsLayout.popoverWidth,
+          width: StructuredSectionOptionsLayout.githubPopoverWidth,
           height: min(720, (NSScreen.main?.visibleFrame.height ?? 900) - 160)
         )
       } else {
@@ -1502,8 +1505,85 @@ private struct StructuredSectionEditorCard: View {
 
   private var sectionOptionsPopover: some View {
     VStack(alignment: .leading, spacing: 8) {
-      Text("Section options")
-        .font(.system(size: 14, weight: .semibold))
+      Text(item.section.isGitHubSection ? "GitHub section" : "Section options")
+        .font(.system(size: 15, weight: .semibold))
+
+      if item.section.isGitHubSection {
+        StructuredOptionsSectionTitle("GitHub", systemImage: "arrow.triangle.pull")
+
+        VStack(alignment: .leading, spacing: 12) {
+          Text("First group").font(.subheadline.weight(.medium))
+          Picker(
+            "First group",
+            selection: Binding(
+              get: { item.section.githubLayout?.firstGroup ?? store.githubPRAppearance.firstGroup },
+              set: { value in
+                var layout = item.section.githubLayout ?? GitHubPRSectionLayout()
+                layout.firstGroup = value
+                updateGitHubLayout(layout)
+              }
+            )
+          ) {
+            ForEach(GitHubPRGroup.allCases) { group in
+              Text(store.githubPRAppearance.label(for: group)).tag(group)
+            }
+          }
+          .pickerStyle(.menu)
+          .labelsHidden()
+          .frame(maxWidth: .infinity, alignment: .leading)
+
+          Text("Row layout").font(.subheadline.weight(.medium))
+          Picker(
+            "Row layout",
+            selection: Binding(
+              get: { item.section.githubLayout?.isCompact ?? false },
+              set: { value in
+                var layout = item.section.githubLayout ?? GitHubPRSectionLayout()
+                layout.isCompact = value
+                updateGitHubLayout(layout)
+              }
+            )
+          ) {
+            Text("Regular").tag(false)
+            Text("Compact").tag(true)
+          }
+          .pickerStyle(.segmented)
+          .labelsHidden()
+          Toggle("Show icons", isOn: githubLayoutBinding(\.showsIcons, default: true))
+          Toggle("Show dividers", isOn: githubLayoutBinding(\.showsDividers, default: true))
+
+          Text("PR colour").font(.subheadline.weight(.medium))
+          Picker("PR colour", selection: githubLayoutBinding(\.colorMode, default: .standard)) {
+            ForEach(GitHubPRColorMode.allCases, id: \.self) { mode in
+              Text(mode.title).tag(mode)
+            }
+          }
+          .pickerStyle(.radioGroup)
+          .labelsHidden()
+          if item.section.githubLayout?.colorMode == .custom {
+            HStack(spacing: 10) {
+              ForEach(ThemePalette.colors, id: \.name) { entry in
+                let isSelected =
+                  (item.section.githubLayout?.customColorName ?? "pink") == entry.name
+                Button {
+                  githubLayoutBinding(\.customColorName, default: "pink").wrappedValue = entry.name
+                } label: {
+                  Circle().fill(Color(nsColor: entry.color))
+                    .frame(width: 20, height: 20)
+                    .overlay {
+                      if isSelected { Circle().strokeBorder(Color.primary, lineWidth: 2) }
+                    }
+                }
+                .buttonStyle(.plain)
+                .help(entry.name.capitalized)
+                .accessibilityLabel("Use \(entry.name) for PR titles and icons")
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
+              }
+            }
+          }
+        }
+        Divider()
+      }
 
       StructuredOptionsSectionTitle("Section")
 
@@ -1586,87 +1666,12 @@ private struct StructuredSectionEditorCard: View {
 
       Divider()
 
-      if item.section.isGitHubSection {
-        StructuredOptionsSectionTitle("GitHub", systemImage: "arrow.triangle.pull")
-
-        VStack(alignment: .leading, spacing: 12) {
-          Text("First group").font(.subheadline.weight(.medium))
-          Picker(
-            "First group",
-            selection: Binding(
-              get: { item.section.githubLayout?.firstGroup ?? store.githubPRAppearance.firstGroup },
-              set: { value in
-                var layout = item.section.githubLayout ?? GitHubPRSectionLayout()
-                layout.firstGroup = value
-                updateGitHubLayout(layout)
-              }
-            )
-          ) {
-            ForEach(GitHubPRGroup.allCases) { group in
-              Text(store.githubPRAppearance.label(for: group)).tag(group)
-            }
-          }
-          .pickerStyle(.segmented)
-          .labelsHidden()
-
-          Text("Row layout").font(.subheadline.weight(.medium))
-          Picker(
-            "Row layout",
-            selection: Binding(
-              get: { item.section.githubLayout?.isCompact ?? false },
-              set: { value in
-                var layout = item.section.githubLayout ?? GitHubPRSectionLayout()
-                layout.isCompact = value
-                updateGitHubLayout(layout)
-              }
-            )
-          ) {
-            Text("Regular").tag(false)
-            Text("Compact").tag(true)
-          }
-          .pickerStyle(.segmented)
-          .labelsHidden()
-          Toggle("Show icons", isOn: githubLayoutBinding(\.showsIcons, default: true))
-          Toggle("Show dividers", isOn: githubLayoutBinding(\.showsDividers, default: true))
-
-          Text("PR colour").font(.subheadline.weight(.medium))
-          Picker("PR colour", selection: githubLayoutBinding(\.colorMode, default: .standard)) {
-            ForEach(GitHubPRColorMode.allCases, id: \.self) { mode in
-              Text(mode.title).tag(mode)
-            }
-          }
-          .pickerStyle(.segmented)
-          .labelsHidden()
-          if item.section.githubLayout?.colorMode == .custom {
-            HStack(spacing: 10) {
-              ForEach(ThemePalette.colors, id: \.name) { entry in
-                let isSelected =
-                  (item.section.githubLayout?.customColorName ?? "pink") == entry.name
-                Button {
-                  githubLayoutBinding(\.customColorName, default: "pink").wrappedValue = entry.name
-                } label: {
-                  Circle().fill(Color(nsColor: entry.color))
-                    .frame(width: 20, height: 20)
-                    .overlay {
-                      if isSelected { Circle().strokeBorder(Color.primary, lineWidth: 2) }
-                    }
-                }
-                .buttonStyle(.plain)
-                .help(entry.name.capitalized)
-                .accessibilityLabel("Use \(entry.name) for PR titles and icons")
-                .accessibilityAddTraits(isSelected ? .isSelected : [])
-              }
-            }
-          }
-        }
-        Divider()
-      }
-
       StructuredOptionsSectionTitle("Appearance", systemImage: "paintpalette")
 
       StructuredSectionAppearanceControls(
         styleOverrides: item.section.styleOverrides,
         inheritanceLabel: item.isGrouped ? "Inherit from Group" : "Inherit from Theme",
+        stacksControls: item.section.isGitHubSection,
         onChange: updateStyleOverrides
       )
 
@@ -1702,8 +1707,13 @@ private struct StructuredSectionEditorCard: View {
         performOptionAction(requestSectionDeletion)
       }
     }
-    .padding(StructuredSectionOptionsLayout.horizontalPadding)
-    .frame(width: StructuredSectionOptionsLayout.popoverWidth)
+    .frame(
+      width: item.section.isGitHubSection
+        ? StructuredSectionOptionsLayout.githubPopoverWidth - 40
+        : StructuredSectionOptionsLayout.contentWidth,
+      alignment: .leading
+    )
+    .padding(item.section.isGitHubSection ? 20 : StructuredSectionOptionsLayout.horizontalPadding)
   }
 
   private func performOptionAction(_ action: () -> Void) {
@@ -2079,6 +2089,7 @@ private struct StructuredSectionEditorCard: View {
 private struct StructuredSectionAppearanceControls: View {
   let styleOverrides: StructuredSectionStyleOverrides
   let inheritanceLabel: String
+  var stacksControls = false
   let onChange: (StructuredSectionStyleOverrides) -> Void
 
   var body: some View {
@@ -2095,10 +2106,18 @@ private struct StructuredSectionAppearanceControls: View {
           .font(.system(size: 11, weight: .medium))
           .foregroundStyle(.secondary)
 
-        HStack(spacing: 14) {
-          colorRoleToggle(.heading, title: "Heading")
-          colorRoleToggle(.border, title: "Border")
-          colorRoleToggle(.bullet, title: "Bullet points")
+        if stacksControls {
+          VStack(alignment: .leading, spacing: 10) {
+            colorRoleToggle(.heading, title: "Heading")
+            colorRoleToggle(.border, title: "Border")
+            colorRoleToggle(.bullet, title: "Bullet points")
+          }
+        } else {
+          HStack(spacing: 14) {
+            colorRoleToggle(.heading, title: "Heading")
+            colorRoleToggle(.border, title: "Border")
+            colorRoleToggle(.bullet, title: "Bullet points")
+          }
         }
       }
 
