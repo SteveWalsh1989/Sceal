@@ -102,6 +102,7 @@ extension StructuredNoteDocument {
       }
       var section = try document.section(at: location)
       section.markdown = markdown
+      if markdown != StructuredNoteSection.githubMarker { section.githubSnapshot = nil }
       try document.replaceSection(section, at: location)
     }
   }
@@ -569,6 +570,10 @@ extension StructuredNoteDocument {
       throw StructuredNoteDocumentError.noAdjacentSection(currentSection.id, direction)
     }
 
+    guard !currentSection.isGitHubSection, !adjacentSection.isGitHubSection else {
+      throw StructuredNoteDocumentError.cannotMergeGitHubSection
+    }
+
     if direction == .previous {
       var retainedSection = adjacentSection
       retainedSection.markdown = joinedMarkdown(adjacentSection.markdown, currentSection.markdown)
@@ -599,6 +604,10 @@ extension StructuredNoteDocument {
         direction
       )
     }
+
+    guard !group.sections[location.index].isGitHubSection,
+      !group.sections[adjacentIndex].isGitHubSection
+    else { throw StructuredNoteDocumentError.cannotMergeGitHubSection }
 
     if direction == .previous {
       var retainedSection = group.sections[adjacentIndex]

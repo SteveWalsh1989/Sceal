@@ -32,11 +32,11 @@ nonisolated enum StructuredNoteMarkdownExporter {
     for node in document.nodes {
       switch node {
       case .section(let section):
-        blocks.append(section.markdown)
+        blocks.append(section.githubSnapshot?.markdown ?? section.markdown)
 
       case .group(let group):
         blocks.append(groupHeading(for: group.title))
-        blocks.append(contentsOf: group.sections.map(\.markdown))
+        blocks.append(contentsOf: group.sections.map { $0.githubSnapshot?.markdown ?? $0.markdown })
       }
     }
 

@@ -183,17 +183,20 @@ nonisolated struct StructuredNoteSection: Codable, Equatable, Identifiable, Send
   var markdown: String
   var styleOverrides: StructuredSectionStyleOverrides
   var isCollapsed: Bool
+  var githubSnapshot: GitHubPRSnapshot?
 
   init(
     id: UUID = UUID(),
     markdown: String = "",
     styleOverrides: StructuredSectionStyleOverrides = .inherited,
-    isCollapsed: Bool = false
+    isCollapsed: Bool = false,
+    githubSnapshot: GitHubPRSnapshot? = nil
   ) {
     self.id = id
     self.markdown = markdown
     self.styleOverrides = styleOverrides
     self.isCollapsed = isCollapsed
+    self.githubSnapshot = githubSnapshot
   }
 
   // Resolves property-level overrides without copying inherited values into storage.
@@ -468,6 +471,7 @@ nonisolated enum StructuredNoteDocumentError: LocalizedError, Equatable {
   case noAdjacentSection(UUID, StructuredNoteMergeDirection)
   case cannotDeleteOnlySection
   case emptySectionReplacement
+  case cannotMergeGitHubSection
 
   var errorDescription: String? {
     switch self {
@@ -506,6 +510,8 @@ nonisolated enum StructuredNoteDocumentError: LocalizedError, Equatable {
       return "A structured note must keep at least one section."
     case .emptySectionReplacement:
       return "A structured section replacement must contain at least one section."
+    case .cannotMergeGitHubSection:
+      return "GitHub PR sections must stay separate to preserve their saved history."
     }
   }
 }

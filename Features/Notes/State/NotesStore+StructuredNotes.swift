@@ -553,7 +553,9 @@ extension NotesStore {
         to: destinationID
       ),
       styleOverrides: section.styleOverrides,
-      isCollapsed: section.isCollapsed
+      isCollapsed: section.isCollapsed,
+      githubSnapshot: regeneratesID
+        ? section.githubSnapshot?.carriedForward() : section.githubSnapshot
     )
   }
 
