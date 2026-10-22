@@ -5,8 +5,6 @@ struct GitHubPRSectionView: View {
   @ObservedObject var store: NotesStore
   let documentID: String
   let section: StructuredNoteSection
-  @State private var isHovered = false
-  @FocusState private var settingsIsFocused: Bool
 
   private var bodySize: CGFloat { store.effectiveAppearanceSettings.bodyFontSize }
   private var detailSize: CGFloat { max(13, bodySize - 2) }
@@ -20,16 +18,11 @@ struct GitHubPRSectionView: View {
       HStack {
         Text("PRs").font(.system(size: bodySize + 5, weight: .bold)).foregroundStyle(.pink)
         Spacer()
-        Button(action: showGitHubSettings) {
-          Image(systemName: "gearshape")
-            .frame(width: 28, height: 28)
-        }
-        .buttonStyle(.borderless)
-        .focused($settingsIsFocused)
-        .opacity(isHovered || settingsIsFocused ? 1 : 0)
-        .help("GitHub settings")
-        .accessibilityLabel("Open GitHub settings")
         if isToday {
+          if let refreshedAt = snapshot.refreshedAt {
+            Text("Updated \(refreshedAt.formatted(date: .omitted, time: .shortened))")
+              .font(.system(size: detailSize)).foregroundStyle(.secondary)
+          }
           if store.isRefreshingGitHub {
             ProgressView().controlSize(.small).accessibilityLabel("Refreshing GitHub PRs")
           } else {
@@ -50,10 +43,7 @@ struct GitHubPRSectionView: View {
           systemImage: "lock"
         )
         .font(.system(size: detailSize)).foregroundStyle(.secondary)
-      } else if let refreshedAt = snapshot.refreshedAt {
-        Text("Updated \(refreshedAt.formatted(date: .omitted, time: .shortened))")
-          .font(.system(size: detailSize)).foregroundStyle(.secondary)
-      } else {
+      } else if snapshot.refreshedAt == nil {
         Text("Not yet synced for this day").font(.system(size: detailSize)).foregroundStyle(
           .secondary)
       }
@@ -83,13 +73,10 @@ struct GitHubPRSectionView: View {
         if let error = store.githubError {
           Text(error).font(.system(size: detailSize)).foregroundStyle(.red)
         }
-        Text("Saved locally · Refreshes every 5 minutes while active")
-          .font(.system(size: detailSize)).foregroundStyle(.secondary)
       }
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .font(.system(size: bodySize))
-    .onHover { isHovered = $0 }
     .task(id: section.id) { await store.refreshGitHub(documentID: documentID) }
   }
 
