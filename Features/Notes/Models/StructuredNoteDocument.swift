@@ -523,4 +523,22 @@ nonisolated enum StructuredNoteDocumentError: LocalizedError, Equatable {
 nonisolated struct GitHubPRSectionLayout: Codable, Equatable, Sendable {
   var firstGroup: GitHubPRGroup?
   var isCompact: Bool = false
+  var showsIcons: Bool?
+  var showsDividers: Bool?
+  var colorMode: GitHubPRColorMode?
+  var customColorName: String?
+}
+
+nonisolated enum GitHubPRColorMode: String, Codable, Sendable, CaseIterable {
+  case standard
+  case section
+  case custom
+
+  var title: String {
+    switch self {
+    case .standard: return "Default"
+    case .section: return "Match section"
+    case .custom: return "Custom"
+    }
+  }
 }

@@ -6,6 +6,7 @@ struct GitHubPRSectionView: View {
   let documentID: String
   let section: StructuredNoteSection
   var previewDate: Date? = nil
+  var sectionColorName: String? = nil
 
   private var appearance: GitHubPRAppearance {
     var appearance = store.githubPRAppearance
@@ -13,6 +14,16 @@ struct GitHubPRSectionView: View {
     return appearance
   }
   private var isCompact: Bool { section.githubLayout?.isCompact ?? false }
+
+  private var rowColor: Color? {
+    let name: String?
+    switch section.githubLayout?.colorMode ?? .standard {
+    case .standard: return nil
+    case .section: name = sectionColorName ?? appearance.titleColorName
+    case .custom: name = section.githubLayout?.customColorName ?? "pink"
+    }
+    return Color(nsColor: ThemePalette.color(named: name ?? "pink") ?? .systemPink)
+  }
 
   private var bodySize: CGFloat { store.effectiveAppearanceSettings.bodyFontSize }
   private var detailSize: CGFloat { max(13, bodySize - 2) }
@@ -104,11 +115,22 @@ struct GitHubPRSectionView: View {
       Text("\(title)  \(entries.count)").font(.system(size: bodySize, weight: .semibold))
       ForEach(entries) { entry in
         HStack(alignment: isCompact ? .center : .top, spacing: 12) {
-          Image(systemName: entry.mergedAt == nil ? "arrow.triangle.pull" : "arrow.triangle.merge")
-            .foregroundStyle(.secondary)
+          if section.githubLayout?.showsIcons ?? true {
+            // The overlay grows the symbol without contributing to the row's measured height.
+            Color.clear
+              .frame(width: 22, height: bodySize)
+              .overlay(alignment: .center) {
+                Image(
+                  systemName: entry.mergedAt == nil ? "arrow.triangle.pull" : "arrow.triangle.merge"
+                )
+                .font(.system(size: max(18, bodySize + 2), weight: .medium))
+                .foregroundStyle(rowColor ?? statusColor(entry))
+              }
+              .accessibilityHidden(true)
+          }
           VStack(alignment: .leading, spacing: 4) {
             Link(entry.title, destination: entry.url)
-              .foregroundStyle(.primary)
+              .foregroundStyle(rowColor ?? .primary)
               .lineLimit(isCompact ? 1 : nil)
               .help(entry.title)
             if !isCompact {
@@ -122,8 +144,9 @@ struct GitHubPRSectionView: View {
             .foregroundStyle(statusColor(entry))
             .padding(.horizontal, 8).padding(.vertical, 3)
             .background(statusColor(entry).opacity(0.14), in: Capsule())
+            .fixedSize(horizontal: true, vertical: false)
         }
-        Divider()
+        if section.githubLayout?.showsDividers ?? true { Divider() }
       }
     }
   }

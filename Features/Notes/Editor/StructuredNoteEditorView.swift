@@ -1312,8 +1312,13 @@ private struct StructuredSectionEditorCard: View {
       if item.section.isCollapsed {
         collapsedSectionSummary
       } else if item.section.isGitHubSection {
-        GitHubPRSectionView(store: store, documentID: documentID, section: item.section)
-          .padding(28)
+        GitHubPRSectionView(
+          store: store, documentID: documentID, section: item.section,
+          sectionColorName: item.section.styleOverrides.primaryColor?.resolvedValue(
+            groupValue: item.groupStyle?.headingColorName, themeValue: nil
+          ) ?? resolvedStyle.headingColorName
+        )
+        .padding(28)
       } else {
         ZStack(alignment: .topLeading) {
           if item.section.markdown.isEmpty {
@@ -1621,11 +1626,38 @@ private struct StructuredSectionEditorCard: View {
           }
           .pickerStyle(.segmented)
           .labelsHidden()
-          Text("Compact hides repository details and keeps each PR on one line.")
-            .font(.caption).foregroundStyle(.secondary)
-          Button("Reset to app defaults") { updateGitHubLayout(nil) }
-            .buttonStyle(.link)
-            .disabled(item.section.githubLayout == nil)
+          Toggle("Show icons", isOn: githubLayoutBinding(\.showsIcons, default: true))
+          Toggle("Show dividers", isOn: githubLayoutBinding(\.showsDividers, default: true))
+
+          Text("PR colour").font(.subheadline.weight(.medium))
+          Picker("PR colour", selection: githubLayoutBinding(\.colorMode, default: .standard)) {
+            ForEach(GitHubPRColorMode.allCases, id: \.self) { mode in
+              Text(mode.title).tag(mode)
+            }
+          }
+          .pickerStyle(.segmented)
+          .labelsHidden()
+          if item.section.githubLayout?.colorMode == .custom {
+            HStack(spacing: 10) {
+              ForEach(ThemePalette.colors, id: \.name) { entry in
+                let isSelected =
+                  (item.section.githubLayout?.customColorName ?? "pink") == entry.name
+                Button {
+                  githubLayoutBinding(\.customColorName, default: "pink").wrappedValue = entry.name
+                } label: {
+                  Circle().fill(Color(nsColor: entry.color))
+                    .frame(width: 20, height: 20)
+                    .overlay {
+                      if isSelected { Circle().strokeBorder(Color.primary, lineWidth: 2) }
+                    }
+                }
+                .buttonStyle(.plain)
+                .help(entry.name.capitalized)
+                .accessibilityLabel("Use \(entry.name) for PR titles and icons")
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
+              }
+            }
+          }
         }
         Divider()
       }
@@ -1943,6 +1975,21 @@ private struct StructuredSectionEditorCard: View {
     ) { document in
       try document.deleteSection(id: item.id)
     }
+  }
+
+  // Optional fields preserve compatibility with notes saved before these controls existed.
+  private func githubLayoutBinding<Value>(
+    _ keyPath: WritableKeyPath<GitHubPRSectionLayout, Value?>,
+    default defaultValue: Value
+  ) -> Binding<Value> {
+    Binding(
+      get: { item.section.githubLayout?[keyPath: keyPath] ?? defaultValue },
+      set: { value in
+        var layout = item.section.githubLayout ?? GitHubPRSectionLayout()
+        layout[keyPath: keyPath] = value
+        updateGitHubLayout(layout)
+      }
+    )
   }
 
   // Layout changes share section history so they can be undone independently of syncing.

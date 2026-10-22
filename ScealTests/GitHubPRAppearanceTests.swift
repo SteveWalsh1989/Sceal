@@ -25,7 +25,9 @@ final class GitHubPRAppearanceTests: NotesStoreTestCase {
     let section = StructuredNoteSection(markdown: "<!-- sceal:github-prs -->")
     var document = StructuredNoteDocument(
       id: "2026-10-22", date: Date(), title: "", tags: [], nodes: [.section(section)])
-    let layout = GitHubPRSectionLayout(firstGroup: .carriedForward, isCompact: true)
+    let layout = GitHubPRSectionLayout(
+      firstGroup: .carriedForward, isCompact: true, showsIcons: false, showsDividers: false,
+      colorMode: .custom, customColorName: "purple")
     try document.setGitHubLayout(layout, sectionID: section.id)
     let encoded = try JSONEncoder().encode(document)
     let decoded = try JSONDecoder().decode(StructuredNoteDocument.self, from: encoded)
@@ -44,6 +46,16 @@ final class GitHubPRAppearanceTests: NotesStoreTestCase {
     let encoded = try JSONEncoder().encode(section)
     let decoded = try JSONDecoder().decode(StructuredNoteSection.self, from: encoded)
     XCTAssertNil(decoded.githubLayout)
+  }
+
+  // Existing compact sections decode with the original icons, dividers, and default colours.
+  func testLegacyLayoutRemainsCompatible() throws {
+    let data = Data(#"{"firstGroup":"today","isCompact":true}"#.utf8)
+    let layout = try JSONDecoder().decode(GitHubPRSectionLayout.self, from: data)
+    XCTAssertTrue(layout.isCompact)
+    XCTAssertTrue(layout.showsIcons ?? true)
+    XCTAssertTrue(layout.showsDividers ?? true)
+    XCTAssertEqual(layout.colorMode ?? .standard, .standard)
   }
 
   // Blank labels retain readable headings while a user edits their preferences.
