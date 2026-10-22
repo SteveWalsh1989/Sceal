@@ -1568,8 +1568,10 @@ private struct StructuredSectionEditorCard: View {
           Toggle("Show icons", isOn: githubLayoutBinding(\.showsIcons, default: true))
           Toggle("Show dividers", isOn: githubLayoutBinding(\.showsDividers, default: true))
 
-          Text("PR colour").font(.subheadline.weight(.medium))
-          Picker("PR colour", selection: githubLayoutBinding(\.colorMode, default: .standard)) {
+          Text("Section title colour").font(.subheadline.weight(.medium))
+          Picker(
+            "Section title colour", selection: githubLayoutBinding(\.colorMode, default: .standard)
+          ) {
             ForEach(GitHubPRColorMode.allCases, id: \.self) { mode in
               Text(mode.title).tag(mode)
             }
@@ -1592,7 +1594,7 @@ private struct StructuredSectionEditorCard: View {
                 }
                 .buttonStyle(.plain)
                 .help(entry.name.capitalized)
-                .accessibilityLabel("Use \(entry.name) for PR titles and icons")
+                .accessibilityLabel("Use \(entry.name) for the PR section title")
                 .accessibilityAddTraits(isSelected ? .isSelected : [])
               }
             }

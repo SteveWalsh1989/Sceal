@@ -10,6 +10,7 @@ struct GitHubPRSectionView: View {
   var onReorder: ((Int, Int) -> Void)? = nil
   @State private var hoveredEntryID: Int?
   @State private var dropTargetEntryID: Int?
+  @State private var hoveredTitleID: Int?
 
   private var layout: GitHubPRSectionLayout { section.githubLayout ?? GitHubPRSectionLayout() }
 
@@ -20,10 +21,10 @@ struct GitHubPRSectionView: View {
   }
   private var isCompact: Bool { section.githubLayout?.isCompact ?? false }
 
-  private var rowColor: Color? {
+  private var titleColor: Color {
     let name: String?
     switch section.githubLayout?.colorMode ?? .standard {
-    case .standard: return nil
+    case .standard: name = appearance.titleColorName
     case .section: name = sectionColorName ?? appearance.titleColorName
     case .custom: name = section.githubLayout?.customColorName ?? "pink"
     }
@@ -44,8 +45,7 @@ struct GitHubPRSectionView: View {
       HStack {
         Text(appearance.displayedTitle)
           .font(.system(size: bodySize + 5, weight: .bold))
-          .foregroundStyle(
-            Color(nsColor: ThemePalette.color(named: appearance.titleColorName) ?? .systemPink))
+          .foregroundStyle(titleColor)
         Spacer()
         if isToday {
           if let refreshedAt = snapshot.refreshedAt {
@@ -129,13 +129,20 @@ struct GitHubPRSectionView: View {
                   systemName: entry.mergedAt == nil ? "arrow.triangle.pull" : "arrow.triangle.merge"
                 )
                 .font(.system(size: max(18, bodySize + 2), weight: .medium))
-                .foregroundStyle(rowColor ?? statusColor(entry))
+                .foregroundStyle(statusColor(entry))
               }
               .accessibilityHidden(true)
           }
           VStack(alignment: .leading, spacing: 4) {
             Link(entry.title, destination: entry.url)
-              .foregroundStyle(rowColor ?? .primary)
+              .foregroundStyle(hoveredTitleID == entry.id ? Color.accentColor : .primary)
+              .onHover { isHovering in
+                if isHovering {
+                  hoveredTitleID = entry.id
+                } else if hoveredTitleID == entry.id {
+                  hoveredTitleID = nil
+                }
+              }
               .lineLimit(isCompact ? 1 : nil)
               .help(entry.title)
             if !isCompact {
