@@ -2,7 +2,7 @@
 
 Scéal has two build paths:
 
-- `scripts/build-mac-app.sh` creates a local Release build zip for development testing.
+- `scripts/build-mac-app.sh` creates the ad hoc signed universal ZIP for GitHub Releases and local testing.
 - `scripts/build-distribution-zip.sh` creates a Developer ID signed, notarized direct-download zip.
 
 The distribution script is for website/direct-download beta releases. It is not an App Store submission flow.
@@ -48,7 +48,7 @@ This produces:
 - `dist/Sceal.app`
 - `dist/Sceal-mac.zip`
 
-This output is for local testing. It is not the public download artifact.
+For GitHub Releases, build from the exact commit you plan to tag, verify the ZIP, and attach `Sceal-mac.zip` to the release. The first launch may require **Open Anyway** in System Settings.
 
 ## Distribution Build
 

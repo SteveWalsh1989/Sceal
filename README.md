@@ -2,6 +2,8 @@
 
 Scéal is a local-first macOS notes app for daily writing, planning, and reusable working notes.
 
+[Download Scéal for macOS](https://github.com/SteveWalsh1989/Sceal/releases/latest)
+
 It stores notes as markdown on your Mac, then adds a native editor on top: visual sections, slash commands, reusable templates, prompt blocks with one-click copy, editable tables, checkboxes, images, and per-section colour.
 
 ## What Scéal is
@@ -153,7 +155,7 @@ Support is still release-route dependent: GitHub Issues for an open-source relea
 
 ## Download and install
 
-Download **Sceal-mac.zip** from the [latest release](https://github.com/SteveWalsh1989/Sceal/releases/latest). The app supports Apple Silicon and Intel Macs running macOS 14 or newer. You do not need Xcode or a clone of this repository.
+Download **Sceal-mac.zip** from the [latest release](https://github.com/SteveWalsh1989/Sceal/releases/latest). The GitHub download is free and includes all features. It supports Apple Silicon and Intel Macs running macOS 14 or newer.
 
 1. Unzip the download.
 2. Drag **Sceal.app** into **Applications**.
