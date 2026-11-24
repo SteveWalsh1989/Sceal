@@ -5,6 +5,12 @@ nonisolated struct GitHubPRSnapshot: Codable, Equatable, Sendable {
   var entries: [GitHubPREntry] = []
   var refreshedAt: Date?
   var account: String?
+  var removedEntryIDs: [Int]?
+
+  var visibleEntries: [GitHubPREntry] {
+    let removedIDs = Set(removedEntryIDs ?? [])
+    return entries.filter { !removedIDs.contains($0.id) }
+  }
 
   // Retains completed work on its completion day and drops it from subsequent days.
   func refreshed(
@@ -18,17 +24,18 @@ nonisolated struct GitHubPRSnapshot: Codable, Equatable, Sendable {
     let relevant = byID.values.filter {
       $0.createdAt < end && ($0.closedAt == nil || $0.closedAt! >= start)
     }.sorted { $0.createdAt > $1.createdAt }
-    return Self(entries: relevant, refreshedAt: now, account: account)
+    return Self(
+      entries: relevant, refreshedAt: now, account: account, removedEntryIDs: removedEntryIDs)
   }
 
   // A new note carries only unfinished entries; the source snapshot stays untouched.
   func carriedForward() -> Self {
-    Self(entries: entries.filter { $0.closedAt == nil }, account: account)
+    Self(entries: visibleEntries.filter { $0.closedAt == nil }, account: account)
   }
 
   var markdown: String {
     "## PRs\n\n"
-      + entries.map {
+      + visibleEntries.map {
         "- [\($0.title.replacingOccurrences(of: "]", with: "\\]"))](\($0.url.absoluteString)) - \($0.status)"
       }.joined(separator: "\n")
   }
@@ -61,6 +68,15 @@ extension StructuredNoteSection {
 }
 
 extension GitHubPRSectionLayout {
+  // Drafts belong to open work; merged PRs must not also match the closed filter.
+  func entriesMatchingStatus(_ entries: [GitHubPREntry]) -> [GitHubPREntry] {
+    entries.filter { entry in
+      if entry.mergedAt != nil { return showsMerged ?? true }
+      if entry.closedAt != nil { return showsClosed ?? true }
+      return showsOpen ?? true
+    }
+  }
+
   // Unranked PRs appear first after a refresh; saved ranks remain stable for existing work.
   func orderedEntries(_ entries: [GitHubPREntry]) -> [GitHubPREntry] {
     let ranks = Dictionary(

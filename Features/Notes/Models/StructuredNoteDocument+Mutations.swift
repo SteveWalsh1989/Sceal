@@ -346,6 +346,18 @@ extension StructuredNoteDocument {
     }
   }
 
+  // Keeps removed records available for local restoration, including on historical days.
+  mutating func setGitHubRemovedEntryIDs(_ entryIDs: [Int]?, sectionID: UUID) throws {
+    try applyMutation { document in
+      guard let location = document.sectionLocation(for: sectionID) else {
+        throw StructuredNoteDocumentError.sectionNotFound(sectionID)
+      }
+      var section = try document.section(at: location)
+      section.githubSnapshot?.removedEntryIDs = entryIDs
+      try document.replaceSection(section, at: location)
+    }
+  }
+
   // Replaces the inherited appearance values for one group.
   mutating func setGroupStyle(_ style: StructuredSectionStyle, groupID: UUID) throws {
     try applyMutation { document in

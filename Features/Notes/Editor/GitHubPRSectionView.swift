@@ -8,9 +8,11 @@ struct GitHubPRSectionView: View {
   var previewDate: Date? = nil
   var sectionColorName: String? = nil
   var onReorder: ((Int, Int) -> Void)? = nil
+  var onRemove: ((Int) -> Void)? = nil
   @State private var hoveredEntryID: Int?
   @State private var dropTargetEntryID: Int?
   @State private var hoveredTitleID: Int?
+  @FocusState private var focusedRemoveEntryID: Int?
 
   private var layout: GitHubPRSectionLayout { section.githubLayout ?? GitHubPRSectionLayout() }
 
@@ -39,6 +41,9 @@ struct GitHubPRSectionView: View {
     previewDate == nil && Calendar.current.isDateInToday(date) && store.sidebarMode != .list
   }
   private var snapshot: GitHubPRSnapshot { section.githubSnapshot ?? GitHubPRSnapshot() }
+  private var visibleEntries: [GitHubPREntry] {
+    layout.entriesMatchingStatus(snapshot.visibleEntries)
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 18) {
@@ -76,15 +81,21 @@ struct GitHubPRSectionView: View {
         Text("Not yet synced for this day").font(.system(size: detailSize)).foregroundStyle(
           .secondary)
       }
-      if snapshot.entries.isEmpty {
+      if snapshot.visibleEntries.isEmpty {
         Text(
-          snapshot.refreshedAt == nil
-            ? "Connect GitHub in Settings, then refresh to load your PRs." : "No PRs for this day."
+          !(snapshot.removedEntryIDs ?? []).isEmpty
+            ? "All PRs have been removed. Restore them in section options."
+            : snapshot.refreshedAt == nil
+              ? "Connect GitHub in Settings, then refresh to load your PRs."
+              : "No PRs for this day."
         )
         .foregroundStyle(.secondary)
+      } else if visibleEntries.isEmpty {
+        Text("No PRs match the selected statuses.")
+          .foregroundStyle(.secondary)
       }
       ForEach(appearance.orderedGroups) { group in
-        let entries = snapshot.entries.filter {
+        let entries = visibleEntries.filter {
           Calendar.current.isDate($0.createdAt, inSameDayAs: date) == (group == .today)
         }
         if !entries.isEmpty || !appearance.hidesEmptyGroups {
@@ -161,6 +172,23 @@ struct GitHubPRSectionView: View {
               .draggable("sceal-pr:\(section.id):\(entry.id)")
               .help("Drag to reorder PR")
               .accessibilityLabel("Reorder \(entry.title)")
+          }
+          if let onRemove {
+            Button {
+              onRemove(entry.id)
+            } label: {
+              Image(systemName: "xmark")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 24, height: max(24, bodySize))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .focused($focusedRemoveEntryID, equals: entry.id)
+            .opacity(hoveredEntryID == entry.id || focusedRemoveEntryID == entry.id ? 1 : 0)
+            .allowsHitTesting(hoveredEntryID == entry.id || focusedRemoveEntryID == entry.id)
+            .help("Remove PR from this day")
+            .accessibilityLabel("Remove \(entry.title) from this day")
           }
           Text(entry.status)
             .font(.system(size: detailSize, weight: .medium))

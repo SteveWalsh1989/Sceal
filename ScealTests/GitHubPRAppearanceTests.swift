@@ -27,7 +27,8 @@ final class GitHubPRAppearanceTests: NotesStoreTestCase {
       id: "2026-10-22", date: Date(), title: "", tags: [], nodes: [.section(section)])
     let layout = GitHubPRSectionLayout(
       firstGroup: .carriedForward, isCompact: true, showsIcons: false, showsDividers: false,
-      colorMode: .custom, customColorName: "purple")
+      colorMode: .custom, customColorName: "purple", showsOpen: false, showsClosed: true,
+      showsMerged: false)
     try document.setGitHubLayout(layout, sectionID: section.id)
     let encoded = try JSONEncoder().encode(document)
     let decoded = try JSONDecoder().decode(StructuredNoteDocument.self, from: encoded)
@@ -56,6 +57,39 @@ final class GitHubPRAppearanceTests: NotesStoreTestCase {
     XCTAssertTrue(layout.showsIcons ?? true)
     XCTAssertTrue(layout.showsDividers ?? true)
     XCTAssertEqual(layout.colorMode ?? .standard, .standard)
+    XCTAssertTrue(layout.showsOpen ?? true)
+    XCTAssertTrue(layout.showsClosed ?? true)
+    XCTAssertTrue(layout.showsMerged ?? true)
+  }
+
+  // Status filters are independent, treat drafts as open, and never classify merged work as closed.
+  func testStatusFiltersPreserveRecordsAndIncludeDraftsWithOpenPRs() {
+    let open = GitHubPREntry(
+      id: 1, number: 1, title: "Open work", repository: "repo",
+      url: URL(string: "https://github.com/org/repo/pull/1")!,
+      createdAt: Date(), isDraft: false)
+    var draft = open
+    draft.id = 2
+    draft.isDraft = true
+    var closed = open
+    closed.id = 3
+    closed.closedAt = Date()
+    var merged = closed
+    merged.id = 4
+    merged.mergedAt = merged.closedAt
+    let snapshot = GitHubPRSnapshot(entries: [open, draft, closed, merged])
+    var layout = GitHubPRSectionLayout()
+
+    XCTAssertEqual(layout.entriesMatchingStatus(snapshot.entries), snapshot.entries)
+    layout.showsOpen = false
+    XCTAssertEqual(layout.entriesMatchingStatus(snapshot.entries), [closed, merged])
+    layout.showsMerged = false
+    XCTAssertEqual(layout.entriesMatchingStatus(snapshot.entries), [closed])
+    layout.showsClosed = false
+    XCTAssertTrue(layout.entriesMatchingStatus(snapshot.entries).isEmpty)
+    layout.showsOpen = true
+    XCTAssertEqual(layout.entriesMatchingStatus(snapshot.entries), [open, draft])
+    XCTAssertEqual(snapshot.entries, [open, draft, closed, merged])
   }
 
   // Sorting remains deterministic, and manual ranks survive refreshes and carry-forward.

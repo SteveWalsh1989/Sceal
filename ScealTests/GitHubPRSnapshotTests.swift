@@ -125,6 +125,68 @@ final class GitHubPRSnapshotTests: XCTestCase {
     XCTAssertFalse(cleared.isGitHubSection)
   }
 
+  // Refreshing hidden work retains current data for restoration without making it visible again.
+  func testRemovedPRStaysHiddenAcrossRefreshAndPersistence() throws {
+    let original = entry()
+    var merged = original
+    merged.closedAt = monday.addingTimeInterval(3600)
+    merged.mergedAt = merged.closedAt
+    let snapshot = GitHubPRSnapshot(
+      entries: [original], refreshedAt: monday, account: "author", removedEntryIDs: [original.id])
+    let refreshed = snapshot.refreshed(
+      with: [merged], on: monday, at: monday.addingTimeInterval(7200),
+      account: "author", calendar: calendar)
+    let saved = try JSONDecoder().decode(
+      GitHubPRSnapshot.self, from: JSONEncoder().encode(refreshed))
+
+    XCTAssertTrue(saved.visibleEntries.isEmpty)
+    XCTAssertEqual(saved.entries, [merged])
+    XCTAssertEqual(saved.removedEntryIDs, [original.id])
+    XCTAssertFalse(saved.markdown.contains(original.url.absoluteString))
+    XCTAssertEqual(snapshot.entries, [original])
+  }
+
+  // Suppression belongs to one day's record and does not become a permanent account preference.
+  func testRemovedPRDoesNotCarryForwardAndLegacySnapshotsShowAllEntries() throws {
+    let original = entry()
+    let snapshot = GitHubPRSnapshot(entries: [original], removedEntryIDs: [original.id])
+    let nextDay = snapshot.carriedForward()
+    XCTAssertTrue(nextDay.entries.isEmpty)
+    XCTAssertNil(nextDay.removedEntryIDs)
+    XCTAssertEqual(
+      nextDay.refreshed(
+        with: [original], on: monday.addingTimeInterval(86400), at: monday,
+        account: "author", calendar: calendar
+      ).visibleEntries, [original])
+
+    let legacy = GitHubPRSnapshot(entries: [original])
+    let saved = try JSONDecoder().decode(
+      GitHubPRSnapshot.self, from: JSONEncoder().encode(legacy))
+    XCTAssertNil(saved.removedEntryIDs)
+    XCTAssertEqual(saved.visibleEntries, [original])
+  }
+
+  // Restoring a historical day's saved records needs no network and preserves neighboring sections.
+  func testRemovedPRsCanBeRestoredFromHistoricalDocument() throws {
+    let original = entry()
+    let section = StructuredNoteSection(githubSnapshot: GitHubPRSnapshot(entries: [original]))
+    let neighbor = StructuredNoteSection(markdown: "Keep my notes")
+    var document = StructuredNoteDocument(
+      id: "historical", date: monday, title: "", tags: [],
+      nodes: [.section(section), .section(neighbor)])
+    try document.setGitHubRemovedEntryIDs([original.id], sectionID: section.id)
+    document = try StructuredNoteDocumentCodec.decode(StructuredNoteDocumentCodec.encode(document))
+    XCTAssertTrue(
+      try XCTUnwrap(document.githubSections.first?.githubSnapshot).visibleEntries.isEmpty)
+    XCTAssertFalse(try StructuredNoteMarkdownExporter.body(for: document).contains(original.title))
+
+    try document.setGitHubRemovedEntryIDs(nil, sectionID: section.id)
+
+    XCTAssertEqual(document.nodes, [.section(section), .section(neighbor)])
+    XCTAssertTrue(try StructuredNoteMarkdownExporter.body(for: document).contains(original.title))
+    XCTAssertThrowsError(try document.setGitHubRemovedEntryIDs([original.id], sectionID: UUID()))
+  }
+
   // Builds an authored PR that predates each test day.
   private func entry() -> GitHubPREntry {
     GitHubPREntry(

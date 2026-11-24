@@ -529,6 +529,9 @@ nonisolated struct GitHubPRSectionLayout: Codable, Equatable, Sendable {
   var customColorName: String?
   var sortOrder: GitHubPRSortOrder?
   var manualOrder: [Int]?
+  var showsOpen: Bool?
+  var showsClosed: Bool?
+  var showsMerged: Bool?
 }
 
 nonisolated enum GitHubPRColorMode: String, Codable, Sendable, CaseIterable {
@@ -552,8 +555,8 @@ nonisolated enum GitHubPRSortOrder: String, Codable, CaseIterable, Sendable {
 
   var title: String {
     switch self {
-    case .newest: return "Newest first"
-    case .alphabetical: return "Title A–Z"
+    case .newest: return "Created date (newest first)"
+    case .alphabetical: return "Alphabetical (A–Z)"
     case .manual: return "Manual"
     }
   }
