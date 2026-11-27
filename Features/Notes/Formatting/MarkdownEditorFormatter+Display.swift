@@ -550,7 +550,8 @@ extension MarkdownEditorFormatter {
   {
     let style = NSMutableParagraphStyle()
     style.baseWritingDirection = .leftToRight
-    style.paragraphSpacingBefore = 8
+    // Reserve the toolbar's space in TextKit so it cannot cover the preceding line.
+    style.paragraphSpacingBefore = EditorTableBlockView.toolbarReservedHeight
     style.paragraphSpacing = 10
     style.lineHeightMultiple = appearance.lineHeight
     return style.copy() as! NSParagraphStyle

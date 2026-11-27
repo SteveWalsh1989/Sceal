@@ -441,7 +441,12 @@ final class EditorTableTests: EditorTestCase {
     )
     let fixture = makeEditorFixture(markdown: MarkdownEditorTableMarkdown.serialize(table))
     let textView = fixture.textView
+    let parentView = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 700))
+    textView.removeFromSuperview()
+    textView.setFrameOrigin(NSPoint(x: 35, y: 60))
+    parentView.addSubview(textView)
     textView.syncTableBlockViews()
+    textView.layoutSubtreeIfNeeded()
 
     guard let tableView = textView.subviews.compactMap({ $0 as? EditorTableBlockView }).first,
       let secondCell = tableView.textViewForCell(row: 0, column: 1)
@@ -449,11 +454,51 @@ final class EditorTableTests: EditorTestCase {
       return XCTFail("Expected a rendered table cell.")
     }
 
-    let cellPoint = NSPoint(x: secondCell.frame.midX, y: secondCell.frame.midY)
-    let editorPoint = textView.convert(cellPoint, from: tableView)
-    let hitView = textView.hitTest(editorPoint)
+    let cellPoint = NSPoint(x: secondCell.bounds.midX, y: secondCell.bounds.midY)
+    let parentPoint = parentView.convert(cellPoint, from: secondCell)
+    let hitView = textView.hitTest(parentPoint)
 
     XCTAssertTrue(hitView === secondCell || hitView?.isDescendant(of: secondCell) == true)
+  }
+
+  func testNewTableFocusesFirstCellAndKeepsSurroundingProseClickable() async throws {
+    let proseAbove = "Alpha bravo charlie"
+    let proseBelow = "Delta echo foxtrot"
+    let markdown = MarkdownBox("\(proseAbove)\n/table\n\(proseBelow)")
+    let coordinator = makeCoordinator(markdown: markdown)
+    let fixture = makeRawEditorFixture(string: markdown.value)
+    let textView = fixture.textView
+    let window = NSWindow(
+      contentRect: NSRect(x: 0, y: 0, width: 500, height: 500),
+      styleMask: .titled, backing: .buffered, defer: false
+    )
+    window.contentView = fixture.scrollView
+    textView.delegate = coordinator
+    XCTAssertTrue(window.makeFirstResponder(textView))
+    let commandRange = (textView.string as NSString).range(of: "/table")
+    textView.setSelectedRange(NSRange(location: NSMaxRange(commandRange), length: 0))
+    XCTAssertTrue(
+      coordinator.textView(textView, doCommandBy: #selector(NSResponder.insertNewline(_:))))
+    await withCheckedContinuation { continuation in
+      DispatchQueue.main.async { continuation.resume() }
+    }
+    textView.layoutSubtreeIfNeeded()
+
+    let table = try XCTUnwrap(textView.subviews.compactMap { $0 as? EditorTableBlockView }.first)
+    let firstCell = try XCTUnwrap(table.textViewForCell(row: 0, column: 0))
+    XCTAssertTrue(window.firstResponder === firstCell)
+    let toolbar = try XCTUnwrap(table.subviews.compactMap { $0 as? NSVisualEffectView }.first)
+    let proseAboveRange = (textView.string as NSString).range(of: proseAbove)
+    let proseAboveRect = try XCTUnwrap(
+      textView.editorRectInViewCoordinates(forCharacterRange: proseAboveRange))
+    XCTAssertFalse(proseAboveRect.intersects(textView.convert(toolbar.frame, from: table)))
+
+    for prose in [proseAbove, proseBelow] {
+      let range = (textView.string as NSString).range(of: prose)
+      let rect = try XCTUnwrap(textView.editorRectInViewCoordinates(forCharacterRange: range))
+      let clickPoint = textView.convert(NSPoint(x: rect.midX, y: rect.midY), to: nil)
+      XCTAssertTrue(window.contentView?.hitTest(clickPoint) === textView)
+    }
   }
 
   func testFocusedTableCellUpdatesActionContext() {

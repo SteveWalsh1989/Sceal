@@ -1161,8 +1161,14 @@ extension MarkdownEditorView {
           if handled {
             if let editorTextView = textView as? MarkdownEditorTextView {
               editorTextView.refreshSectionLayout()
+              let insertionSelection = editorTextView.selectedRange()
               DispatchQueue.main.async { [weak editorTextView] in
-                editorTextView?.focusTableCell(tableID: table.runtimeID)
+                // Respect any focus or selection change made while the table was laid out.
+                guard let editorTextView,
+                  editorTextView.window?.firstResponder === editorTextView,
+                  editorTextView.selectedRange() == insertionSelection
+                else { return }
+                editorTextView.focusTableCell(tableID: table.runtimeID)
               }
             } else {
               textView.ensureEditorLayoutForEntireDocument()

@@ -288,10 +288,13 @@ final class MarkdownEditorTextView: NSTextView {
   }
 
   override func hitTest(_ point: NSPoint) -> NSView? {
+    // AppKit passes hit-test points in the superview's coordinates.
+    let editorPoint = superview.map { parentView in convert(point, from: parentView) } ?? point
+    guard !isHidden, bounds.contains(editorPoint) else { return super.hitTest(point) }
+
     for subview in subviews.reversed() {
       guard let tableView = subview as? EditorTableBlockView else { continue }
-      let tablePoint = convert(point, to: tableView)
-      if let hitView = tableView.hitTest(tablePoint) {
+      if let hitView = tableView.hitTest(editorPoint) {
         return hitView
       }
     }

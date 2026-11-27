@@ -179,20 +179,19 @@ final class EditorTableBlockView: NSView, NSTextViewDelegate {
   }
 
   override func hitTest(_ point: NSPoint) -> NSView? {
-    guard bounds.contains(point) else { return nil }
-    if !toolbarContainer.isHidden, toolbarContainer.frame.contains(point) {
-      let toolbarPoint = convert(point, to: toolbarContainer)
-      return toolbarContainer.hitTest(toolbarPoint) ?? toolbarContainer
+    let tablePoint = superview.map { parentView in convert(point, from: parentView) } ?? point
+    guard !isHidden, bounds.contains(tablePoint) else { return nil }
+    if !toolbarContainer.isHidden, let button = toolbarContainer.hitTest(tablePoint) as? NSButton {
+      return button
     }
 
-    if columnResizeIndex(at: point) != nil {
+    if columnResizeIndex(at: tablePoint) != nil {
       return self
     }
 
-    guard tableContentRect().contains(point) else { return nil }
-    for textView in cellTextViews.values.reversed() where textView.frame.contains(point) {
-      let cellPoint = convert(point, to: textView)
-      return textView.hitTest(cellPoint) ?? textView
+    guard tableContentRect().contains(tablePoint) else { return nil }
+    for textView in cellTextViews.values.reversed() where textView.frame.contains(tablePoint) {
+      return textView.hitTest(tablePoint) ?? textView
     }
     return self
   }
